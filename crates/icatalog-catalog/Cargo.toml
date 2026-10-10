@@ -1,0 +1,9 @@
+[package]
+name = "icatalog-catalog"
+version = "0.1.0"
+edition = "2021"
+description = "iCatalog SQLite catalogue schema, migrations and model"
+license = "MIT"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
