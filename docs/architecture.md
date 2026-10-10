@@ -1,6 +1,6 @@
 # iCatalog architecture
 
-Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Nothing app-side is built today: the repo root holds only `docs/` and `ivc-file-research/`, and there are no crates under `crates/`. The one existing crate is `ivc`.
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc` and `icatalog-catalog` (`crates/icatalog-catalog`); everything else app-side is planned.
 
 ## 1. Purpose and stack
 
@@ -13,7 +13,7 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
-| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema + model | PLANNED |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2) + model + CRUD | EXISTS |
 | `icatalog-media` | L1 | `image`/`exif`/`filmcraft-*`/`lightcraft-*` as needed (no dependency on `icatalog-catalog`) | Media decode, thumbnails, metadata extraction (D8) | PLANNED |
 | `icatalog-engine` | L2 | L0-L1 | Session + command registry | PLANNED |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
@@ -23,7 +23,7 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
 | `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
 
-**Decided** layout: one Cargo workspace rooted at the repo top. Today `members = ["ivc-file-research/crates/ivc"]`; the glob `crates/*` is added when the first app crate lands. The exact dependency edges above (e.g. whether `icatalog-catalog` depends on `ivc` or the engine does the mapping) are **Open**; the layer ordering is Decided.
+**Decided** layout: one Cargo workspace rooted at the repo top. The workspace members include `ivc` and the `crates/*` glob (check root `Cargo.toml`). The exact dependency edges above (e.g. whether `icatalog-catalog` depends on `ivc` or the engine does the mapping) are **Open**; the layer ordering is Decided.
 
 ## 3. Layers
 

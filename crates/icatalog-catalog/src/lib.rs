@@ -14,7 +14,14 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-const MIGRATIONS: &[&str] = &[include_str!("v1.sql")];
+mod annotation;
+mod folder;
+mod metadata;
+mod model;
+
+pub use model::{Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Thumbnail};
+
+const MIGRATIONS: &[&str] = &[include_str!("v1.sql"), include_str!("v2.sql")];
 
 /// Errors from opening, migrating or querying a catalogue.
 #[derive(Debug)]
