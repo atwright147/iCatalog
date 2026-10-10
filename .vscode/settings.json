@@ -1,0 +1,11 @@
+{
+  // rust-analyzer's native diagnostics currently emit false positives for this
+  // workspace: E0605 "non-primitive cast: &T as &dyn ToSql" on rusqlite's
+  // params! macro (rust-analyzer#18047, #16336) plus unresolved std macros.
+  // cargo check / clippy are the real gate and are clean; flycheck still
+  // surfaces genuine compile errors, so disable only the native diagnostics.
+  "rust-analyzer.diagnostics.enable": false,
+  // Keep rust-analyzer's check artifacts out of the shared target/ dir so they
+  // cannot leave stale fingerprints that confuse later cargo builds.
+  "rust-analyzer.cargo.targetDir": "target/rust-analyzer"
+}

@@ -70,6 +70,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 5. **Never panic on input** (see *Never crash*). Commands return `Err` for any input. A fuzz-style test feeding adversarial params to every command (and truncated/mutated bytes to import) is PLANNED and must stay green once it exists.
 6. **Never break wasm.** Crates from L0 up (except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`) must stay compilable for `wasm32-unknown-unknown` once that target is installed. Status: the target is NOT installed in this environment today (`rustup target list --installed` shows only `aarch64-apple-darwin`), so `cargo check -p ivc --target wasm32-unknown-unknown` has not been run and no wasm status is claimed.
 7. **Sync safety.** A failed or interrupted sync must never destroy the only copy of a catalogue. SQLite writes are transactional; a rejected local state is kept as a timestamped backup before anything is replaced; downloads land in a temp file and are swapped in atomically after an integrity check; no silent data loss, no silent last-writer-wins.
+8. **Docs track code.** When reality changes, update the matching doc in the same change (see §7); a stale "PLANNED"/"EXISTS" claim is a bug, not a note.
 
 ## 4. CLI and NAS deployment
 
@@ -124,6 +125,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 - Don't claim sync, schema or wasm behaviour that isn't built and tested; keep EXISTS vs PLANNED honest.
+- **Keep the docs true — same change, same commit.** Docs are part of the definition of done, not an afterthought. If a change alters what EXISTS vs PLANNED, the crate map, the schema, the CLI surface or a design decision, update the matching doc in the same change: `docs/roadmap.md` (milestone status), `docs/architecture.md` (crate map and layers), `docs/schema.md` (SQLite schema), `docs/decisions.md` (add a new D-numbered entry when you choose an approach) and this file. A reader must be able to trust that "EXISTS" means built and tested and "PLANNED" means not yet built; if code and docs disagree the doc is the bug — fix it before you finish, and never claim behaviour a doc still lists as PLANNED until a crate and its tests back it.
 - Append a terse entry to `log/devlog.md` (PLANNED: what landed, what's still open).
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
