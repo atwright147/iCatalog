@@ -1,10 +1,11 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). Only the `ivc` crate builds today; every `icatalog` command below is PLANNED.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc` and `icatalog-catalog` crates build today; every `icatalog` command below is PLANNED.
 
 ## 1. Prerequisites
 
 - **Decided:** Rust toolchain, one Cargo workspace at the repo root.
+- **Decided:** the repo pins Rust `1.99.0` via `rust-toolchain.toml` (components rustfmt, clippy, rust-src, rust-analyzer), so the terminal and rust-analyzer (VS Code) use the same compiler regardless of the machine's default `stable`. rustup installs it on first use.
 - The `wasm32-unknown-unknown` target is **NOT installed** here (`rustup target list --installed` shows only `aarch64-apple-darwin`). To add it: `rustup target add wasm32-unknown-unknown`. No wasm build has been run.
 - Later, **Proposed**: trunk + wasm-bindgen for the browser build; musl targets (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) for the NAS binary.
 
@@ -29,12 +30,12 @@ Media/metadata dependencies may appear only in `icatalog-media` (see `docs/archi
 
 ## 3. Workspace layout
 
-Root `Cargo.toml` today: `members = ["ivc-file-research/crates/ivc"]`. App crates go in `crates/` (see `docs/architecture.md`).
+Root `Cargo.toml` today: `members = ["ivc-file-research/crates/ivc", "crates/*"]`; `icatalog-catalog` is the first app crate. App crates go in `crates/` (see `docs/architecture.md`).
 
 Adding a crate (**Proposed** procedure):
 
 1. Create `crates/<name>/` with a valid `Cargo.toml`; write it to a temp file outside the crate dirs and `mv` it into place.
-2. When the first app crate lands, add the glob `crates/*` to the root members.
+2. The glob `crates/*` is already in the root members, so a new crate under `crates/` is picked up automatically.
 3. Start with `unsafe_code = "forbid"` and `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
 4. Register the crate in the layer test; respect the layering rule.
 
@@ -75,7 +76,7 @@ Before finishing a task (**Decided**):
 
 ## 7. Repo caveats
 
-The repo is **not under git** and has no repo-level `.gitignore` (only `ivc-file-research/samples/.gitignore`). When initialising, add `target/` and `log/` (plus corpus-style dirs per the guides). Until then there is no history or undo: do not delete or overwrite files you did not create.
+The repo is under git with a root `.gitignore` covering `target/` and `log/` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` is PLANNED (local, gitignored): start it and append a terse entry per task.
 
 ## 8. Open questions
 
