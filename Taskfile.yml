@@ -1,0 +1,87 @@
+version: "3"
+
+env:
+  CARGO_TERM_COLOR: always
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  check:
+    desc: Type-check the whole workspace
+    cmds:
+      - cargo check --workspace --all-targets
+
+  build:
+    desc: Build the whole workspace
+    aliases: [b]
+    cmds:
+      - cargo build --workspace
+
+  test:
+    desc: Run all workspace tests
+    aliases: [t]
+    cmds:
+      - cargo test --workspace
+
+  fmt:
+    desc: Format all code
+    aliases: [format]
+    cmds:
+      - cargo fmt --all
+
+  fmt:check:
+    desc: Check formatting without changing files
+    cmds:
+      - cargo fmt --all -- --check
+
+  lint:
+    desc: Run clippy with warnings denied
+    aliases: [clippy]
+    cmds:
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  layers:
+    desc: Run the crate layer-rule test
+    cmds:
+      - cargo test -p icatalog-cli --test layers
+
+  ci:
+    desc: "Full gate: fmt:check, lint, test"
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: test
+
+  doc:
+    desc: Build API docs (including private items)
+    cmds:
+      - cargo doc --workspace --no-deps --document-private-items
+
+  clean:
+    desc: Remove build artefacts
+    cmds:
+      - cargo clean
+
+  run:
+    desc: Run the icatalog CLI (e.g. `task run -- init my.sqlite`)
+    cmds:
+      - cargo run -q -p icatalog-cli -- {{.CLI_ARGS}}
+
+  catalog:
+    desc: Test the icatalog-catalog crate
+    cmds:
+      - cargo test -p icatalog-catalog
+
+  media:
+    desc: Test the icatalog-media crate
+    cmds:
+      - cargo test -p icatalog-media
+
+  engine:
+    desc: Test the icatalog-engine crate
+    cmds:
+      - cargo test -p icatalog-engine

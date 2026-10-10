@@ -28,6 +28,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Media/metadata dependencies may appear only in `icatalog-media` (see `docs/architecture.md`, section 7).
 
+## 2a. Task shortcuts
+
+A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common commands:
+
+- `task` lists all tasks.
+- `task ci`: the full gate (`fmt:check`, `lint`, `test`, in that order); also what CI will run once set up.
+- `task test`, `task lint`, `task fmt:check`: the individual gate steps.
+- `task layers`: the crate layer-rule test.
+- `task run -- <args>`: run the `icatalog` CLI, e.g. `task run -- init my.sqlite`.
+
 ## 3. Workspace layout
 
 Root `Cargo.toml` today: `members = ["ivc-file-research/crates/ivc", "crates/*"]`; `icatalog-catalog` is the first app crate. App crates go in `crates/` (see `docs/architecture.md`).
