@@ -23,7 +23,11 @@ mod query;
 pub use model::{Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Thumbnail};
 pub use query::{AssetQuery, CatalogStats};
 
-const MIGRATIONS: &[&str] = &[include_str!("v1.sql"), include_str!("v2.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("v1.sql"),
+    include_str!("v2.sql"),
+    include_str!("v3.sql"),
+];
 
 /// Errors from opening, migrating or querying a catalogue.
 #[derive(Debug)]
@@ -88,6 +92,8 @@ pub struct Asset {
     /// File modification time, epoch seconds.
     pub mtime: Option<i64>,
     pub content_hash: Option<String>,
+    /// True when the last rescan did not find the file on disk.
+    pub missing: bool,
 }
 
 /// An open catalogue.
@@ -111,6 +117,7 @@ pub(crate) fn asset_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Asset> {
         color_space: r.get(11)?,
         mtime: r.get(12)?,
         content_hash: r.get(13)?,
+        missing: r.get::<_, i64>(14)? != 0,
     })
 }
 
@@ -211,11 +218,12 @@ impl Catalog {
     /// Insert an asset (its `id` field is ignored) and return the new row id.
     pub fn insert_asset(&self, a: &Asset) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO asset (uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO asset (uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash, missing)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 a.uid, a.folder_id, a.path, a.path_raw, a.name, a.name_raw, a.format,
-                a.file_size, a.width, a.height, a.color_space, a.mtime, a.content_hash
+                a.file_size, a.width, a.height, a.color_space, a.mtime, a.content_hash,
+                i64::from(a.missing)
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -223,7 +231,7 @@ impl Catalog {
 
     pub fn asset(&self, id: i64) -> Result<Option<Asset>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash
+            "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash, missing
              FROM asset WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -233,13 +241,51 @@ impl Catalog {
         }
     }
 
+    /// Look up an asset by exact path (lowest `id` if several share it).
+    pub fn asset_by_path(&self, path: &str) -> Result<Option<Asset>> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash, missing
+                 FROM asset WHERE path = ?1 ORDER BY id LIMIT 1",
+                params![path],
+                asset_from_row,
+            )
+            .optional()?)
+    }
+
+    /// Update the mutable columns of an asset by `a.id`; `uid` is never changed.
+    pub fn update_asset(&self, a: &Asset) -> Result<()> {
+        self.conn.execute(
+            "UPDATE asset SET folder_id = ?2, path = ?3, path_raw = ?4, name = ?5, name_raw = ?6, format = ?7,
+                 file_size = ?8, width = ?9, height = ?10, color_space = ?11, mtime = ?12, content_hash = ?13, missing = ?14
+             WHERE id = ?1",
+            params![
+                a.id, a.folder_id, a.path, a.path_raw, a.name, a.name_raw, a.format,
+                a.file_size, a.width, a.height, a.color_space, a.mtime, a.content_hash,
+                i64::from(a.missing)
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Set or clear the `missing` flag of one asset.
+    pub fn set_asset_missing(&self, id: i64, missing: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE asset SET missing = ?2 WHERE id = ?1",
+            params![id, i64::from(missing)],
+        )?;
+        Ok(())
+    }
+
     /// Look up an asset by its stable `uid`.
     pub fn asset_by_uid(&self, uid: &str) -> Result<Option<Asset>> {
         use rusqlite::OptionalExtension;
         Ok(self
             .conn
             .query_row(
-                "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash
+                "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash, missing
                  FROM asset WHERE uid = ?1",
                 params![uid],
                 asset_from_row,
@@ -269,7 +315,25 @@ mod tests {
             color_space: None,
             mtime: Some(1_700_000_000),
             content_hash: None,
+            missing: false,
         }
+    }
+
+    #[test]
+    fn missing_flag_and_update() {
+        let c = Catalog::open_in_memory().unwrap();
+        let id = c.insert_asset(&asset("m", None, None)).unwrap();
+        assert!(!c.asset(id).unwrap().unwrap().missing);
+        c.set_asset_missing(id, true).unwrap();
+        assert!(c.asset_by_path("a/b").unwrap().unwrap().missing);
+        c.set_asset_missing(id, false).unwrap();
+        let mut a = c.asset(id).unwrap().unwrap();
+        assert!(!a.missing);
+        a.content_hash = Some("h2".into());
+        a.missing = true;
+        c.update_asset(&a).unwrap();
+        assert_eq!(c.asset(id).unwrap().unwrap(), a);
+        assert!(c.asset_by_path("zzz").unwrap().is_none());
     }
 
     #[test]

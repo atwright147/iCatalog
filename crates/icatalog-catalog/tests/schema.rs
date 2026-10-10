@@ -18,6 +18,7 @@ fn asset(uid: &str, path: &str) -> Asset {
         color_space: None,
         mtime: None,
         content_hash: None,
+        missing: false,
     }
 }
 
@@ -98,7 +99,8 @@ fn thumbnail_round_trip_and_constraint() {
     c.insert_thumbnail(&t).unwrap();
     assert_eq!(c.thumbnail(a, 1).unwrap().unwrap(), t);
     assert!(c.thumbnail(a, 2).unwrap().is_none());
-    assert!(c.insert_thumbnail(&t).is_err());
+    c.insert_thumbnail(&t).unwrap(); // replaces the same (asset_id, size_class)
+    assert_eq!(count(&c, "thumbnail"), 1);
     let mut t2 = thumb(a, 2);
     t2.orientation_applied = false;
     t2.derived_from = None;
@@ -300,12 +302,12 @@ fn migrations_apply_once_and_idempotent() {
     let p = tmp("mig");
     {
         let c = Catalog::open(&p).unwrap();
-        assert_eq!(c.schema_version().unwrap(), 2);
-        assert_eq!(count(&c, "schema_migrations"), 2);
+        assert_eq!(c.schema_version().unwrap(), 3);
+        assert_eq!(count(&c, "schema_migrations"), 3);
     }
     let c = Catalog::open(&p).unwrap();
-    assert_eq!(c.schema_version().unwrap(), 2);
-    assert_eq!(count(&c, "schema_migrations"), 2);
+    assert_eq!(c.schema_version().unwrap(), 3);
+    assert_eq!(count(&c, "schema_migrations"), 3);
     drop(c);
     let _ = std::fs::remove_file(&p);
 }
@@ -332,7 +334,7 @@ fn invalid_and_newer_versions_refused() {
         let c = Catalog::open(&p).unwrap();
         c.connection()
             .execute(
-                "INSERT INTO schema_migrations (version, applied_utc) VALUES (3, 'x')",
+                "INSERT INTO schema_migrations (version, applied_utc) VALUES (4, 'x')",
                 [],
             )
             .unwrap();
@@ -340,8 +342,8 @@ fn invalid_and_newer_versions_refused() {
     assert!(matches!(
         Catalog::open(&p),
         Err(CatalogError::NewerSchema {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         })
     ));
     let _ = std::fs::remove_file(&p);

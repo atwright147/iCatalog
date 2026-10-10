@@ -5,7 +5,7 @@ use crate::{AssetMeta, Catalog, MetadataRaw, Result, Thumbnail};
 impl Catalog {
     pub fn insert_thumbnail(&self, t: &Thumbnail) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO thumbnail (asset_id, size_class, source, format, width, height, orientation_applied, bytes, derived_from, generator_version)
+            "INSERT OR REPLACE INTO thumbnail (asset_id, size_class, source, format, width, height, orientation_applied, bytes, derived_from, generator_version)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 t.asset_id,

@@ -1,6 +1,6 @@
 # iCatalog SQLite schema
 
-Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1 and v2 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
+Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2 and v3 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
 
 ## 1. Basis
 
@@ -12,7 +12,7 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 
 - Versioned, **forward-only**, each migration in a single transaction.
 - A `schema_migrations` table records applied versions; it is created in code (not in a migration file) before migrations run.
-- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) and `v2.sql` (keyword, asset_keyword, annotation, `find` indexes). `foreign_keys` is ON for every connection.
+- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes) and `v3.sql` (`asset.missing` + index, D14). `foreign_keys` is ON for every connection.
 - A catalogue with a newer schema version than the app knows is refused with an actionable error, never opened read-write.
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
@@ -56,7 +56,8 @@ CREATE TABLE asset (
   height      INTEGER,
   color_space INTEGER,
   mtime       INTEGER,                 -- epoch seconds
-  content_hash TEXT
+  content_hash TEXT,
+  missing     INTEGER NOT NULL DEFAULT 0  -- v3 (D14): 1 when the last rescan did not find the file
 );
 
 -- PROPOSED: canonical grid thumbnails (D8); the wasm client and sync cannot regenerate them

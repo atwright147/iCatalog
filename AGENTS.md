@@ -34,7 +34,7 @@ crates/
   icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/status; update/sync/serve not built)
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/status; sync/serve not built)
   icatalog-ui                L4 thin egui shell (desktop + wasm)
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -76,7 +76,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). All PLANNED.
 
-`icatalog` subcommands (`icatalog init|open|import|list|find|update|sync|serve|status`) (each maps to an engine command):
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|sync|serve|status`; `update` EXISTS (D14), `sync`/`serve` PLANNED) (each maps to an engine command):
 
 | Subcommand | Purpose |
 |---|---|
@@ -84,7 +84,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
 | `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
-| `update <catalogue> ...` | Rescan folders for added/changed/missing files; edit metadata: keywords, ratings, labels (iView-style, after the lineage) |
+| `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files; edit metadata: keywords, ratings, labels (iView-style, after the lineage) |
 | `sync` | Pull/push against the NAS catalogue (section 5) |
 | `serve` | Run the NAS-side HTTP(S) sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |
@@ -137,6 +137,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 - If someone else's in-progress edit breaks the build, wait and retry; don't fix their files.
 - Keep every `Cargo.toml` valid at all times. Create or rewrite manifests atomically: write to a temp file outside the crate directories, then `mv` it into place.
 - Delete `target/agent-*` dirs of finished agents.
+- **Stay inside the worktree.** Run commands from the repo root with repo-relative paths (use the tool's `workdir` for a crate directory). Do not `cd` to absolute paths, climb out with `..`, or touch files outside the repo (use the pre-approved temp dir for scratch work) unless it is really, really necessary; if it is, say why first.
 
 ## 9. Where things are tracked
 

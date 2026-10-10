@@ -30,6 +30,7 @@ fn asset(name: &str) -> icatalog_catalog::Asset {
         color_space: None,
         mtime: None,
         content_hash: None,
+        missing: false,
     }
 }
 
@@ -44,7 +45,7 @@ fn inited(name: &str) -> (Context, std::path::PathBuf) {
 fn ids() {
     assert_eq!(
         command_ids(),
-        vec!["init", "open", "list", "find", "status", "import"]
+        vec!["init", "open", "list", "find", "status", "import", "update"]
     );
 }
 

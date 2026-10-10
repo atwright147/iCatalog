@@ -3,7 +3,9 @@ mod import;
 mod init;
 mod list;
 mod open;
+mod scan;
 mod status;
+mod update;
 
 use crate::{Command, Context, EngineError, Result};
 
@@ -14,6 +16,7 @@ pub(crate) static ALL: &[&dyn Command] = &[
     &find::Find,
     &status::Status,
     &import::Import,
+    &update::Update,
 ];
 
 /// Return the catalogue row, or an error if the file is not initialised.

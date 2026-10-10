@@ -45,7 +45,7 @@ impl Catalog {
     /// List assets matching all set filters, ordered by id.
     pub fn query_assets(&self, q: &AssetQuery) -> Result<Vec<Asset>> {
         let mut sql = String::from(
-            "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash
+            "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash, missing
              FROM asset WHERE 1=1",
         );
         let mut args: Vec<Value> = Vec::new();
@@ -159,6 +159,7 @@ mod tests {
             color_space: None,
             mtime: None,
             content_hash: None,
+            missing: false,
         }
     }
 
@@ -346,6 +347,6 @@ mod tests {
         assert_eq!(s.keywords, 1);
         assert_eq!(s.thumbnails, 1);
         assert_eq!(s.generation, Some(0));
-        assert_eq!(s.schema_version, 2);
+        assert_eq!(s.schema_version, 3);
     }
 }
