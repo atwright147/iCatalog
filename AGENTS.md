@@ -1,0 +1,142 @@
+# AGENTS.md: iCatalog
+
+iCatalog is an open-source, native, Rust-only rebuild of the discontinued iView Media Pro media catalogue/organiser (the lineage that became Microsoft Expression Media and Phase One Media Pro). Our own catalogue format is **SQLite**; the legacy `.ivc` / `.mpcatalog` format is **import-only**. **Rust only: no JavaScript or TypeScript. No Tauri, Electron or webview shells, ever:** the GUI will be native egui/eframe (also compiled to wasm for the browser, see below), and the primary interface is the `icatalog` CLI. Never add Tauri (or any webview/JS UI framework) as a dependency, build step or packaging target. The product name is always written **iCatalog** in user-facing prose; machine names stay lowercase: crates (`ivc`, `icatalog-*`), the binary (`icatalog`), file names, ids. **Clean-room:** we study behaviour and the on-disk format only; never copy iView/Expression/Phase One code or assets. Read this file first, then the docs.
+
+**Architecture origin:** these guides were adapted from PhotoCraft's AGENTS.md (`https://raw.githubusercontent.com/storytold/photocraft/main/AGENTS.md`, repo `github.com/storytold/photocraft`). PhotoCraft also references a shared `../craftrules` standards repo, which is **not present on this machine**. Decision history: `docs/decisions.md`.
+
+**Conventions:** this repo has two parts: the app (this guide; `docs/`, future `crates/`) and the clean-room format study in `ivc-file-research/` (guide: `ivc-file-research/AGENTS.md`; spec, 16 sample oracles and the `ivc` parser crate). This is the single root guide and stands alone. All paths are repo-root-relative (e.g. `crates/`). Format knowledge lives in the nested guide `ivc-file-research/AGENTS.md`. The repo is not under git yet and has no repo-level `.gitignore` (only `ivc-file-research/samples/.gitignore`); add a root one (`target/`, `log/`, `corpus`-style dirs) when initialising.
+
+Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). The browser build uses the same command engine and model as desktop: every client keeps a local SQLite copy and syncs over the same HTTP(S) API (section 5). The browser storage strategy (e.g. OPFS) is an open design item (see `docs/architecture.md`). Nothing wasm-related is built yet.
+
+## 1. Orientation (5 minutes)
+
+| Read | Status | Why |
+|---|---|---|
+| `docs/decisions.md` | EXISTS | ADR-lite log of owner decisions (hosting, sync transport, web, naming, layout, format) |
+| `ivc-file-research/docs/ivc-format.md` | EXISTS (ivc-file-research) | Byte-level spec of the legacy catalogue format, needed for import; see `ivc-file-research/AGENTS.md` |
+| `docs/architecture.md` | EXISTS | Crate map, layers, engine/UI seam |
+| `docs/development.md` | EXISTS | Build, test, run, drive the CLI, debug tricks |
+| `docs/sync.md` | EXISTS | Full protocol and conflict policy (summary in section 5 below) |
+| `docs/schema.md` | EXISTS | SQLite catalogue schema and migrations |
+| `docs/roadmap.md` | EXISTS | Milestones and **current focus** |
+
+The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today; no app code yet. Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
+
+## 2. Workspace map
+
+ONE Cargo workspace rooted at the repo root (`Cargo.toml` there: `[workspace]`, resolver 2, `members = ["ivc-file-research/crates/ivc"]` today). Add the glob `crates/*` to the root members when the first app crate is created. `cargo test --workspace` / `cargo clippy --workspace` are the gate for both parts.
+
+Planned app crates (all PLANNED, none exist yet), under `crates/`:
+
+```text
+crates/
+  icatalog-catalog           L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
+  icatalog-media             L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
+  icatalog-engine            L2 session + command registry (every action is a command)
+  icatalog-sync              L3 sync client + NAS-side HTTP(S) service
+  icatalog-cli               L4 binary `icatalog`
+  icatalog-ui                L4 thin egui shell (desktop + wasm)
+  testkit                    test helpers
+xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
+packaging/          Docker image + compose example (PLANNED)
+```
+
+`ivc` (L0, EXISTS) lives in `ivc-file-research/crates/ivc` by design: standalone with no workspace deps; the app consumes it via a path dependency.
+
+**Layering rule:** a crate may depend only on lower layers; `ivc` depends on nothing in the workspace. Nothing below `icatalog-ui` may use egui, eframe, winit or rfd. Until `cargo xtask layers` exists (PLANNED), the rule is enforced by a documented rule plus a layer test (a test that parses each `Cargo.toml` and fails on an upward or forbidden dependency; to be written with the second crate). New crates must be registered there. Only `icatalog-media` may hold media/metadata dependencies (image, EXIF, XMP, RAW, video); see D8 in `docs/decisions.md` and `ATTRIBUTION.md` (PLANNED) for licences.
+
+## 3. Golden rules
+
+### Never crash (outranks feature work)
+
+People trust iCatalog with catalogues of their life's photos, and a crash can lose them. A malformed catalogue, a hostile `.ivc`, a bad command param, a corrupt settings file, an interrupted sync or a full disk must produce an error the user can act on, never a panic. Fix a crash before building on top of it.
+
+- **Non-test code never panics.** No `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!` or `unimplemented!`. Return the crate's error type and propagate with `?`; use `ok_or(..)?`, `let .. else { return Err(..) }`, `if let`, or `unwrap_or*` where a fallback is truly correct. Unfinished features return an "unsupported" error. The only exception is a provably infallible literal: `#[allow(clippy::expect_used)]` plus `.expect("why it can't fail")`.
+- **No `unsafe` at all.** The workspace sets `unsafe_code = "forbid"`. There is no exception crate.
+- **Input-derived numbers are hostile.** Use `get()` rather than `[i]`/`[a..b]` for indices from files, params or arithmetic on them; use `checked_*`/`saturating_*` for lengths, offsets and counts; guard division by zero and NaN/inf casts; cap allocations sized by input.
+- **Paths, labels and text from foreign machines are hostile strings.** Never assume UTF-8 (legacy catalogues are likely Mac Roman; the check is an open RE item), never assume a path exists or that a file type matches its extension or 4cc, and never trust a catalogued path to stay inside a directory.
+- **Bound recursion** with depth limits or seen-sets (folder trees and chunk lists can be deep or cyclic).
+- **Don't cascade.** Handle lock poisoning (`lock().unwrap_or_else(PoisonError::into_inner)`) and treat thread joins as `Result`s.
+- **Last-resort guard.** The shell (`icatalog` CLI `main`, later the GUI) catches an escaped panic around command dispatch and import, reports it as an error and leaves the catalogue untouched. It's a safety net, not a licence to panic. Keep `panic = "unwind"`.
+- **Prove it.** Every crash fix comes with a small synthetic regression test that panicked before the fix.
+- **Enforced by clippy.** Clean crates carry `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`, with tests allowed via `clippy.toml` (PLANNED; check whether `ivc-file-research/crates/ivc` already has them before assuming); new crates start with it.
+
+### Other rules
+
+1. **Everything is a command.** New user-visible behaviour = a command in `icatalog-engine` (PLANNED) with id, label, params doc, `enabled` and `run`, plus tests. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers. Only pure view/window state belongs to the shell. Sync is a command too.
+2. **Clean-room.** Implement from observation and `ivc-file-research/docs/ivc-format.md`. Third-party assets need a permissive licence and a row in `ATTRIBUTION.md` (PLANNED).
+3. **Tests are the gate.** Every change comes with tests. Add synthetic and round-trip tests for the catalogue and sync. Demo/test images must be public-domain and **never personal photos**; never put personal details in URLs or User-Agents.
+4. **The UI is thin and data-driven.** `icatalog-ui` holds no logic; all actions go through engine commands.
+5. **Never panic on input** (see *Never crash*). Commands return `Err` for any input. A fuzz-style test feeding adversarial params to every command (and truncated/mutated bytes to import) is PLANNED and must stay green once it exists.
+6. **Never break wasm.** Crates from L0 up (except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`) must stay compilable for `wasm32-unknown-unknown` once that target is installed. Status: the target is NOT installed in this environment today (`rustup target list --installed` shows only `aarch64-apple-darwin`), so `cargo check -p ivc --target wasm32-unknown-unknown` has not been run and no wasm status is claimed.
+7. **Sync safety.** A failed or interrupted sync must never destroy the only copy of a catalogue. SQLite writes are transactional; a rejected local state is kept as a timestamped backup before anything is replaced; downloads land in a temp file and are swapped in atomically after an integrity check; no silent data loss, no silent last-writer-wins.
+
+## 4. CLI and NAS deployment
+
+Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). All PLANNED.
+
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|sync|serve|status`) (each maps to an engine command):
+
+| Subcommand | Purpose |
+|---|---|
+| `init` / `new <catalogue>` | Create an empty SQLite catalogue |
+| `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
+| `import <catalogue> <path>` | Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
+| `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
+| `update <catalogue> ...` | Rescan folders for added/changed/missing files; edit metadata: keywords, ratings, labels (iView-style, after the lineage) |
+| `sync` | Pull/push against the NAS catalogue (section 5) |
+| `serve` | Run the NAS-side HTTP(S) sync service |
+| `status` / `info` | Catalogue stats, generation, sync state, missing files |
+
+Deployment on a NAS:
+
+- **Bare metal:** a static `icatalog` binary for `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl` for ARM NAS), built with `rusqlite`'s `bundled` feature so there is no system SQLite dependency; copy it and run `icatalog serve`, ideally under systemd.
+- **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
+- Targets are stated honestly: nothing is built or tested for these yet; macOS (arm64/x86_64), Windows and Linux desktops are the client targets.
+
+## 5. Local copies + startup sync
+
+Model chosen by the human: **each computer keeps a local SQLite copy; it syncs with the NAS copy at startup.** The transport is an **HTTP(S) API** served by `icatalog serve`; clients (CLI, desktop GUI and the wasm browser build) pull and push over that same API.
+
+- The NAS holds the canonical catalogue, served by `icatalog serve` over HTTP(S). Chosen over a shared-file, single-writer SQLite on SMB/NFS because SQLite locking over network shares is unreliable and corrupts databases; a service owns the file and serialises writes.
+- Each client opens only its local copy; the app is fully usable offline. Startup and explicit `icatalog sync` pull newer generations and push local changes. If the NAS is unreachable, sync is deferred and reported, never fatal.
+- The catalogue carries a **generation counter**, bumped on every accepted push, plus a per-catalogue id.
+- **Conflict policy:** a push is refused if the server generation moved since the client's base generation (refuse-and-resync, never silent last-writer-wins). On refusal the client saves its rejected local state as a timestamped backup (e.g. `name.rejected-<UTC timestamp>.sqlite`) before resyncing from the server. Merging local changes (per-item, by stable item id) is a later improvement and must keep the same safety guarantees; until then conflicts are surfaced to the user with the backup path.
+- **"Everyone sees the same thing" means sync points, not live co-editing.** Two machines edited between syncs can conflict; the user is told, and nothing is lost.
+- Sync is an engine command, so CLI and GUI behave identically. Details (endpoints, auth, TLS) go in `docs/sync.md`.
+
+## 6. Current focus / picking work
+
+Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), then the data model, then the interfaces. App-side order:
+
+1. SQLite schema (`icatalog-catalog`, `docs/schema.md`).
+2. Engine + `icatalog` CLI.
+3. Sync service and client.
+4. egui browser (desktop, then wasm).
+
+`log/devlog.md` is PLANNED; once the repo is under git, start `log/devlog.md` (gitignored) and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
+
+## 7. Before you finish a task
+
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+- Don't claim sync, schema or wasm behaviour that isn't built and tested; keep EXISTS vs PLANNED honest.
+- Append a terse entry to `log/devlog.md` (PLANNED: what landed, what's still open).
+- Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
+
+## 8. Parallel agents
+
+- Use your own target dir (`CARGO_TARGET_DIR=target/agent-<name>`) to avoid the Cargo build lock, and edit only files you own. Shared files (root `Cargo.toml`, engine command registry) get small, surgical edits; re-read before editing.
+- Put new commands in a new module rather than growing a shared file.
+- If someone else's in-progress edit breaks the build, wait and retry; don't fix their files.
+- Keep every `Cargo.toml` valid at all times. Create or rewrite manifests atomically: write to a temp file outside the crate directories, then `mv` it into place.
+- Delete `target/agent-*` dirs of finished agents.
+
+## 9. Where things are tracked
+
+- Real today: nothing app-side yet; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- PLANNED: `log/devlog.md` (local, gitignored).
+- Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

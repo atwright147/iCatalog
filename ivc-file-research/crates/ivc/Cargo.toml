@@ -1,0 +1,8 @@
+[package]
+name = "ivc"
+version = "0.1.0"
+edition = "2021"
+description = "Parser for iView / Expression Media / Phase One Media Pro catalog files (.ivc, .mpcatalog)"
+license = "MIT"
+
+[dependencies]

@@ -1,0 +1,96 @@
+# iCatalog architecture
+
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Nothing app-side is built today: the repo root holds only `docs/` and `ivc-file-research/`, and there are no crates under `crates/`. The one existing crate is `ivc`.
+
+## 1. Purpose and stack
+
+**Decided.** iCatalog is a Rust-only rebuild of the iView Media Pro media catalogue/organiser: CLI first, egui desktop, wasm browser build as a goal. No JavaScript/TypeScript, no Tauri, Electron or webviews, ever. The own catalogue format is **SQLite**; legacy `.ivc`/`.mpcatalog` is **import-only** through `ivc`. Development is **clean-room**. Machine names are lowercase (`icatalog`, `icatalog-*`, `ivc`); the repo root is `iCatalog/` (D4).
+
+## 2. Crate map
+
+Status column: EXISTS means present in the repo today; PLANNED means not created.
+
+| Crate | Layer | Depends on | Role | Status |
+|---|---|---|---|---|
+| `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema + model | PLANNED |
+| `icatalog-media` | L1 | `image`/`exif`/`filmcraft-*`/`lightcraft-*` as needed (no dependency on `icatalog-catalog`) | Media decode, thumbnails, metadata extraction (D8) | PLANNED |
+| `icatalog-engine` | L2 | L0-L1 | Session + command registry | PLANNED |
+| `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
+| `icatalog-cli` | L4 | L0-L3 | Binary `icatalog` | PLANNED |
+| `icatalog-ui` | L4 | L0-L3 | Thin egui shell, desktop + wasm | PLANNED |
+| `testkit` | test-only | as needed | Test helpers | PLANNED |
+| `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
+| `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
+
+**Decided** layout: one Cargo workspace rooted at the repo top. Today `members = ["ivc-file-research/crates/ivc"]`; the glob `crates/*` is added when the first app crate lands. The exact dependency edges above (e.g. whether `icatalog-catalog` depends on `ivc` or the engine does the mapping) are **Open**; the layer ordering is Decided.
+
+## 3. Layers
+
+```text
+L4  icatalog-cli        icatalog-ui (egui, desktop + wasm)
+        |                   |
+L3  icatalog-sync  (client + `serve`)
+        |
+L2  icatalog-engine (session + command registry)
+        |
+L1  icatalog-catalog (SQLite schema + model)    icatalog-media (decode, thumbnails, metadata)
+        |
+L0  ivc (legacy parser, no workspace deps)
+```
+
+**Decided rules:**
+
+- A crate may depend only on lower layers. `ivc` depends on nothing in the workspace.
+- Nothing below `icatalog-ui` may use egui, eframe, winit or rfd.
+
+**Enforcement.** Today: the documented rule only. **Proposed:** a layer test (parses each `Cargo.toml`, fails on an upward or forbidden dependency), written with the second crate, later replaced or joined by `cargo xtask layers`. New crates must be registered there.
+
+## 4. Engine/command seam
+
+**Decided** (golden rule: everything is a command). A command in `icatalog-engine` has: an **id**, a **label**, a params doc, an `enabled` check and a `run` function, plus tests. The CLI and the GUI both dispatch commands by id. CLI subcommands are thin wrappers over commands. Sync is a command too, so CLI and GUI behave identically.
+
+**Proposed** shape: the engine holds a session (open catalogue, settings) and a registry mapping id to command; `run` takes typed or validated params and returns a result or the engine's error type, never panics.
+
+May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
+
+Commands return `Err` for any input (hostile params included). A fuzz-style test over every command is planned and must stay green once it exists (**Open**: not written).
+
+## 5. UI shell
+
+- **Decided:** `icatalog-ui` is thin and data-driven; it holds no logic and every action goes through engine commands. egui/eframe native desktop. No webview.
+- **Decided (goal):** wasm browser build via trunk + wasm-bindgen, Rust only, using the same engine and model as desktop (D3).
+- **Open:** the exact data-driven mechanism (e.g. menus generated from the command registry) is not designed.
+
+## 6. `ivc` seam and clean-room boundary
+
+`ivc` lives in `ivc-file-research/` by design (D6) and is consumed through a **path dependency**; it stays standalone. Existing API (EXISTS): `parse(&[u8]) -> Result<Catalog>`; `Catalog { header, items, chunks, trailer }`; `Item` with `path`, `name`, `format` (4cc), `file_size`, `width`, `height`, `color_space`, `pict`, `jpeg: Option<&[u8]>`, `tail_blocks`, `iptc: Vec<IptcRecord>`; `Chunk { kind, offset, payload }` including the `FSM!` folder tree. Format spec: `ivc-file-research/docs/ivc-format.md`. Strings are likely Mac Roman (an open RE item); currently decoded lossy.
+
+Boundary: app code reads `ivc` output only; it never copies iView/Expression/Phase One code or assets. Import is one-way into SQLite; the app never writes `.ivc`.
+
+## 7. Media decoding seam
+
+**Decided** (D8; nothing built, library choices are planned):
+
+- Only `icatalog-media` (L1) may hold media/metadata dependencies. Bytes or a seekable reader in, plain data out; never a file path.
+- Flow: `ivc -> icatalog-media -> icatalog-catalog`, wired by the engine (L2). `icatalog-media` and `icatalog-catalog` do not depend on each other.
+- Legacy-format knowledge (PICT pixel decode, `ex??` tail blocks, Mac Roman, IPTC-IIM) is hand-rolled in `ivc`, which returns plain pixels/bytes and takes no encoder dependency.
+- `image` (default features off, explicit codecs, `Limits`) is the single pixel stack; never two decoders in the wasm bundle. EXIF via `kamadak-exif`.
+- ArtCraft siblings are sources only (study, vendor or git-dep; commit-pinned; feature-flagged): LightCraft for photo XMP and RAW bytes + metadata, FilmCraft for video metadata + frames; never their pixel stacks.
+- wasm: `icatalog-media` default features must build for `wasm32-unknown-unknown`; the ffmpeg escape hatch is native-only, user-installed, deferred.
+
+## 8. wasm constraints
+
+**Decided:** crates from L0 up, except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`, must stay compilable for `wasm32-unknown-unknown`. **Status:** the target is NOT installed here, so no wasm check has been run and no wasm status is claimed. Consequence (**Proposed**): server/HTTP-listener code in `icatalog-sync` sits behind a feature or module split so the client half compiles for wasm.
+
+## 9. Browser storage
+
+**Open** (D3). The browser keeps a local copy and syncs over the same HTTP(S) API. Which storage holds the SQLite data (e.g. OPFS), and how `rusqlite` `bundled` (C code) maps to wasm, are undecided. See `docs/sync.md`.
+
+## 10. Open questions
+
+- Exact crate dependency edges (section 2), including `icatalog-media`.
+- Command-registry API and param typing.
+- Data-driven UI mechanism.
+- Browser storage and SQLite-on-wasm approach.
+- Whether the sync service is mandatory or also a share-file mode (see `docs/sync.md`).

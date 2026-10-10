@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+# Future app crates live in crates/*; add that glob here when the first one is created.
+members = ["ivc-file-research/crates/ivc"]

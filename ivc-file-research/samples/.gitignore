@@ -1,0 +1,3 @@
+# The CC0 sample corpus is committed; ignore only fetch temp files.
+*.part
+.DS_Store
