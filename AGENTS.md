@@ -31,10 +31,10 @@ Planned app crates (all PLANNED, none exist yet), under `crates/`:
 ```text
 crates/
   icatalog-catalog           EXISTS. L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
-  icatalog-media             L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
+  icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/list/find/status; import/sync/serve not built)
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/status; update/sync/serve not built)
   icatalog-ui                L4 thin egui shell (desktop + wasm)
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -82,7 +82,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 |---|---|
 | `init` / `new <catalogue>` | Create an empty SQLite catalogue |
 | `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
-| `import <catalogue> <path>` | Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
+| `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
 | `update <catalogue> ...` | Rescan folders for added/changed/missing files; edit metadata: keywords, ratings, labels (iView-style, after the lineage) |
 | `sync` | Pull/push against the NAS catalogue (section 5) |
@@ -139,6 +139,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 9. Where things are tracked
 
-- Real today: app-side, `icatalog-catalog`, `icatalog-engine` and the `icatalog` CLI; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine` and the `icatalog` CLI; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
 - PLANNED: `log/devlog.md` (local, gitignored).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

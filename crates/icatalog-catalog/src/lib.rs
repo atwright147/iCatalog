@@ -232,6 +232,20 @@ impl Catalog {
             None => Ok(None),
         }
     }
+
+    /// Look up an asset by its stable `uid`.
+    pub fn asset_by_uid(&self, uid: &str) -> Result<Option<Asset>> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, uid, folder_id, path, path_raw, name, name_raw, format, file_size, width, height, color_space, mtime, content_hash
+                 FROM asset WHERE uid = ?1",
+                params![uid],
+                asset_from_row,
+            )
+            .optional()?)
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +270,15 @@ mod tests {
             mtime: Some(1_700_000_000),
             content_hash: None,
         }
+    }
+
+    #[test]
+    fn lookup_by_uid() {
+        let c = Catalog::open_in_memory().unwrap();
+        c.insert_catalogue("cat-1", "2026-10-10T00:00:00Z").unwrap();
+        let id = c.insert_asset(&asset("known", None, None)).unwrap();
+        assert_eq!(c.asset_by_uid("known").unwrap().unwrap().id, id);
+        assert!(c.asset_by_uid("nope").unwrap().is_none());
     }
 
     #[test]

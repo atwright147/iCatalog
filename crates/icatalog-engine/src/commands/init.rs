@@ -14,11 +14,13 @@ impl Command for Init {
             ParamSpec {
                 name: "id",
                 required: false,
+                positional: false,
                 doc: "catalogue id; generated if omitted",
             },
             ParamSpec {
                 name: "created",
                 required: false,
+                positional: false,
                 doc: "creation time (ISO-8601 UTC); now if omitted",
             },
         ]

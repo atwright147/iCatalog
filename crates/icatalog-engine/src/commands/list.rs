@@ -15,6 +15,7 @@ impl Command for List {
         &[ParamSpec {
             name: "limit",
             required: false,
+            positional: false,
             doc: "maximum number of assets to list",
         }]
     }

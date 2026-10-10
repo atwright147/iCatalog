@@ -1,0 +1,11 @@
+[package]
+name = "icatalog-media"
+version = "0.1.0"
+edition = "2021"
+description = "iCatalog media decode, metadata extraction and thumbnails"
+license = "MIT"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
+kamadak-exif = "0.6"
+sha2 = "0.10"

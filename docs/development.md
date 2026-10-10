@@ -41,15 +41,15 @@ Adding a crate (**Proposed** procedure):
 
 ## 4. Driving the CLI
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `list`, `find` and `status`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find` and `status`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import <catalogue> <dir> [--recursive false]`.
 
-PLANNED (not built): `import`, `update`, `sync`, `serve`; those rows below are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
+PLANNED (not built): `update`, `sync`, `serve`; those rows below are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
 
 | Subcommand | Example | Purpose |
 |---|---|---|
 | `init` / `new` | `icatalog init photos.sqlite` | Create an empty catalogue |
 | `open` | `icatalog open photos.sqlite` | Validate and print a summary |
-| `import` | `icatalog import photos.sqlite ~/Pictures` | Import a directory or a `.ivc`/`.mpcatalog` |
+| `import` | `icatalog import photos.sqlite ~/Pictures` | Import a directory (EXISTS, raster only) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders; edit metadata |
 | `sync` | `icatalog sync photos.sqlite` | Pull/push against the NAS |

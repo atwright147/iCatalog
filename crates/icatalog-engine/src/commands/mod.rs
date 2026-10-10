@@ -1,4 +1,5 @@
 mod find;
+mod import;
 mod init;
 mod list;
 mod open;
@@ -12,6 +13,7 @@ pub(crate) static ALL: &[&dyn Command] = &[
     &list::List,
     &find::Find,
     &status::Status,
+    &import::Import,
 ];
 
 /// Return the catalogue row, or an error if the file is not initialised.

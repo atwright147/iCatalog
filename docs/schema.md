@@ -44,7 +44,7 @@ CREATE TABLE folder (
 -- PROPOSED: one row per catalogued asset
 CREATE TABLE asset (
   id          INTEGER PRIMARY KEY,
-  uid         TEXT NOT NULL UNIQUE,    -- stable id for future merge (Open)
+  uid         TEXT NOT NULL UNIQUE,    -- stable id; = content_hash for imported files (D13)
   folder_id   INTEGER REFERENCES folder(id),
   path        TEXT NOT NULL,           -- normalised POSIX, not unique (D10)
   path_raw    BLOB,                    -- original legacy bytes
@@ -69,7 +69,7 @@ CREATE TABLE thumbnail (
   height      INTEGER NOT NULL,
   orientation_applied INTEGER NOT NULL,
   bytes       BLOB NOT NULL,
-  derived_from TEXT,           -- source size/mtime or hash
+  derived_from TEXT,           -- "<file_size>:<mtime>" (D13)
   generator_version INTEGER NOT NULL,
   PRIMARY KEY (asset_id, size_class)
 );
@@ -151,7 +151,7 @@ User-annotation tables (D11) and `find` indexes are done (migration v2). Still *
 - **Encoding:** resolved by D10 (decoded text plus raw bytes). Mac Roman detection remains an `ivc` RE item.
 - **Path normalisation:** separators (legacy Mac paths versus POSIX/Windows), case, Unicode normalisation, and the rule that a catalogued path is never trusted to stay inside a directory (**Decided** in golden rules; representation **Open**).
 - Stable asset ids across machines (needed for merge, see `docs/sync.md`).
-- Exact `size_class` values, `derived_from` form (size/mtime versus hash) and `orientation_applied` semantics (**Open**). Raw-versus-decoded metadata storage is answered by D8.
+- `size_class` (long edge in pixels, grid = 256), `source` (`"rendered"`), `derived_from` (`"<file_size>:<mtime>"`), `orientation_applied` (false until pixels are rotated) and `content_hash` (`"sha256:<hex>"`, also the `asset.uid`) are **RESOLVED per D13**. Raw-versus-decoded metadata storage is answered by D8.
 
 ## 5. Test requirements
 

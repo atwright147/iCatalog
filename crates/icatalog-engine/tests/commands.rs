@@ -44,7 +44,7 @@ fn inited(name: &str) -> (Context, std::path::PathBuf) {
 fn ids() {
     assert_eq!(
         command_ids(),
-        vec!["init", "open", "list", "find", "status"]
+        vec!["init", "open", "list", "find", "status", "import"]
     );
 }
 

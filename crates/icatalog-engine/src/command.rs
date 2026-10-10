@@ -7,6 +7,8 @@ use crate::params::Params;
 pub struct ParamSpec {
     pub name: &'static str,
     pub required: bool,
+    /// Passed as a positional argument rather than `--name <value>`.
+    pub positional: bool,
     pub doc: &'static str,
 }
 

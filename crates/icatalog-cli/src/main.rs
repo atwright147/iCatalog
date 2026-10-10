@@ -85,7 +85,12 @@ fn help_text() -> String {
         out.push_str(&format!("  {}  {}\n", c.id(), c.label()));
         for p in c.params() {
             let req = if p.required { " (required)" } else { "" };
-            out.push_str(&format!("      --{} <value>{}  {}\n", p.name, req, p.doc));
+            let shown = if p.positional {
+                format!("<{}>", p.name)
+            } else {
+                format!("--{} <value>", p.name)
+            };
+            out.push_str(&format!("      {shown}{req}  {}\n", p.doc));
         }
     }
     out.push_str("\nGlobal:\n");

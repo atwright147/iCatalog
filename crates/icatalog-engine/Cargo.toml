@@ -7,3 +7,7 @@ license = "MIT"
 
 [dependencies]
 icatalog-catalog = { path = "../icatalog-catalog" }
+icatalog-media = { path = "../icatalog-media" }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

@@ -1,6 +1,6 @@
 # iCatalog architecture
 
-Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-engine` and `icatalog-cli` (under `crates/`); everything else app-side is planned.
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine` and `icatalog-cli` (under `crates/`); everything else app-side is planned.
 
 ## 1. Purpose and stack
 
@@ -14,10 +14,10 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
 | `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
-| `icatalog-media` | L1 | `image`/`exif`/`filmcraft-*`/`lightcraft-*` as needed (no dependency on `icatalog-catalog`) | Media decode, thumbnails, metadata extraction (D8) | PLANNED |
-| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `list`, `find`, `status`; `dispatch_guarded` panic guard (D12) | EXISTS |
+| `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash (D8, D13) | EXISTS |
+| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`; `dispatch_guarded` panic guard (D12) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
-| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/list/find/status`, `--help`, `--version`, `commands`) | EXISTS |
+| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status`, `--help`, `--version`, `commands`) | EXISTS |
 | `icatalog-ui` | L4 | L0-L3 | Thin egui shell, desktop + wasm | PLANNED |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |

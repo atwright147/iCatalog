@@ -86,5 +86,16 @@ Decision:
 Consequences: CLI and the future GUI/wasm shell dispatch the same commands. Importing, `sync` and `serve` are not implemented yet.
 Status: Accepted.
 
+## D13. First media slice: raster ingest, EXIF and thumbnails (2026-10-10)
+
+Context: M2 needed the first real ingest path; several schema items (thumbnail sizing, provenance, hash form) were Open.
+Decision:
+- **`icatalog-media` (L1)** has no workspace dependency (bytes in, plain data out, D8). API: `probe(&[u8])`, `read_exif<R: BufRead+Seek>(R)`, `thumbnail_jpeg(&[u8], u32)`, `content_hash(&[u8])`; consts `GRID_LONG_EDGE = 256`, `GENERATOR_VERSION = 1`; types `ImageInfo`, `ExifData`, `Thumbnail`, `MediaError`.
+- **Dependencies (D8):** `image` 0.25 (default-features off, explicit codecs jpeg/png/gif/webp/bmp/tiff, decode `Limits`), `kamadak-exif` 0.6.1, `sha2` 0.10.9. Licences are permissive (image MIT OR Apache-2.0, kamadak-exif MIT, sha2 MIT OR Apache-2.0); `ATTRIBUTION.md` and cargo-deny remain backlog.
+- **Resolved schema items:** `thumbnail.size_class` = long edge in pixels (grid thumb 256); `source` = `"rendered"` for raster-generated thumbs; `derived_from` = `"<file_size>:<mtime>"`; `orientation_applied` = false for now (pixels not rotated yet); `content_hash` = `"sha256:<lowercase hex>"`; `asset.uid` = that content hash (caller-assigned, D10), giving content-based dedupe across imports/machines.
+- **Engine command `import <dir> [--recursive false]`:** bounded walk (max depth 64, symlinks not followed), per-file failures counted and never fatal, extensions jpg/jpeg/png/gif/webp/bmp/tif/tiff, files over 512 MiB skipped, dedupe by `uid` (`Catalog::asset_by_uid`); inserts `asset`, `asset_meta` (from EXIF) and a grid `thumbnail`.
+Consequences: not built: legacy `.ivc` import (deprioritised), PICT decode, RAW/video/HEIC, disk preview cache, `update`, `sync`, `serve`, UI, the adversarial-params fuzz test; wasm is unchecked (target not installed).
+Status: Accepted.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

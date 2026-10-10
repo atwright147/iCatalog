@@ -16,26 +16,31 @@ impl Command for Find {
             ParamSpec {
                 name: "query",
                 required: true,
+                positional: true,
                 doc: "substring to match against asset name or path",
             },
             ParamSpec {
                 name: "keyword",
                 required: false,
+                positional: false,
                 doc: "keyword the asset must carry",
             },
             ParamSpec {
                 name: "rating",
                 required: false,
+                positional: false,
                 doc: "minimum rating 0-5",
             },
             ParamSpec {
                 name: "label",
                 required: false,
+                positional: false,
                 doc: "exact label 0-7",
             },
             ParamSpec {
                 name: "limit",
                 required: false,
+                positional: false,
                 doc: "maximum number of assets to list",
             },
         ]
