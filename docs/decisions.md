@@ -73,5 +73,18 @@ Status: Accepted (owner, Oct 2026).
 - **Migration:** added as forward-only migration v2 (`v2.sql`) together with `find`/browse indexes on asset folder/name/path/content_hash, folder parent, keyword, rating and label.
 Status: Accepted.
 
+## D12. Command registry design (2026-10-10)
+
+Context: AGENTS golden rule 1 says every action is a command; the API shape for the engine (L2) was open.
+Decision:
+- Every user-visible action is a command registered in `icatalog-engine` with `id`, `label`, params doc, `enabled` and `run`. The registry is a static slice of `&dyn Command`; dispatch is by string id.
+- Parameters are a string-keyed `Params` map, validated into typed values per command; invalid or missing input returns `EngineError::BadParam`, never a panic.
+- The result is a small `Outcome::{Text, Table}` enum.
+- `dispatch_guarded` wraps `dispatch` in `catch_unwind` as the last-resort crash guard.
+- Filtered asset queries and aggregate stats live in the L1 `icatalog-catalog` crate (`AssetQuery`, `CatalogStats`, `query_assets`, `stats`), not in the engine.
+- The CLI (`icatalog-cli`, binary `icatalog`) is a zero-logic wrapper that dispatches commands by id. Built commands: `init`, `open`, `list`, `find`, `status`.
+Consequences: CLI and the future GUI/wasm shell dispatch the same commands. Importing, `sync` and `serve` are not implemented yet.
+Status: Accepted.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

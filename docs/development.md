@@ -1,6 +1,6 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc` and `icatalog-catalog` crates build today; every `icatalog` command below is PLANNED.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-engine` and `icatalog-cli` crates build today; of the `icatalog` commands below only `init/open/list/find/status` exist.
 
 ## 1. Prerequisites
 
@@ -39,9 +39,11 @@ Adding a crate (**Proposed** procedure):
 3. Start with `unsafe_code = "forbid"` and `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
 4. Register the crate in the layer test; respect the layering rule.
 
-## 4. Driving the CLI (PLANNED, Proposed)
+## 4. Driving the CLI
 
-Nothing below exists; the examples are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `list`, `find` and `status`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`.
+
+PLANNED (not built): `import`, `update`, `sync`, `serve`; those rows below are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
 
 | Subcommand | Example | Purpose |
 |---|---|---|

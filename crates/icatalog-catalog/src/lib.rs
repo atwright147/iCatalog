@@ -18,8 +18,10 @@ mod annotation;
 mod folder;
 mod metadata;
 mod model;
+mod query;
 
 pub use model::{Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Thumbnail};
+pub use query::{AssetQuery, CatalogStats};
 
 const MIGRATIONS: &[&str] = &[include_str!("v1.sql"), include_str!("v2.sql")];
 
@@ -91,6 +93,25 @@ pub struct Asset {
 /// An open catalogue.
 pub struct Catalog {
     conn: Connection,
+}
+
+pub(crate) fn asset_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Asset> {
+    Ok(Asset {
+        id: r.get(0)?,
+        uid: r.get(1)?,
+        folder_id: r.get(2)?,
+        path: r.get(3)?,
+        path_raw: r.get(4)?,
+        name: r.get(5)?,
+        name_raw: r.get(6)?,
+        format: r.get(7)?,
+        file_size: r.get(8)?,
+        width: r.get(9)?,
+        height: r.get(10)?,
+        color_space: r.get(11)?,
+        mtime: r.get(12)?,
+        content_hash: r.get(13)?,
+    })
 }
 
 fn latest_version() -> i64 {
@@ -207,22 +228,7 @@ impl Catalog {
         )?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
-            Some(r) => Ok(Some(Asset {
-                id: r.get(0)?,
-                uid: r.get(1)?,
-                folder_id: r.get(2)?,
-                path: r.get(3)?,
-                path_raw: r.get(4)?,
-                name: r.get(5)?,
-                name_raw: r.get(6)?,
-                format: r.get(7)?,
-                file_size: r.get(8)?,
-                width: r.get(9)?,
-                height: r.get(10)?,
-                color_space: r.get(11)?,
-                mtime: r.get(12)?,
-                content_hash: r.get(13)?,
-            })),
+            Some(r) => Ok(Some(asset_from_row(r)?)),
             None => Ok(None),
         }
     }

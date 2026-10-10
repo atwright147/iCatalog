@@ -1,0 +1,13 @@
+[package]
+name = "icatalog-cli"
+version = "0.1.0"
+edition = "2021"
+description = "iCatalog command-line interface"
+license = "MIT"
+
+[[bin]]
+name = "icatalog"
+path = "src/main.rs"
+
+[dependencies]
+icatalog-engine = { path = "../icatalog-engine" }

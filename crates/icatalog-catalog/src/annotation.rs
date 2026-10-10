@@ -1,6 +1,6 @@
 use rusqlite::{params, OptionalExtension};
 
-use crate::{Annotation, Catalog, Collection, CatalogError, Keyword, Result};
+use crate::{Annotation, Catalog, CatalogError, Collection, Keyword, Result};
 
 impl Catalog {
     pub fn insert_collection(&self, name: &str) -> Result<i64> {

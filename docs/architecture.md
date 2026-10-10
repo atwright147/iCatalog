@@ -1,6 +1,6 @@
 # iCatalog architecture
 
-Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc` and `icatalog-catalog` (`crates/icatalog-catalog`); everything else app-side is planned.
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-engine` and `icatalog-cli` (under `crates/`); everything else app-side is planned.
 
 ## 1. Purpose and stack
 
@@ -13,11 +13,11 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
-| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2) + model + CRUD | EXISTS |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image`/`exif`/`filmcraft-*`/`lightcraft-*` as needed (no dependency on `icatalog-catalog`) | Media decode, thumbnails, metadata extraction (D8) | PLANNED |
-| `icatalog-engine` | L2 | L0-L1 | Session + command registry | PLANNED |
+| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `list`, `find`, `status`; `dispatch_guarded` panic guard (D12) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
-| `icatalog-cli` | L4 | L0-L3 | Binary `icatalog` | PLANNED |
+| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/list/find/status`, `--help`, `--version`, `commands`) | EXISTS |
 | `icatalog-ui` | L4 | L0-L3 | Thin egui shell, desktop + wasm | PLANNED |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
@@ -44,13 +44,13 @@ L0  ivc (legacy parser, no workspace deps)
 - A crate may depend only on lower layers. `ivc` depends on nothing in the workspace.
 - Nothing below `icatalog-ui` may use egui, eframe, winit or rfd.
 
-**Enforcement.** Today: the documented rule only. **Proposed:** a layer test (parses each `Cargo.toml`, fails on an upward or forbidden dependency), written with the second crate, later replaced or joined by `cargo xtask layers`. New crates must be registered there.
+**Enforcement.** EXISTS: a layer test at `crates/icatalog-cli/tests/layers.rs` parses each `Cargo.toml` and fails on an upward workspace dependency or on egui/eframe/winit/rfd below `icatalog-ui`. **Proposed:** later replaced or joined by `cargo xtask layers` (PLANNED). New crates must be registered in the test.
 
 ## 4. Engine/command seam
 
 **Decided** (golden rule: everything is a command). A command in `icatalog-engine` has: an **id**, a **label**, a params doc, an `enabled` check and a `run` function, plus tests. The CLI and the GUI both dispatch commands by id. CLI subcommands are thin wrappers over commands. Sync is a command too, so CLI and GUI behave identically.
 
-**Proposed** shape: the engine holds a session (open catalogue, settings) and a registry mapping id to command; `run` takes typed or validated params and returns a result or the engine's error type, never panics.
+**EXISTS** (D12): the engine holds a session `Context` and a static registry (slice of `&dyn Command`) mapping string id to command; `run` takes string-keyed `Params` validated into typed values (bad input is `EngineError::BadParam`) and returns `Outcome::{Text,Table}` or an error, never panics. `dispatch_guarded` wraps `dispatch` in `catch_unwind` as the last-resort guard.
 
 May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
 
@@ -90,7 +90,7 @@ Boundary: app code reads `ivc` output only; it never copies iView/Expression/Pha
 ## 10. Open questions
 
 - Exact crate dependency edges (section 2), including `icatalog-media`.
-- Command-registry API and param typing.
+- Command-registry API and param typing: RESOLVED (D12).
 - Data-driven UI mechanism.
 - Browser storage and SQLite-on-wasm approach.
 - Whether the sync service is mandatory or also a share-file mode (see `docs/sync.md`).

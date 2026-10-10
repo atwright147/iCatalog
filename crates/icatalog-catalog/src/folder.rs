@@ -29,9 +29,9 @@ impl Catalog {
     }
 
     pub fn child_folders(&self, parent_id: Option<i64>) -> Result<Vec<Folder>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, parent_id, name FROM folder WHERE parent_id IS ?1 ORDER BY id",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, parent_id, name FROM folder WHERE parent_id IS ?1 ORDER BY id")?;
         let rows = stmt.query_map(params![parent_id], |r| {
             Ok(Folder {
                 id: r.get(0)?,

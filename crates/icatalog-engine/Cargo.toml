@@ -1,0 +1,9 @@
+[package]
+name = "icatalog-engine"
+version = "0.1.0"
+edition = "2021"
+description = "iCatalog session context and command registry"
+license = "MIT"
+
+[dependencies]
+icatalog-catalog = { path = "../icatalog-catalog" }

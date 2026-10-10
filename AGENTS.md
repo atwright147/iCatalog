@@ -20,7 +20,7 @@ Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). T
 | `docs/schema.md` | EXISTS | SQLite catalogue schema and migrations |
 | `docs/roadmap.md` | EXISTS | Milestones and **current focus** |
 
-The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today; no app code yet. Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
+The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today, plus the app crates under `crates/` (`icatalog-catalog`, `icatalog-engine`, `icatalog-cli`: EXISTS; the rest below is PLANNED). Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
 
 ## 2. Workspace map
 
@@ -30,11 +30,11 @@ Planned app crates (all PLANNED, none exist yet), under `crates/`:
 
 ```text
 crates/
-  icatalog-catalog           L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
+  icatalog-catalog           EXISTS. L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
   icatalog-media             L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
-  icatalog-engine            L2 session + command registry (every action is a command)
+  icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
-  icatalog-cli               L4 binary `icatalog`
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/list/find/status; import/sync/serve not built)
   icatalog-ui                L4 thin egui shell (desktop + wasm)
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -43,7 +43,7 @@ packaging/          Docker image + compose example (PLANNED)
 
 `ivc` (L0, EXISTS) lives in `ivc-file-research/crates/ivc` by design: standalone with no workspace deps; the app consumes it via a path dependency.
 
-**Layering rule:** a crate may depend only on lower layers; `ivc` depends on nothing in the workspace. Nothing below `icatalog-ui` may use egui, eframe, winit or rfd. Until `cargo xtask layers` exists (PLANNED), the rule is enforced by a documented rule plus a layer test (a test that parses each `Cargo.toml` and fails on an upward or forbidden dependency; to be written with the second crate). New crates must be registered there. Only `icatalog-media` may hold media/metadata dependencies (image, EXIF, XMP, RAW, video); see D8 in `docs/decisions.md` and `ATTRIBUTION.md` (PLANNED) for licences.
+**Layering rule:** a crate may depend only on lower layers; `ivc` depends on nothing in the workspace. Nothing below `icatalog-ui` may use egui, eframe, winit or rfd. Until `cargo xtask layers` exists (PLANNED), the rule is enforced by a documented rule plus a layer test (EXISTS at `crates/icatalog-cli/tests/layers.rs`: parses each `Cargo.toml` and fails on an upward or forbidden dependency). New crates must be registered there. Only `icatalog-media` may hold media/metadata dependencies (image, EXIF, XMP, RAW, video); see D8 in `docs/decisions.md` and `ATTRIBUTION.md` (PLANNED) for licences.
 
 ## 3. Golden rules
 
@@ -63,7 +63,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 ### Other rules
 
-1. **Everything is a command.** New user-visible behaviour = a command in `icatalog-engine` (PLANNED) with id, label, params doc, `enabled` and `run`, plus tests. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers. Only pure view/window state belongs to the shell. Sync is a command too.
+1. **Everything is a command.** New user-visible behaviour = a command in `icatalog-engine` (EXISTS) with id, label, params doc, `enabled` and `run`, plus tests. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers. Only pure view/window state belongs to the shell. Sync is a command too.
 2. **Clean-room.** Implement from observation and `ivc-file-research/docs/ivc-format.md`. Third-party assets need a permissive licence and a row in `ATTRIBUTION.md` (PLANNED).
 3. **Tests are the gate.** Every change comes with tests. Add synthetic and round-trip tests for the catalogue and sync. Demo/test images must be public-domain and **never personal photos**; never put personal details in URLs or User-Agents.
 4. **The UI is thin and data-driven.** `icatalog-ui` holds no logic; all actions go through engine commands.
@@ -139,6 +139,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 9. Where things are tracked
 
-- Real today: nothing app-side yet; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- Real today: app-side, `icatalog-catalog`, `icatalog-engine` and the `icatalog` CLI; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
 - PLANNED: `log/devlog.md` (local, gitignored).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)
