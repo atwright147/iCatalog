@@ -75,6 +75,24 @@ fn non_recursive_and_dupes() {
 }
 
 #[test]
+fn skip_reasons_reported() {
+    let (mut ctx, base, dir) = setup("d");
+    let big = dir.join("huge.tif");
+    let f = std::fs::File::create(&big).unwrap();
+    f.set_len(512 * 1024 * 1024 + 1).unwrap();
+    drop(f);
+    std::fs::write(dir.join("fake.tif"), b"not a tiff").unwrap();
+    let o = run(&mut ctx, &dir, Some("false")).unwrap();
+    assert_eq!(metric(o.clone(), "imported"), 2);
+    assert_eq!(metric(o.clone(), "skipped"), 3);
+    assert_eq!(metric(o.clone(), "skipped: unsupported file type"), 1);
+    assert_eq!(metric(o.clone(), "skipped: larger than 512 MiB"), 1);
+    assert_eq!(metric(o.clone(), "skipped: not a recognised image"), 1);
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn bad_params() {
     let (mut ctx, base, dir) = setup("c");
     assert!(matches!(

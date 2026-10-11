@@ -1,5 +1,6 @@
-use super::scan::{ingest, parse_recursive, walk, Ingested};
-use super::{is_initialised, require_catalogue};
+use super::is_initialised;
+use super::require_catalogue;
+use super::scan::{ingest, note_skip, parse_recursive, skip_rows, walk, Ingested, SkipReason};
 use crate::{Command, Context, EngineError, Outcome, ParamSpec, Params, Result};
 use icatalog_catalog::AssetQuery;
 use std::collections::{BTreeSet, HashSet};
@@ -59,8 +60,9 @@ impl Command for Update {
                 .map(|d| (d, false))
                 .collect(),
         };
-        let (mut scanned, mut added, mut changed, mut unchanged, mut errors) =
-            (0u64, 0u64, 0u64, 0u64, 0u64);
+        let (mut scanned, mut added, mut changed, mut unchanged, mut skipped, mut errors) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut skips: Vec<(SkipReason, u64)> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for (root, rec) in &scopes {
             let w = walk(root, *rec);
@@ -78,7 +80,10 @@ impl Command for Update {
                         errors += e;
                     }
                     Ok(Ingested::Unchanged | Ingested::Duplicate) => unchanged += 1,
-                    Ok(Ingested::Skipped) => {}
+                    Ok(Ingested::Skipped(s)) => {
+                        skipped += 1;
+                        note_skip(&mut skips, s);
+                    }
                     Ok(Ingested::Failed) | Err(_) => errors += 1,
                 }
             }
@@ -103,17 +108,19 @@ impl Command for Update {
                 }
             }
         }
-        let rows = [
+        let mut rows: Vec<Vec<String>> = [
             ("scanned", scanned),
             ("added", added),
             ("changed", changed),
             ("unchanged", unchanged),
+            ("skipped", skipped),
             ("missing", missing),
             ("errors", errors),
         ]
         .iter()
         .map(|(k, v)| vec![(*k).to_string(), v.to_string()])
         .collect();
+        rows.extend(skip_rows(&skips));
         Ok(Outcome::table(vec!["metric".into(), "value".into()], rows))
     }
 }

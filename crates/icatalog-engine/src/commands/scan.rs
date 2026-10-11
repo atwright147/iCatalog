@@ -62,13 +62,53 @@ pub(super) fn has_image_ext(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Why a candidate file was skipped rather than imported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SkipReason {
+    /// Extension is not on the raster whitelist (`EXTS`).
+    UnsupportedExt,
+    /// Larger than `MAX_FILE`.
+    TooLarge,
+    /// Extension matched but the bytes are not a decodable image.
+    NotImage,
+}
+
+impl SkipReason {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            SkipReason::UnsupportedExt => "unsupported file type",
+            SkipReason::TooLarge => "larger than 512 MiB",
+            SkipReason::NotImage => "not a recognised image",
+        }
+    }
+}
+
+/// Track per-reason skip counts.
+pub(super) fn note_skip(skips: &mut Vec<(SkipReason, u64)>, s: SkipReason) {
+    match skips.iter_mut().find(|(k, _)| *k == s) {
+        Some((_, c)) => *c += 1,
+        None => skips.push((s, 1)),
+    }
+}
+
+/// Table rows ("skipped: <label>", count) for every reason observed.
+pub(super) fn skip_rows(skips: &[(SkipReason, u64)]) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    for (s, c) in skips {
+        if *c > 0 {
+            rows.push(vec![format!("skipped: {}", s.label()), c.to_string()]);
+        }
+    }
+    rows
+}
+
 /// What happened to one file.
 pub(super) enum Ingested {
     Added { errors: u64 },
     Changed { errors: u64 },
     Unchanged,
     Duplicate,
-    Skipped,
+    Skipped(SkipReason),
     Failed,
 }
 
@@ -135,13 +175,13 @@ fn write_derived(
 /// without it, content already known by uid is a duplicate.
 pub(super) fn ingest(ctx: &Context, path: &Path, refresh: bool) -> Result<Ingested> {
     if !has_image_ext(path) {
-        return Ok(Ingested::Skipped);
+        return Ok(Ingested::Skipped(SkipReason::UnsupportedExt));
     }
     let Ok(md) = std::fs::metadata(path) else {
         return Ok(Ingested::Failed);
     };
     if md.len() > MAX_FILE {
-        return Ok(Ingested::Skipped);
+        return Ok(Ingested::Skipped(SkipReason::TooLarge));
     }
     let file_size = i64::try_from(md.len()).unwrap_or(i64::MAX);
     let mtime = mtime_secs(&md);
@@ -163,7 +203,7 @@ pub(super) fn ingest(ctx: &Context, path: &Path, refresh: bool) -> Result<Ingest
         return Ok(Ingested::Failed);
     };
     let Ok(info) = icatalog_media::probe(&bytes) else {
-        return Ok(Ingested::Skipped);
+        return Ok(Ingested::Skipped(SkipReason::NotImage));
     };
     let hash = icatalog_media::content_hash(&bytes);
     if let Some(mut a) = existing {

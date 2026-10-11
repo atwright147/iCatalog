@@ -98,6 +98,16 @@ fn no_path_mode() {
 }
 
 #[test]
+fn skip_reasons_reported() {
+    let (mut ctx, dir) = setup("skip");
+    std::fs::write(dir.join("notes.txt"), b"hi").unwrap();
+    let o = update(&mut ctx, Some(&dir));
+    assert_eq!(metric(&o, "skipped"), 1);
+    assert_eq!(metric(&o, "skipped: unsupported file type"), 1);
+    assert_eq!(all(&ctx).len(), 2);
+}
+
+#[test]
 fn adversarial_params() {
     let (mut ctx, dir) = setup("adv");
     for (k, v) in [

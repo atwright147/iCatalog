@@ -1,5 +1,5 @@
 use super::is_initialised;
-use super::scan::{ingest, parse_recursive, walk, Ingested};
+use super::scan::{ingest, note_skip, parse_recursive, skip_rows, walk, Ingested, SkipReason};
 use crate::{Command, Context, EngineError, Outcome, ParamSpec, Params, Result};
 use std::path::Path;
 
@@ -39,6 +39,7 @@ impl Command for Import {
         }
         let (mut scanned, mut imported, mut duplicates, mut skipped, mut errors) =
             (0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut skips: Vec<(SkipReason, u64)> = Vec::new();
         let w = walk(Path::new(root), recursive);
         errors += w.errors;
         for f in &w.files {
@@ -49,13 +50,16 @@ impl Command for Import {
                     errors += e;
                 }
                 Ok(Ingested::Duplicate) => duplicates += 1,
-                Ok(Ingested::Skipped) => skipped += 1,
+                Ok(Ingested::Skipped(s)) => {
+                    skipped += 1;
+                    note_skip(&mut skips, s);
+                }
                 Ok(Ingested::Failed) => errors += 1,
                 Ok(Ingested::Changed { .. } | Ingested::Unchanged) => {}
                 Err(e) => return Err(e),
             }
         }
-        let rows = [
+        let mut rows: Vec<Vec<String>> = [
             ("scanned", scanned),
             ("imported", imported),
             ("duplicates", duplicates),
@@ -65,6 +69,7 @@ impl Command for Import {
         .iter()
         .map(|(k, v)| vec![(*k).to_string(), v.to_string()])
         .collect();
+        rows.extend(skip_rows(&skips));
         Ok(Outcome::table(vec!["metric".into(), "value".into()], rows))
     }
 }
