@@ -1,6 +1,6 @@
 # iCatalog architecture
 
-Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine` and `icatalog-cli` (under `crates/`); everything else app-side is planned.
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` (under `crates/`); everything else app-side is planned.
 
 ## 1. Purpose and stack
 
@@ -13,12 +13,12 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
-| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
-| `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash (D8, D13) | EXISTS |
-| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`; `dispatch_guarded` panic guard (D12) | EXISTS |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2, v3) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
+| `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13) | EXISTS |
+| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`; `dispatch_guarded` panic guard (D12, D14) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
-| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status`, `--help`, `--version`, `commands`) | EXISTS |
-| `icatalog-ui` | L4 | L0-L3 | Thin egui shell, desktop + wasm | PLANNED |
+| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status/update`, `--help`, `--version`, `commands`) | EXISTS |
+| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`); wasm PLANNED | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
 | `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
@@ -28,7 +28,7 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 ## 3. Layers
 
 ```text
-L4  icatalog-cli        icatalog-ui (egui, desktop + wasm)
+L4  icatalog-cli        icatalog-ui (egui; desktop EXISTS, wasm PLANNED)
         |                   |
 L3  icatalog-sync  (client + `serve`)
         |
@@ -54,11 +54,11 @@ L0  ivc (legacy parser, no workspace deps)
 
 May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
 
-Commands return `Err` for any input (hostile params included). A fuzz-style test over every command is planned and must stay green once it exists (**Open**: not written).
+Commands return `Err` for any input (hostile params included). A fuzz-style test over every command **EXISTS** at `crates/icatalog-engine/tests/adversarial.rs` and must stay green.
 
 ## 5. UI shell
 
-- **Decided:** `icatalog-ui` is thin and data-driven; it holds no logic and every action goes through engine commands. egui/eframe native desktop. No webview.
+- **EXISTS (D15):** `icatalog-ui` is a thin, data-driven native egui desktop shell. Browsing reads the local catalogue (`query_assets`, `thumbnail`); every action (`init`, `import`, `update`) is dispatched as an engine command, so CLI and GUI behave identically. It holds no logic of its own. egui/eframe native desktop; no webview. The only media contact is `icatalog-media::decode_rgba` (D8).
 - **Decided (goal):** wasm browser build via trunk + wasm-bindgen, Rust only, using the same engine and model as desktop (D3).
 - **Open:** the exact data-driven mechanism (e.g. menus generated from the command registry) is not designed.
 

@@ -35,7 +35,7 @@ crates/
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
   icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/status; sync/serve not built)
-  icatalog-ui                L4 thin egui shell (desktop + wasm)
+  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata; init/import/update actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
 packaging/          Docker image + compose example (PLANNED)
@@ -113,7 +113,7 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 1. SQLite schema (`icatalog-catalog`, `docs/schema.md`).
 2. Engine + `icatalog` CLI.
 3. Sync service and client.
-4. egui browser (desktop, then wasm).
+4. egui browser (desktop shell EXISTS in `icatalog-ui`, D15; wasm later).
 
 `log/devlog.md` is PLANNED; once the repo is under git, start `log/devlog.md` (gitignored) and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
@@ -127,7 +127,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 - Don't claim sync, schema or wasm behaviour that isn't built and tested; keep EXISTS vs PLANNED honest.
 - **Keep the docs true — same change, same commit.** Docs are part of the definition of done, not an afterthought. If a change alters what EXISTS vs PLANNED, the crate map, the schema, the CLI surface or a design decision, update the matching doc in the same change: `docs/roadmap.md` (milestone status), `docs/architecture.md` (crate map and layers), `docs/schema.md` (SQLite schema), `docs/decisions.md` (add a new D-numbered entry when you choose an approach), the root `Taskfile.yml` (see the next bullet) and this file. A reader must be able to trust that "EXISTS" means built and tested and "PLANNED" means not yet built; if code and docs disagree the doc is the bug — fix it before you finish, and never claim behaviour a doc still lists as PLANNED until a crate and its tests back it.
 - Append a terse entry to `log/devlog.md` (PLANNED: what landed, what's still open).
-- **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, and per-crate `catalog`/`media`/`engine`. `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
+- **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
 ## 8. Parallel agents

@@ -99,6 +99,14 @@ pub struct Thumbnail {
     pub bytes: Vec<u8>,
 }
 
+/// A decoded image as tightly-packed RGBA8 rows, ready for display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 fn format_name(f: ImageFormat) -> String {
     match f {
         ImageFormat::Jpeg => "jpeg",
@@ -279,6 +287,25 @@ pub fn thumbnail_jpeg(bytes: &[u8], long_edge: u32) -> Result<Thumbnail> {
     })
 }
 
+/// Decode `bytes` to RGBA8 for display, bounded by [`Limits`].
+pub fn decode_rgba(bytes: &[u8]) -> Result<DecodedImage> {
+    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(50_000);
+    limits.max_image_height = Some(50_000);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader.decode()?;
+    let (w, h) = (img.width(), img.height());
+    check_dims(w, h)?;
+    let rgba = img.to_rgba8();
+    Ok(DecodedImage {
+        width: w,
+        height: h,
+        rgba: rgba.into_raw(),
+    })
+}
+
 /// SHA-256 of `bytes` as `sha256:<lowercase hex>`.
 pub fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -354,6 +381,14 @@ mod tests {
         let t = thumbnail_jpeg(&png(8, 4), 256).unwrap();
         assert_eq!((t.width, t.height), (8, 4));
         assert!(thumbnail_jpeg(b"junk", 256).is_err());
+    }
+
+    #[test]
+    fn decode_rgba_geometry_and_garbage() {
+        let d = decode_rgba(&png(8, 4)).unwrap();
+        assert_eq!((d.width, d.height), (8, 4));
+        assert_eq!(d.rgba.len(), 8 * 4 * 4);
+        assert!(decode_rgba(b"not an image").is_err());
     }
 
     #[test]

@@ -108,5 +108,17 @@ Decision:
 Consequences: a moved file is flagged missing at its old path and is not re-added at the new path (its content hash already exists, so it counts as unchanged); move detection is not built. A new path whose content duplicates an existing asset is likewise left un-added.
 Status: Accepted.
 
+## D15. First GUI slice: thin native egui shell (`icatalog-ui`) (2026-10-11)
+
+Context: the owner asked to try the app in a UI while sync (M3) was still unbuilt; the engine, catalogue and media crates were already usable. This pulls M4 ahead of M3 by owner request.
+
+Decision:
+- New **`icatalog-ui`** crate at **L4** (binary `icatalog-ui <catalogue>`), **native desktop only for now**; the wasm build stays a later goal (D3). Deps: `eframe`/`egui` and `rfd`, GUI-only and allowed for `icatalog-ui` by the layer rule; no media dependency.
+- **Thin and data-driven** (golden rule 4): browsing reads the local catalogue directly (`query_assets`, `thumbnail`), while every action (`init` on a fresh path, `import` via a folder picker, `update`) is dispatched as an engine command through `dispatch_guarded`, so CLI and GUI behave identically.
+- To keep media deps isolated (D8), the only media addition is **`icatalog-media::decode_rgba(&[u8]) -> DecodedImage`** (bytes in, RGBA8 out, `Limits`-bounded); the shell turns that into an egui texture.
+- `icatalog-ui` is compiled natively only; the wasm target is not installed and no wasm status is claimed.
+
+Status: Accepted (owner requested the slice, Oct 2026).
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

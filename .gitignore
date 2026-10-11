@@ -26,3 +26,5 @@ log/
 
 # go-task checksum cache
 .task/
+
+*.sqlite

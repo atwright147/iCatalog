@@ -85,3 +85,13 @@ tasks:
     desc: Test the icatalog-engine crate
     cmds:
       - cargo test -p icatalog-engine
+
+  ui:
+    desc: Test the icatalog-ui crate
+    cmds:
+      - cargo test -p icatalog-ui
+
+  gui:
+    desc: Run the icatalog-ui desktop shell (e.g. `task gui -- my.sqlite`)
+    cmds:
+      - cargo run -q -p icatalog-ui -- {{.CLI_ARGS}}
