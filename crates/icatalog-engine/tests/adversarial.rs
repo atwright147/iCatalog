@@ -121,7 +121,17 @@ fn param_sets(cmd: &dyn Command, general: &[String], paths: &[String]) -> Vec<Pa
         sets.push(all);
     }
     if cmd.params().iter().any(|p| p.name == "path") {
-        for r in ["true", "false", "", "maybe", "\0", "-1", "yes", "no", "4294967296"] {
+        for r in [
+            "true",
+            "false",
+            "",
+            "maybe",
+            "\0",
+            "-1",
+            "yes",
+            "no",
+            "4294967296",
+        ] {
             let mut p = Params::new();
             p.set("path", format!("i-dont-exist-{}", std::process::id()));
             p.set("recursive", r);
@@ -133,7 +143,10 @@ fn param_sets(cmd: &dyn Command, general: &[String], paths: &[String]) -> Vec<Pa
 
 fn assert_no_panic(ctx: &mut Context, id: &str, params: &Params) {
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| dispatch(ctx, id, params)));
-    assert!(outcome.is_ok(), "command '{id}' panicked on params {params:?}");
+    assert!(
+        outcome.is_ok(),
+        "command '{id}' panicked on params {params:?}"
+    );
 }
 
 #[test]
@@ -174,7 +187,10 @@ fn adversarial_params_initialised_covers_every_command() {
         }
     }
     for id in command_ids() {
-        assert!(exercised.contains(id), "command '{id}' is not exercised by the fuzz test");
+        assert!(
+            exercised.contains(id),
+            "command '{id}' is not exercised by the fuzz test"
+        );
     }
     drop(ctx);
     let _ = std::fs::remove_dir_all(&base);
