@@ -195,7 +195,7 @@ fn bounded(v: &str, name: &str, max: i64) -> Result<i64> {
 }
 
 /// Current time as `YYYY-MM-DDTHH:MM:SSZ` (UTC).
-fn utc_iso_now() -> String {
+pub(super) fn utc_iso_now() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

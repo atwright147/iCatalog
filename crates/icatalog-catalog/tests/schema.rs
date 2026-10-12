@@ -109,7 +109,7 @@ fn thumbnail_round_trip_and_constraint() {
 }
 
 #[test]
-fn metadata_raw_round_trip_and_constraint() {
+fn metadata_raw_round_trip_and_replace() {
     let c = Catalog::open_in_memory().unwrap();
     let a = c.insert_asset(&asset("u", "p")).unwrap();
     let rows = [
@@ -126,7 +126,9 @@ fn metadata_raw_round_trip_and_constraint() {
     for r in &rows {
         assert!(got.contains(r));
     }
-    assert!(c.insert_metadata_raw(&rows[0]).is_err());
+    // Same primary key replaces rather than erroring (idempotent ingest).
+    c.insert_metadata_raw(&rows[0]).unwrap();
+    assert_eq!(c.metadata_raw_for_asset(a).unwrap().len(), 4);
 }
 
 #[test]
@@ -283,6 +285,22 @@ fn uid_unique_path_not_unique_and_raw_bytes() {
     uni.name = "名前".into();
     let id = c.insert_asset(&uni).unwrap();
     assert_eq!(c.asset(id).unwrap().unwrap().path, "päth/日本語/🎞");
+}
+
+#[test]
+fn metadata_raw_insert_is_idempotent_and_replaces() {
+    let c = Catalog::open_in_memory().unwrap();
+    let a = c.insert_asset(&asset("u1", "p1")).unwrap();
+    let m = meta_raw(a, "xmp_packet", "raw", 0);
+    c.insert_metadata_raw(&m).unwrap();
+    c.insert_metadata_raw(&m).unwrap();
+    assert_eq!(c.metadata_raw_for_asset(a).unwrap().len(), 1);
+    let mut m2 = m.clone();
+    m2.value = vec![9, 9];
+    c.insert_metadata_raw(&m2).unwrap();
+    let rows = c.metadata_raw_for_asset(a).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].value, vec![9, 9]);
 }
 
 #[test]

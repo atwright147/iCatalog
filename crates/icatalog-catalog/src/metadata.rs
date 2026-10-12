@@ -51,7 +51,7 @@ impl Catalog {
 
     pub fn insert_metadata_raw(&self, m: &MetadataRaw) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO metadata_raw (asset_id, scheme, key, seq, value) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT OR REPLACE INTO metadata_raw (asset_id, scheme, key, seq, value) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![m.asset_id, m.scheme, m.key, m.seq, m.value],
         )?;
         Ok(())

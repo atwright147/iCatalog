@@ -208,11 +208,14 @@ impl App {
         }
         ui.separator();
         ui.label(format!("Path: {}", asset.path));
+        let dims = match (asset.width, asset.height) {
+            (Some(w), Some(h)) => format!("{w}x{h}"),
+            _ => "dimensions unknown".to_string(),
+        };
         ui.label(format!(
-            "Format: {}  {}x{}",
+            "Format: {}  {}",
             asset.format.as_deref().unwrap_or("?"),
-            asset.width.unwrap_or(0),
-            asset.height.unwrap_or(0)
+            dims
         ));
         ui.label(format!("Size: {} bytes", asset.file_size.unwrap_or(0)));
         if asset.missing {
