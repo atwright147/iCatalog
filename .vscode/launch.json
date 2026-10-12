@@ -1,0 +1,58 @@
+{
+  // Requires the CodeLLDB extension (vadimcn.vscode-lldb, recommended in
+  // extensions.json). Debug builds are the default profile, so breakpoints,
+  // stepping and variable inspection work with no extra flags. See
+  // docs/development.md section 5.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug icatalog-ui (GUI)",
+      "cargo": {
+        "args": ["build", "--bin=icatalog-ui", "--package=icatalog-ui"]
+      },
+      // Change the catalogue argument to the one you are working with.
+      "args": ["catalogue.sqlite"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug icatalog CLI (edit)",
+      "cargo": {
+        "args": ["build", "--bin=icatalog", "--package=icatalog-cli"]
+      },
+      "args": ["edit", "catalogue.sqlite", "--id", "1", "--rating", "5"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug engine tests",
+      "cargo": {
+        "args": ["test", "--no-run", "--package=icatalog-engine"],
+        "filter": { "name": "icatalog-engine", "kind": "lib" }
+      },
+      "args": ["--nocapture"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug edit integration tests",
+      "cargo": {
+        "args": ["test", "--no-run", "--package=icatalog-engine", "--test=edit"],
+        "filter": { "name": "edit", "kind": "test" }
+      },
+      "args": ["--nocapture"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "attach",
+      "name": "Attach to icatalog-ui",
+      "program": "${workspaceFolder}/target/debug/icatalog-ui"
+    }
+  ]
+}

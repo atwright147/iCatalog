@@ -4,6 +4,7 @@
     "tamasfe.even-better-toml",
     "vadimcn.vscode-lldb",
     "fill-labs.dependi",
-    "EditorConfig.EditorConfig"
+    "EditorConfig.EditorConfig",
+    "task.vscode-task",
   ]
 }

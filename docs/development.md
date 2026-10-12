@@ -76,10 +76,16 @@ EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <cat
 
 ## 5. Debugging tricks
 
+- **Debug builds and breakpoints (Decided):** `cargo build`/`cargo run` use the dev profile (symbols, `debug_assertions`, no optimisation), so an ordinary debugger attaches with no extra flags. There is no in-process inspector like a browser's devtools; you drive a debugger instead.
+- **VS Code (recommended):** install the CodeLLDB extension (`vadimcn.vscode-lldb`, recommended in `.vscode/extensions.json`). `.vscode/launch.json` (committed) provides: *Debug icatalog-ui (GUI)*, *Debug icatalog CLI (edit)*, *Debug engine tests*, *Debug edit integration tests* and *Attach to icatalog-ui*. Pick one, set a breakpoint (e.g. in `crates/icatalog-engine/src/commands/edit.rs`) and press F5. Edit the `args` in the config to point at your catalogue. `dbg!(x)` and `eprintln!` work as console-style output and appear in the Debug Console.
+- **Terminal:** `rust-lldb target/debug/icatalog-ui -- catalogue.sqlite`, then `breakpoint set --file edit.rs --line <n>` (or by symbol), `run`, `bt`, `frame variable`. `rust-gdb` is the same for gdb users.
+- **GUI caveat:** the shell dispatches commands synchronously on the main thread, so the window freezes while execution is stopped at a breakpoint; the catalogue is not left in a bad state and stepping resumes normally.
+- **Panic backtraces:** run with `RUST_BACKTRACE=1`. Because `dispatch_guarded` turns an escaped panic into an error, a panicking command shows an error rather than a backtrace; to see the backtrace, call the engine directly (e.g. `cargo test`) instead of through the guard.
+- **Logging:** nothing wires a logger yet, so there is no `RUST_LOG`; use `dbg!`/`eprintln!` or the debugger for now.
 - **Legacy files:** the `ivc` crate has `examples/dump.rs` for inspecting `.ivc` files; check `ivc-file-research/AGENTS.md` for current usage. Format spec: `ivc-file-research/docs/ivc-format.md`; sample oracles: `ivc-file-research/crates/ivc/tests/samples.rs`.
 - **Parallel agents:** use `CARGO_TARGET_DIR=target/agent-<name>` to avoid the Cargo build lock; delete finished `target/agent-*` dirs. Edit only files you own; shared files get small surgical edits.
 - **Devlog:** `log/devlog.md` is PLANNED (local, gitignored); append a terse entry per task once it exists. It does not exist yet.
-- **Panics:** the shell will catch an escaped panic around dispatch and import (Decided design, not built); never rely on it.
+- **Panics:** the CLI `main` and the GUI shell catch an escaped panic around dispatch and import and report it as an error, leaving the catalogue untouched (the `dispatch_guarded` guard, D12). It is a safety net, never a licence to panic.
 
 ## 6. Definition of done
 
