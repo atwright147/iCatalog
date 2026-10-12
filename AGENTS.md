@@ -4,7 +4,7 @@ iCatalog is an open-source, native, Rust-only rebuild of the discontinued iView 
 
 **Architecture origin:** these guides were adapted from PhotoCraft's AGENTS.md (`https://raw.githubusercontent.com/storytold/photocraft/main/AGENTS.md`, repo `github.com/storytold/photocraft`). PhotoCraft also references a shared `../craftrules` standards repo, which is **not present on this machine**. Decision history: `docs/decisions.md`.
 
-**Conventions:** this repo has two parts: the app (this guide; `docs/`, future `crates/`) and the clean-room format study in `ivc-file-research/` (guide: `ivc-file-research/AGENTS.md`; spec, 16 sample oracles and the `ivc` parser crate). This is the single root guide and stands alone. All paths are repo-root-relative (e.g. `crates/`). Format knowledge lives in the nested guide `ivc-file-research/AGENTS.md`. The repo is not under git yet and has no repo-level `.gitignore` (only `ivc-file-research/samples/.gitignore`); add a root one (`target/`, `log/`, `corpus`-style dirs) when initialising.
+**Conventions:** this repo has two parts: the app (this guide; `docs/`, future `crates/`) and the clean-room format study in `ivc-file-research/` (guide: `ivc-file-research/AGENTS.md`; spec, 16 sample oracles and the `ivc` parser crate). This is the single root guide and stands alone. All paths are repo-root-relative (e.g. `crates/`). Format knowledge lives in the nested guide `ivc-file-research/AGENTS.md`. The repo is under git with a root `.gitignore` (covers `target/`, `log/`, `*.sqlite`, plus `ivc-file-research/samples/.gitignore`).
 
 Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). The browser build uses the same command engine and model as desktop: every client keeps a local SQLite copy and syncs over the same HTTP(S) API (section 5). The browser storage strategy (e.g. OPFS) is an open design item (see `docs/architecture.md`). Nothing wasm-related is built yet.
 
@@ -20,13 +20,13 @@ Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). T
 | `docs/schema.md` | EXISTS | SQLite catalogue schema and migrations |
 | `docs/roadmap.md` | EXISTS | Milestones and **current focus** |
 
-The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today, plus the app crates under `crates/` (`icatalog-catalog`, `icatalog-engine`, `icatalog-cli`: EXISTS; the rest below is PLANNED). Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
+The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today, plus the app crates under `crates/` (`icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli`, `icatalog-ui`: EXISTS; the rest below is PLANNED). Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
 
 ## 2. Workspace map
 
-ONE Cargo workspace rooted at the repo root (`Cargo.toml` there: `[workspace]`, resolver 2, `members = ["ivc-file-research/crates/ivc"]` today). Add the glob `crates/*` to the root members when the first app crate is created. `cargo test --workspace` / `cargo clippy --workspace` are the gate for both parts.
+ONE Cargo workspace rooted at the repo root (`Cargo.toml` there: `[workspace]`, resolver 2, `members = ["ivc-file-research/crates/ivc", "crates/*"]`). `cargo test --workspace` / `cargo clippy --workspace` are the gate for both parts.
 
-Planned app crates (all PLANNED, none exist yet), under `crates/`:
+App crates under `crates/` (EXISTS or PLANNED per each line):
 
 ```text
 crates/
@@ -34,7 +34,7 @@ crates/
   icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/status; sync/serve not built)
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/status; sync/serve not built)
   icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -57,7 +57,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 - **Paths, labels and text from foreign machines are hostile strings.** Never assume UTF-8 (legacy catalogues are likely Mac Roman; the check is an open RE item), never assume a path exists or that a file type matches its extension or 4cc, and never trust a catalogued path to stay inside a directory.
 - **Bound recursion** with depth limits or seen-sets (folder trees and chunk lists can be deep or cyclic).
 - **Don't cascade.** Handle lock poisoning (`lock().unwrap_or_else(PoisonError::into_inner)`) and treat thread joins as `Result`s.
-- **Last-resort guard.** The shell (`icatalog` CLI `main`, later the GUI) catches an escaped panic around command dispatch and import, reports it as an error and leaves the catalogue untouched. It's a safety net, not a licence to panic. Keep `panic = "unwind"`.
+- **Last-resort guard.** The shell (the `icatalog` CLI `main` and the GUI shell) catches an escaped panic around command dispatch and import, reports it as an error and leaves the catalogue untouched. It's a safety net, not a licence to panic. Keep `panic = "unwind"`.
 - **Prove it.** Every crash fix comes with a small synthetic regression test that panicked before the fix.
 - **Enforced by clippy.** Clean crates carry `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`, with tests allowed via `clippy.toml` (PLANNED; check whether `ivc-file-research/crates/ivc` already has them before assuming); new crates start with it.
 
@@ -76,7 +76,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). All PLANNED.
 
-`icatalog` subcommands (`icatalog init|open|import|list|find|update|sync|serve|status`; `update` EXISTS (D14), `sync`/`serve` PLANNED) (each maps to an engine command):
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|sync|serve|status`; `update` (D14) and `edit` (D16) EXIST, `sync`/`serve` PLANNED) (each maps to an engine command):
 
 | Subcommand | Purpose |
 |---|---|
@@ -116,7 +116,7 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 3. Sync service and client.
 4. egui browser (desktop shell EXISTS in `icatalog-ui`, D15; wasm later).
 
-`log/devlog.md` is PLANNED; once the repo is under git, start `log/devlog.md` (gitignored) and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
+`log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task
 
@@ -127,7 +127,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 - Don't claim sync, schema or wasm behaviour that isn't built and tested; keep EXISTS vs PLANNED honest.
 - **Keep the docs true — same change, same commit.** Docs are part of the definition of done, not an afterthought. If a change alters what EXISTS vs PLANNED, the crate map, the schema, the CLI surface or a design decision, update the matching doc in the same change: `docs/roadmap.md` (milestone status), `docs/architecture.md` (crate map and layers), `docs/schema.md` (SQLite schema), `docs/decisions.md` (add a new D-numbered entry when you choose an approach), the root `Taskfile.yml` (see the next bullet) and this file. A reader must be able to trust that "EXISTS" means built and tested and "PLANNED" means not yet built; if code and docs disagree the doc is the bug — fix it before you finish, and never claim behaviour a doc still lists as PLANNED until a crate and its tests back it.
-- Append a terse entry to `log/devlog.md` (PLANNED: what landed, what's still open).
+- Append a terse entry to `log/devlog.md` (what landed, what's still open).
 - **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
@@ -143,5 +143,5 @@ cargo clippy --workspace --all-targets -- -D warnings
 ## 9. Where things are tracked
 
 - Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine` and the `icatalog` CLI; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
-- PLANNED: `log/devlog.md` (local, gitignored).
+- EXISTS: `log/devlog.md` (local, gitignored; append a terse entry per task).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

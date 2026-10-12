@@ -84,7 +84,7 @@ EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <cat
 - **Logging:** nothing wires a logger yet, so there is no `RUST_LOG`; use `dbg!`/`eprintln!` or the debugger for now.
 - **Legacy files:** the `ivc` crate has `examples/dump.rs` for inspecting `.ivc` files; check `ivc-file-research/AGENTS.md` for current usage. Format spec: `ivc-file-research/docs/ivc-format.md`; sample oracles: `ivc-file-research/crates/ivc/tests/samples.rs`.
 - **Parallel agents:** use `CARGO_TARGET_DIR=target/agent-<name>` to avoid the Cargo build lock; delete finished `target/agent-*` dirs. Edit only files you own; shared files get small surgical edits.
-- **Devlog:** `log/devlog.md` is PLANNED (local, gitignored); append a terse entry per task once it exists. It does not exist yet.
+- **Devlog:** `log/devlog.md` (local, gitignored) records a terse entry per task; read its "Still open" bullets when picking work.
 - **Panics:** the CLI `main` and the GUI shell catch an escaped panic around dispatch and import and report it as an error, leaving the catalogue untouched (the `dispatch_guarded` guard, D12). It is a safety net, never a licence to panic.
 
 ## 6. Definition of done
@@ -96,11 +96,11 @@ Before finishing a task (**Decided**):
 - No claim of sync, schema or wasm behaviour that is not built and tested; EXISTS vs PLANNED stays honest.
 - Tree builds at every step; no `unwrap`/`expect`/`panic!`/`todo!`/`unsafe` in non-test code.
 - Test images are public-domain, never personal photos.
-- Devlog entry once `log/devlog.md` exists.
+- Devlog entry in `log/devlog.md`.
 
 ## 7. Repo caveats
 
-The repo is under git with a root `.gitignore` covering `target/` and `log/` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` is PLANNED (local, gitignored): start it and append a terse entry per task.
+The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*.sqlite` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` (local, gitignored) records a terse entry per task.
 
 ## 8. Open questions
 

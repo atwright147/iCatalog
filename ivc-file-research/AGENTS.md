@@ -4,7 +4,7 @@ This folder is the **clean-room reverse engineering** of the legacy iView MediaP
 
 **Conventions:** all paths below are repo-root-relative (e.g. `ivc-file-research/samples/`). The guide for app development is `../AGENTS.md`. Read this file first, then the spec.
 
-**Shared facts:** the repo is not under git yet and has no repo-level `.gitignore` (only `ivc-file-research/samples/.gitignore`). There is ONE Cargo workspace rooted at the repo root (`Cargo.toml` at the root, `resolver = "2"`, `members = ["ivc-file-research/crates/ivc"]` today; `crates/*` is added when the first app crate exists), so `cargo test --workspace` and `cargo clippy --workspace` are the gate for both parts.
+**Shared facts:** the repo is under git with a root `.gitignore` (covers `target/`, `log/`, `*.sqlite`, plus `ivc-file-research/samples/.gitignore`). There is ONE Cargo workspace rooted at the repo root (`Cargo.toml` at the root, `resolver = "2"`, `members = ["ivc-file-research/crates/ivc", "crates/*"]`), so `cargo test --workspace` and `cargo clippy --workspace` are the gate for both parts.
 
 ## 1. Format at a glance
 
@@ -39,7 +39,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 - Update `ivc-file-research/docs/ivc-format.md` for any new finding (with evidence).
-- Append a terse entry to `log/devlog.md` (PLANNED, local and gitignored once the repo is under git): what landed, what's still open. Sessions end abruptly; the devlog plus a green tree is how the next agent picks up.
+- Append a terse entry to `log/devlog.md` (local and gitignored): what landed, what's still open. Sessions end abruptly; the devlog plus a green tree is how the next agent picks up.
 - Keep the tree building at every step.
 
 ## 5. Picking work
