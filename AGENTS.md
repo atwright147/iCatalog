@@ -35,7 +35,7 @@ crates/
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              L3 sync client + NAS-side HTTP(S) service
   icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/status; sync/serve not built)
-  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata; init/import/update actions); wasm PLANNED
+  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
 packaging/          Docker image + compose example (PLANNED)
@@ -84,7 +84,8 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
 | `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
-| `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files; edit metadata: keywords, ratings, labels (iView-style, after the lineage) |
+| `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
+| `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
 | `sync` | Pull/push against the NAS catalogue (section 5) |
 | `serve` | Run the NAS-side HTTP(S) sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |

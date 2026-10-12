@@ -15,9 +15,9 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
 | `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2, v3) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13) | EXISTS |
-| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`; `dispatch_guarded` panic guard (D12, D14) | EXISTS |
+| `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
-| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status/update`, `--help`, `--version`, `commands`) | EXISTS |
+| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status/update/edit`, `--help`, `--version`, `commands`) | EXISTS |
 | `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`); wasm PLANNED | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
@@ -58,7 +58,7 @@ Commands return `Err` for any input (hostile params included). A fuzz-style test
 
 ## 5. UI shell
 
-- **EXISTS (D15):** `icatalog-ui` is a thin, data-driven native egui desktop shell. Browsing reads the local catalogue (`query_assets`, `thumbnail`); every action (`init`, `import`, `update`) is dispatched as an engine command, so CLI and GUI behave identically. It holds no logic of its own. egui/eframe native desktop; no webview. The only media contact is `icatalog-media::decode_rgba` (D8).
+- **EXISTS (D15):** `icatalog-ui` is a thin, data-driven native egui desktop shell. Browsing reads the local catalogue (`query_assets`, `thumbnail`, `annotation`, `asset_keywords`); every action (`init`, `import`, `update`, and per-asset `edit` of rating/label/keywords) is dispatched as an engine command, so CLI and GUI behave identically. It holds no logic of its own. egui/eframe native desktop; no webview. The only media contact is `icatalog-media::decode_rgba` (D8).
 - **Decided (goal):** wasm browser build via trunk + wasm-bindgen, Rust only, using the same engine and model as desktop (D3).
 - **Open:** the exact data-driven mechanism (e.g. menus generated from the command registry) is not designed.
 

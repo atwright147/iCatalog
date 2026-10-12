@@ -1,6 +1,6 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update` exist.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit` exist.
 
 ## 1. Prerequisites
 
@@ -52,7 +52,7 @@ Adding a crate (**Proposed** procedure):
 
 ## 4. Driving the CLI
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status` and `update`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import <catalogue> <dir> [--recursive false]`; rescan with `cargo run -p icatalog-cli -- update <catalogue> [--path <dir>] [--recursive false]`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update` and `edit`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import <catalogue> --path <dir> [--recursive false]`; rescan with `cargo run -p icatalog-cli -- update <catalogue> [--path <dir>] [--recursive false]`; tag an asset with `cargo run -p icatalog-cli -- edit <catalogue> --id 3 --rating 5 --keyword sunset,beach`.
 
 PLANNED (not built): `sync`, `serve`; those rows below are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
 
@@ -62,7 +62,8 @@ PLANNED (not built): `sync`, `serve`; those rows below are design sketches from 
 | `open` | `icatalog open photos.sqlite` | Validate and print a summary |
 | `import` | `icatalog import photos.sqlite ~/Pictures` | Import a directory (EXISTS, raster only) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
-| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); metadata editing not built |
+| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14) |
+| `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |
 | `sync` | `icatalog sync photos.sqlite` | Pull/push against the NAS |
 | `serve` | `icatalog serve` | Run the NAS HTTP(S) sync service |
 | `status` / `info` | `icatalog status photos.sqlite` | Stats, generation, sync state |
@@ -71,7 +72,7 @@ Each subcommand is a thin wrapper over an engine command.
 
 ## 4a. Driving the GUI
 
-EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. The left panel lists assets; selecting one shows its stored grid thumbnail and basic metadata. The **Import…** button pick a folder and dispatches the `import` command; **Update** dispatches `update` (whole-catalogue rescan). The status bar shows the last command's outcome. Native desktop only; the wasm build is PLANNED.
+EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. The left panel lists assets; selecting one shows its stored grid thumbnail, basic metadata, and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear). The **Import…** button picks a folder and dispatches the `import` command; **Update** dispatches `update` (whole-catalogue rescan); each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome. Native desktop only; the wasm build is PLANNED.
 
 ## 5. Debugging tricks
 

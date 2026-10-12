@@ -114,11 +114,22 @@ Context: the owner asked to try the app in a UI while sync (M3) was still unbuil
 
 Decision:
 - New **`icatalog-ui`** crate at **L4** (binary `icatalog-ui <catalogue>`), **native desktop only for now**; the wasm build stays a later goal (D3). Deps: `eframe`/`egui` and `rfd`, GUI-only and allowed for `icatalog-ui` by the layer rule; no media dependency.
-- **Thin and data-driven** (golden rule 4): browsing reads the local catalogue directly (`query_assets`, `thumbnail`), while every action (`init` on a fresh path, `import` via a folder picker, `update`) is dispatched as an engine command through `dispatch_guarded`, so CLI and GUI behave identically.
+- **Thin and data-driven** (golden rule 4): browsing reads the local catalogue directly (`query_assets`, `thumbnail`, `annotation`, `asset_keywords`), while every action (`init` on a fresh path, `import` via a folder picker, `update`, and per-asset `edit`) is dispatched as an engine command through `dispatch_guarded`, so CLI and GUI behave identically.
 - To keep media deps isolated (D8), the only media addition is **`icatalog-media::decode_rgba(&[u8]) -> DecodedImage`** (bytes in, RGBA8 out, `Limits`-bounded); the shell turns that into an egui texture.
 - `icatalog-ui` is compiled natively only; the wasm target is not installed and no wasm status is claimed.
 
 Status: Accepted (owner requested the slice, Oct 2026).
+
+## D16. Metadata editing: a dedicated `edit` command (2026-10-12)
+
+Context: the organiser needs iView-style annotations (keywords, rating, label) that the user sets, stored authoritatively in the v2 tables (D11). AGENTS §4 once sketched metadata editing under `update`; since `update` became the rescan command (D14), folding edits into it would mix two unrelated concerns in one command.
+
+Decision:
+- New **`edit`** engine command: `edit <catalogue> --id <asset id> [--rating 0-5] [--label 0-7] [--keyword a[,b..]] [--remove-keyword a[,b..]] [--clear-keywords true]`, dispatched by CLI and GUI like every other command (golden rule 1). Scope: keywords, rating and label; caption/headline/creator/copyright are a later slice. It is deliberately separate from `update` (rescan).
+- **One asset per invocation, addressed by row id** (ids shown by `list`). Batch edits against a query match set are a later feature.
+- **Edit semantics:** keywords and asset links use `INSERT OR IGNORE` (idempotent); removal deletes only the asset link (keyword rows survive). Annotation rows are upserted on `asset_id`, patching touched fields while preserving others, and `updated_utc` is refreshed when a rating/label change lands. User-set values stay authoritative (D11).
+- Validation: `rating` 0-5 and `label` 0-7 must parse and be in range; no edits requested, an unknown/absent `id`, or `--clear-keywords` other than `true`/`false` is a `BadParam`; an uninitialised file is `Unsupported`.
+Status: Accepted.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
