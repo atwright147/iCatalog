@@ -214,8 +214,39 @@ fn capture_xmp(
     Ok(Some(icatalog_media::parse_xmp(&packet)))
 }
 
-/// Seed rating/caption/keywords from XMP on first ingest only. `xmp:Label` is
-/// a colour name and its mapping to the numeric label is undecided: untouched.
+/// Map an `xmp:Label` colour/name string to the numeric label 0-7.
+/// Return None if there is no plausible mapping.
+fn map_xmp_label(s: &str) -> Option<i64> {
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let t = t.to_ascii_lowercase();
+    match t.as_str() {
+        "red" => Some(1),
+        "orange" => Some(2),
+        "yellow" => Some(3),
+        "green" => Some(4),
+        "blue" => Some(5),
+        "purple" => Some(6),
+        "pink" => Some(7),
+        "magenta" => Some(7),
+        "violet" => Some(6),
+        "indigo" => Some(6),
+        "cyan" => Some(5),
+        "teal" => Some(4),
+        "lime" => Some(3),
+        "brown" => Some(2),
+        "black" => Some(1),
+        "white" => Some(0),
+        "gray" | "grey" => Some(0),
+        _ => None,
+    }
+}
+
+/// Seed rating/caption/keywords from XMP on first ingest only.
+/// `xmp:Label` (colour name) is mapped to 0-7 when possible and only sets the
+/// annotation label if the asset has no user value (label == 0).
 fn seed_xmp(ctx: &Context, asset_id: i64, data: &XmpData) -> Result<()> {
     let mut ann = ctx.catalog().annotation(asset_id)?.unwrap_or(Annotation {
         asset_id,
@@ -232,6 +263,16 @@ fn seed_xmp(ctx: &Context, asset_id: i64, data: &XmpData) -> Result<()> {
         if (1..=5).contains(&n) && ann.rating == 0 {
             ann.rating = i64::from(n);
             changed = true;
+        }
+    }
+    if let Some(lbl) = &data.label {
+        if ann.label == 0 {
+            if let Some(m) = map_xmp_label(lbl) {
+                if (0..=7).contains(&m) {
+                    ann.label = m;
+                    changed = true;
+                }
+            }
         }
     }
     if let Some(d) = &data.description {

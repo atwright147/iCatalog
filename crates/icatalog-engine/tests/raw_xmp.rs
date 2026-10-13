@@ -144,7 +144,7 @@ fn raw_preview_and_xmp_seeded() {
     assert_eq!(xmp_rows(&ctx, id), 1);
     let a = ctx.catalog().annotation(id).unwrap().unwrap();
     assert_eq!(a.rating, 3);
-    assert_eq!(a.label, 0);
+    assert_eq!(a.label, 1); // Red maps to label 1
     assert_eq!(a.caption.as_deref(), Some("Hello"));
     assert_eq!(kws(&ctx, id), ["cat", "dog"]);
     drop(ctx);
