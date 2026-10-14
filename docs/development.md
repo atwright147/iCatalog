@@ -1,6 +1,6 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit` exist.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit` exist.
 
 ## 1. Prerequisites
 
@@ -60,7 +60,7 @@ PLANNED (not built): `sync`, `serve`; those rows below are design sketches from 
 |---|---|---|
 | `init` / `new` | `icatalog init photos.sqlite` | Create an empty catalogue |
 | `open` | `icatalog open photos.sqlite` | Validate and print a summary |
-| `import` | `icatalog import photos.sqlite ~/Pictures` | Import a directory (EXISTS, raster only) or a `.ivc`/`.mpcatalog` (not built) |
+| `import` | `icatalog import photos.sqlite --path ~/Pictures` | Import a directory (EXISTS, raster only) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14) |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |

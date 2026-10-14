@@ -142,6 +142,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 9. Where things are tracked
 
-- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine` and the `icatalog` CLI; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, the `icatalog` CLI and the `icatalog-ui` desktop shell; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
 - EXISTS: `log/devlog.md` (local, gitignored; append a terse entry per task).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

@@ -17,7 +17,7 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
 
-## 3. DDL (v1 + v2, implemented)
+## 3. DDL (v1 + v2, implemented; the v3 column is marked inline)
 
 ```sql
 -- catalogue-level metadata (single row)

@@ -1,40 +1,37 @@
 # iCatalog roadmap
 
-Purpose: milestones and current focus. Status vocabulary: **Decided** (owner order from `AGENTS.md` section 6), **Proposed** (breakdown here), **Open** (unresolved). Milestone status is NOT STARTED unless stated; `icatalog-catalog`, `icatalog-engine` and `icatalog-cli` exist app-side (plus `ivc`).
+Purpose: what is built, what is in progress, and what comes next, app-side. Crate map and layering live in `docs/architecture.md`; numbered decisions in `docs/decisions.md`; the format study in `ivc-file-research/AGENTS.md`. Status vocabulary: **Decided** (owner order), **Proposed** (breakdown), **Open** (unresolved). The exit criteria for every milestone are the workspace gate: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`.
+
+App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli`, `icatalog-ui` (plus `ivc`, in `ivc-file-research/`).
 
 ## 1. Priority rule
 
-**Decided:** format knowledge first (tracked in `ivc-file-research/AGENTS.md`), then the data model, then the interfaces. App-side order: schema, engine + CLI, sync, egui (desktop, then wasm). Exit criteria for every milestone are the workspace gate: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`.
+**Decided:** format knowledge first, then the data model, then the interfaces. App-side order: schema, engine + CLI, sync, egui (desktop, then wasm); M4 was pulled ahead of M3 by owner request (D15). Crash-safety fixes outrank feature work (golden rule).
 
-## 2. Milestones (Proposed breakdown)
+## 2. Done
 
-| Milestone | Deliverables | Exit criteria | Status |
-|---|---|---|---|
-| M0 housekeeping | `git init`, `.gitignore` (`target/`, `log/`), `log/devlog.md`, first crate scaffold, `crates/*` in root members | tree builds, gate passes | DONE: repo under git, root `.gitignore` (`target/`, `log/`, `*.sqlite`), `crates/*` in root members, `log/devlog.md` started (local, gitignored) |
-| M1 schema | `icatalog-catalog`, schema + migrations per `docs/schema.md`, `ivc` import mapping | round-trip and migration tests, gate passes | LARGELY IMPLEMENTED: schema v1+v2, migrations, model + CRUD for every table, tests (round-trip, FK cascade, constraints, raw bytes, migrations, never-panic). Remaining gap: the `ivc` import mapping (M2 work) |
-| M2 engine + CLI | `icatalog-engine` command registry, binary `icatalog` (init/open/import/list/find/update/edit/status), panic guard, layer test; `icatalog-media` (L1, D8): legacy thumbnails (embedded JPEG unchanged; PICT decoded in `ivc`), raster ingest (`image`), EXIF read (`kamadak-exif`), thumbnail stored in SQLite | each command tested, adversarial-params test, gate passes | STARTED: engine registry, `dispatch_guarded` panic guard, CLI `icatalog` with `init/open/list/find/status` and the layer test landed with tests. `icatalog-media` (raster ingest, EXIF, thumbnails) and `import <dir>` landed (D13). `update` (rescan for added/changed/missing, D14) and `edit` (keywords/rating/label, D16) landed. The adversarial-params fuzz test landed (`crates/icatalog-engine/tests/adversarial.rs`). Not built: legacy `.ivc` import (deprioritised), the PICT decoder |
-| M3 sync | `icatalog-sync` service (`serve`) + client, per `docs/sync.md`; musl build and Docker packaging | generation-race and interrupted-transfer tests, gate passes | NOT STARTED |
-| M4 egui | `icatalog-ui` desktop, then wasm via trunk + wasm-bindgen | desktop builds; wasm target installed and `cargo check` passes for L0+ | STARTED (pulled ahead of M3 by owner, D15): native desktop shell `icatalog-ui` browses assets, shows a stored thumbnail + metadata, edits rating/label/keywords, and dispatches `init`/`import`/`update`/`edit` via engine commands. wasm NOT STARTED |
-| Media breadth (post-M4, D8) | RAW preview + metadata (DNG/CR2/NEF/ARW/PEF/RAF/CR3) and embedded XMP read, hand-rolled with zero new dependencies (D17); PSD; HEIC/AVIF metadata-only; video metadata + frame (FilmCraft); disk preview cache | workspace gate + wasm check + cargo-deny clean | PARTIAL: RAW embedded-preview thumbnails (`raw_preview`), RAW assets record container format + true dimensions (`raw_dimensions`: raw sub-IFD, else ExifIFD pixel dimensions; NULL/unknown, never the preview's, otherwise, e.g. CR3/RAF still open), XMP packet storage and seed-on-first-ingest EXIST (D17); PLANNED: `xmp:Label` mapping, sidecar `.xmp`, PSD, HEIC/AVIF, video (no demosaic, by design) |
+- **M0 housekeeping** — repo under git; root `.gitignore` (`target/`, `log/`, `*.sqlite`); `crates/*` workspace members; `log/devlog.md` (local, gitignored).
+- **M1 schema** — `icatalog-catalog`: schema v1+v2+v3 with migrations, the model + CRUD for every table, `AssetQuery`/`CatalogStats`; round-trip, FK-cascade, constraint, raw-bytes, migration and never-panic tests. The one open piece — the `ivc` import mapping — is M2 work, not schema work.
 
-PICT pixel decoder (QuickDraw raw-pixmap case) is `ivc` work (ivc-file-research), needed by the M2 legacy-thumbnail task; tracked in `ivc-file-research/AGENTS.md`.
+## 3. In progress
 
-## 3. Current focus
+- **M2 engine + CLI** — *landed:* the `icatalog-engine` command registry + `dispatch_guarded` panic guard; the `icatalog` commands `init`, `open`, `import` (D13), `list`, `find`, `status`, `update` (D14) and `edit` (D16); the layer test; `icatalog-media` raster ingest (`image`), EXIF (`kamadak-exif`) and grid thumbnails; per-reason skip reporting in `import`/`update`; the adversarial-params fuzz test (`crates/icatalog-engine/tests/adversarial.rs`). *Open:* legacy `.ivc`/`.mpcatalog` import (deprioritised) and the PICT pixel decoder (`ivc` work, tracked in `ivc-file-research/AGENTS.md`).
+- **M4 egui (desktop)** — *landed:* `icatalog-ui`, a thin native egui shell (D15) that browses assets, shows a stored thumbnail + metadata, edits rating/label/keywords, and dispatches `init`/`import`/`update`/`edit` as engine commands. *Open:* the wasm build (trunk + wasm-bindgen; the target is not installed and no wasm status is claimed).
+- **Media breadth (D8/D17)** — *landed:* RAW embedded-preview thumbnails, RAW container format + true dimensions, and XMP packet storage with seed-on-first-ingest of rating/label/keywords — all hand-rolled with no new dependency (D17). *Open:* mapping the `xmp:Label` colour name to the numeric label; sidecar `.xmp`; PSD; HEIC/AVIF (metadata only); video metadata + frame (FilmCraft); the derived desktop-only disk preview cache (D8, deferred to M4+). No demosaic, by design.
 
-**Decided:** milestone 1, the SQLite schema (`icatalog-catalog`, `docs/schema.md`), is largely implemented; encoding, paths and stable ids are settled (D10) and user annotations (D11). M2 has started: engine + CLI core commands (`init/open/list/find/status`) landed with tests. `icatalog-media` and `import <dir>` have landed (D13). `update` has landed (D14) and `edit` (user annotations: keywords, rating, label, D16) has landed. The adversarial-params fuzz test has landed (`tests/adversarial.rs`). Remaining M2/backlog: legacy `.ivc` import (deprioritised) and the PICT decoder. M4 was pulled ahead of M3 by owner request: the native desktop shell `icatalog-ui` has landed (D15; browse, thumbnail, metadata, rating/label/keyword edit, `init`/`import`/`update`/`edit`); wasm is still to come. Media breadth (D8) is next: the owner chose a zero-new-dependency approach for RAW preview + embedded XMP read, covering DNG/CR2/NEF/ARW/PEF/RAF/CR3 (D17); the RAW preview + XMP slice has landed (RAW files import via their embedded JPEG preview, recorded with the container format and true dimensions where determinable, else NULL, never the preview's; XMP packets are stored and seed rating/caption/keywords on first ingest; `xmp:Label` mapping and sidecar `.xmp` remain open).
+## 4. Next
 
-## 4. Backlog (Open)
+- **M3 sync** — the `icatalog-sync` service (`serve`) + client per `docs/sync.md`, plus the musl build and Docker packaging (`packaging/`). Exit criteria: generation-race and interrupted-transfer tests, gate passes. **NOT STARTED.**
+- Then close the M2 gaps above; `wasm32-unknown-unknown` install and the first wasm check join the gate once the target is available.
 
-- Samples corpus: resolved (committed, CC0; `ivc-file-research/samples/fetch.sh` is an optional re-fetch/verifier; `docs/decisions.md` D9).
-- Sync service mandatory vs share-file mode.
-- Browser storage (e.g. OPFS) and SQLite on wasm.
-- Merge strategy for conflicting syncs.
-- Sync API shape, auth, TLS.
-- `ATTRIBUTION.md` if third-party assets ever land.
+## 5. Open backlog
+
+- Sync: share-file mode vs a mandatory service; endpoints/auth/TLS; conflict merge (must keep the same safety guarantees).
+- `ATTRIBUTION.md` and cargo-deny, if third-party assets ever land (D17 added no new dependency).
 - Per-crate `clippy.toml`.
 - `xtask` (`layers`, `ci`).
 - Install `wasm32-unknown-unknown` and run the first wasm check.
 
-## 5. How priority is decided
+## 6. How priority is decided
 
-The owner sets order (recorded in `docs/decisions.md` and `AGENTS.md`). Crash-safety fixes outrank feature work (**Decided** golden rule). New decisions get a numbered entry in `docs/decisions.md`; this file then follows.
+The owner sets order (recorded in `docs/decisions.md` and `AGENTS.md`); crash-safety fixes outrank feature work (**Decided** golden rule). New decisions get a numbered entry in `docs/decisions.md`; this file then follows.

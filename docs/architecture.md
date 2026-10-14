@@ -18,7 +18,7 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
 | `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status/update/edit`, `--help`, `--version`, `commands`) | EXISTS |
-| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`); wasm PLANNED | EXISTS (native) |
+| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`); wasm PLANNED | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
 | `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
@@ -76,7 +76,7 @@ Boundary: app code reads `ivc` output only; it never copies iView/Expression/Pha
 - Flow: `ivc -> icatalog-media -> icatalog-catalog`, wired by the engine (L2). `icatalog-media` and `icatalog-catalog` do not depend on each other.
 - Legacy-format knowledge (PICT pixel decode, `ex??` tail blocks, Mac Roman, IPTC-IIM) is hand-rolled in `ivc`, which returns plain pixels/bytes and takes no encoder dependency.
 - `image` (default features off, explicit codecs, `Limits`) is the single pixel stack; never two decoders in the wasm bundle. EXIF via `kamadak-exif`.
-- ArtCraft siblings are sources only (study, vendor or git-dep; commit-pinned; feature-flagged): LightCraft for photo XMP and RAW bytes + metadata, FilmCraft for video metadata + frames; never their pixel stacks.
+- ArtCraft siblings are sources only (study, vendor or git-dep; commit-pinned; feature-flagged): FilmCraft for video metadata + frames; never their pixel stacks. D17 **superseded** the planned LightCraft route for photo XMP and RAW: `icatalog-media` reads embedded RAW previews and XMP packets by hand, with no new dependency (see section 7 and D17).
 - wasm: `icatalog-media` default features must build for `wasm32-unknown-unknown`; the ffmpeg escape hatch is native-only, user-installed, deferred.
 
 ## 8. wasm constraints
