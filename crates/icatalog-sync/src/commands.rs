@@ -163,6 +163,10 @@ fn validate_base(base: &str) -> EngineResult<()> {
 fn render(r: &SyncReport) -> Outcome {
     let mut lines = Vec::new();
     match &r.action {
+        SyncAction::UpToDate => lines.push(format!(
+            "already up to date at generation {}; nothing to push",
+            r.local_generation
+        )),
         SyncAction::Pushed => lines.push(format!(
             "push: accepted; server generation is now {}",
             r.server_generation
@@ -189,6 +193,8 @@ fn render(r: &SyncReport) -> Outcome {
             }
         }
     }
-    lines.push(format!("snapshot: {} bytes", r.bytes));
+    if r.bytes > 0 {
+        lines.push(format!("snapshot: {} bytes", r.bytes));
+    }
     Outcome::text(lines.join("\n"))
 }

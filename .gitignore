@@ -28,3 +28,5 @@ log/
 .task/
 
 *.sqlite
+*.sync-state
+*.sync-state

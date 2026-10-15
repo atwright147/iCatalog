@@ -114,6 +114,53 @@ fn push_then_pull_round_trip() {
 }
 
 #[test]
+fn idle_resync_is_a_no_op() {
+    let dir = temp_dir("idle");
+    let server_path = make_catalogue(&dir, "nas.sqlite", "cat-idle", 0);
+    let client_path = dir.join("local.sqlite");
+    std::fs::copy(&server_path, &client_path).unwrap();
+    let port = start_server(server_path.clone());
+    let url = format!("http://127.0.0.1:{port}");
+
+    let mut client = Context::open(&client_path).unwrap();
+
+    // The first sync has no marker yet, so it publishes and bumps the server.
+    let out = icatalog_sync::dispatch_guarded(&mut client, "sync", &sync_params(&url)).unwrap();
+    assert!(out.render().contains("push"), "{}", out.render());
+    assert_eq!(generation(&server_path), Some(1));
+
+    // A second sync with nothing changed must not push or bump the generation.
+    let out = icatalog_sync::dispatch_guarded(&mut client, "sync", &sync_params(&url)).unwrap();
+    assert!(out.render().contains("up to date"), "{}", out.render());
+    assert_eq!(generation(&server_path), Some(1));
+    assert_eq!(client.catalog().generation().unwrap(), Some(1));
+    assert!(backup_files(&dir).is_empty());
+}
+
+#[test]
+fn a_local_change_is_pushed() {
+    let dir = temp_dir("localchange");
+    let server_path = make_catalogue(&dir, "nas.sqlite", "cat-local", 0);
+    let client_path = dir.join("local.sqlite");
+    std::fs::copy(&server_path, &client_path).unwrap();
+    let port = start_server(server_path.clone());
+    let url = format!("http://127.0.0.1:{port}");
+
+    let mut client = Context::open(&client_path).unwrap();
+    let out = icatalog_sync::dispatch_guarded(&mut client, "sync", &sync_params(&url)).unwrap();
+    assert!(out.render().contains("push"), "{}", out.render());
+    assert_eq!(generation(&server_path), Some(1));
+
+    // A local edit that does not touch the generation counter changes the file.
+    client.catalog().ensure_keyword("sunset", None).unwrap();
+
+    let out = icatalog_sync::dispatch_guarded(&mut client, "sync", &sync_params(&url)).unwrap();
+    assert!(out.render().contains("push"), "{}", out.render());
+    assert_eq!(generation(&server_path), Some(2));
+    assert_eq!(client.catalog().generation().unwrap(), Some(2));
+}
+
+#[test]
 fn refused_push_backs_up_and_resyncs() {
     let dir = temp_dir("refused");
     let local = make_catalogue(&dir, "local.sqlite", "cat-refused", 0);

@@ -154,9 +154,21 @@ Decision:
 - **Transport: `tiny_http` (server) + `ureq` (client)**, both `MIT OR Apache-2.0`. Chosen over hyper/tokio for a small, blocking, native-only footprint, avoiding a new async runtime in the workspace. The client sits behind a small `Transport` trait so a wasm `fetch` implementation can slot in later (wasm rule). `ureq` is built with `default-features = false`, so this slice is **plain HTTP only**; TLS is Open.
 - **Wire protocol (first slice):** `GET /info` (`id`, `generation` as `key=value` lines), `GET /catalogue` (raw SQLite bytes; `X-Catalogue-Id` + `X-Generation` headers), `POST /catalogue?expected=<gen>` (raw bytes; `200` + new `X-Generation` on accept, `409` + current `X-Generation` on refusal). A snapshot body is capped (4 GiB) and verified before it replaces anything (opens as an iCatalog catalogue with the expected id; `PRAGMA integrity_check`).
 - **Policy:** server ahead of the client -> back up and pull; level -> push (a refusal is a race: back up, resync, report); client ahead of the server -> refuse. A local copy is backed up (`name.rejected-<UTC>.sqlite`) before any overwrite; downloads land in a temp file and are swapped in atomically after verification.
-- **Limit of this slice:** there is no dirty flag, so an idle re-sync re-pushes and bumps the generation. Delta transfer and merge are later work.
+- **Limit of this slice:** as first landed there was no change marker, so an idle re-sync re-pushed and bumped the generation (fixed by D19). Delta transfer and merge are later work.
 
 Status: Accepted (owner chose tiny_http + ureq and the `icatalog-sync` command registry, Oct 2026). Implementation: the whole-snapshot `serve`/`sync` slice EXISTS (`crates/icatalog-sync`; CLI `sync`/`serve` wired; help and `commands` list them). Tests cover a real push/pull round trip, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral and hostile params. Open: TLS, auth, incremental transfer, conflict merge (the D1/D2 policy is unchanged).
+
+## D19. An idle re-sync is a no-op (local change marker)
+
+Context: D18's first slice pushed whenever the client and server generations were level, whether or not anything had changed locally, so every startup sync bumped the server generation — noise, needless whole-file uploads and needless conflict windows. Local edits do not move the generation counter (D18, `docs/sync.md` section 2), so the client needs another way to tell "unchanged since I last synced". Rejected: setting a dirty flag from every local write (many call sites; forgetting one silently loses a push) and storing the marker in the catalogue itself (writing the marker changes the file, so a fingerprint of the file could never include it without being circular).
+
+Decision: a **local-only change marker** beside the local copy.
+- After every successful push or pull the client writes `<catalogue>.sync-state` (e.g. `photos.sqlite.sync-state`) holding `fingerprint=<value>`: a fast, non-cryptographic fingerprint (an FNV-1a-style hash over 8-byte words plus the length) of the local file's bytes at that moment. The marker is never transferred and never read by the server.
+- At sync time, with the generations level, the client fingerprints its local file and compares it with the marker. Equal -> **up to date**: nothing is sent and the generation does not move. Different (or no marker at all) -> push, the behaviour of D18.
+- The marker is best-effort: missing, unreadable or malformed means "unknown", which is always treated as *changed*, so the failure mode is a redundant push, never a skipped one. Any local writer — CLI, GUI, another tool — marks the copy changed simply by changing its bytes.
+- Fingerprint scope: it detects local change only. It is never a security or integrity guarantee; integrity is still the snapshot verification in D18, and cross-client consistency still rests on the generation counter.
+
+Status: Accepted. Implemented in `crates/icatalog-sync` (`util::fingerprint`/`read_state`/`write_state`, `SyncAction::UpToDate`); tests: `idle_resync_is_a_no_op`, `a_local_change_is_pushed`, and unit tests for the fingerprint and marker.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

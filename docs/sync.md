@@ -1,6 +1,6 @@
 # iCatalog sync protocol
 
-Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). Status vocabulary: **Decided** (D1/D2/D18 or a golden rule), **Implemented** (built and tested; see the section notes), **Proposed** (designed here, not built), **Open** (unresolved). The whole-snapshot `serve`/`sync` slice is **Implemented** in `crates/icatalog-sync` (D18); TLS, auth, delta transfer and merge are **Open**.
+Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). Status vocabulary: **Decided** (D1/D2/D18 or a golden rule), **Implemented** (built and tested; see the section notes), **Proposed** (designed here, not built), **Open** (unresolved). The whole-snapshot `serve`/`sync` slice is **Implemented** in `crates/icatalog-sync` (D18), including the local change marker that makes an idle re-sync a no-op (D19); TLS, auth, delta transfer and merge are **Open**.
 
 ## 1. Model
 
@@ -20,6 +20,8 @@ Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). S
 - The client records the **base generation**: the server generation it last pulled or successfully pushed (its local `catalogue.generation`).
 - Local edits do not change the generation counter; only an accepted push does.
 - The catalogue id guards against syncing unrelated catalogues; a mismatch is refused.
+
+**Local change marker (implemented, D19).** Because local edits do not move the generation counter, the client keeps a small **local-only** marker beside its catalogue: `name.sqlite.sync-state`, holding `fingerprint=<hash>` — a fast non-cryptographic fingerprint of the local file after the last successful push or pull. On a level sync the client compares the marker to the current file: a match means nothing changed, so it is a **no-op** (no upload, no generation bump); a mismatch (or a missing marker) means the local copy changed and it is pushed. The marker is never sent to the server and never affects the catalogue id or generation. It is best effort: a missing or unreadable marker only causes an extra push, never a lost one.
 
 ## 3. HTTP(S) API
 
@@ -48,7 +50,7 @@ Guards (**Implemented**): the server caps a snapshot body (4 GiB) and verifies a
 
 Sequence (**Implemented**):
 
-1. The client decides from the generation: server ahead -> back up and **pull**; level -> **push**; client ahead of the server -> **refuse** (never overwrite the server).
+1. The client decides from the generation: server ahead -> back up and **pull**; level -> **push** unless the local copy is unchanged since the last sync (then a **no-op**, D19); client ahead of the server -> **refuse** (never overwrite the server).
 2. On a push refusal (a race: another client pushed between info and push) the client writes its local state to a timestamped backup `name.rejected-<UTC>.sqlite` beside the local copy, then resyncs from the server.
 3. The refusal, the backup path and the new generation are reported to the user.
 
@@ -74,7 +76,7 @@ Merging local changes (per-item, by stable item id) is a later improvement and m
 - Every refusal or deferral is reported to the user.
 - Server-side writes are transactional (SQLite) and serialised by the single service loop.
 
-Tests: synthetic and round-trip tests **exist** (`crates/icatalog-sync/tests/sync.rs`): a real push/pull round trip against the service, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral, and hostile-parameter coverage.
+Tests: synthetic and round-trip tests **exist** (`crates/icatalog-sync/tests/sync.rs`): a real push/pull round trip against the service, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral, hostile-parameter coverage, an idle re-sync that is a no-op, and a local change that is pushed.
 
 ## 7. wasm browser client
 

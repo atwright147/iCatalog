@@ -14,6 +14,9 @@ use crate::util;
 /// What a sync run did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
+    /// Local and server were level and the local copy was unchanged since the
+    /// last sync: nothing was sent and the server generation did not move.
+    UpToDate,
     /// Local and server were level: the local copy was published.
     Pushed,
     /// The server was ahead: the local copy was replaced (backed up first).
@@ -148,12 +151,23 @@ pub fn sync_once(ctx: &mut Context, transport: &dyn Transport, base: &str) -> Re
                 row.generation,
             )
         }
-        // Level: publish local state; a refusal means a race, then resync.
+        // Level: publish local state unless nothing changed since the last
+        // sync (then a push would only bump the generation for no reason).
         Ordering::Equal => {
             let bytes = std::fs::read(&local)?;
+            let fingerprint = util::fingerprint(&bytes);
+            if util::read_state(&local).as_deref() == Some(fingerprint.as_str()) {
+                return Ok(SyncReport {
+                    action: SyncAction::UpToDate,
+                    local_generation: row.generation,
+                    server_generation: info.generation,
+                    bytes: 0,
+                });
+            }
             match push(transport, base, row.generation, &bytes)? {
                 PushOutcome::Accepted { generation } => {
                     ctx.catalog().set_generation(generation)?;
+                    record_state(&local);
                     Ok(SyncReport {
                         action: SyncAction::Pushed,
                         local_generation: row.generation,
@@ -197,12 +211,22 @@ fn pull(
         let _ = std::fs::remove_file(&temp);
         return Err(e.into());
     }
+    // We are now in sync with the server: remember this exact state.
+    record_state(&local);
     Ok(SyncReport {
         action,
         local_generation,
         server_generation: info.generation,
         bytes,
     })
+}
+
+/// Record the current local file's fingerprint in its sync marker, so an
+/// unchanged copy can skip the next push. Best effort (see `util::write_state`).
+fn record_state(local: &Path) {
+    if let Ok(bytes) = std::fs::read(local) {
+        util::write_state(local, &util::fingerprint(&bytes));
+    }
 }
 
 fn header_generation(resp: &HttpResponse) -> Result<i64> {

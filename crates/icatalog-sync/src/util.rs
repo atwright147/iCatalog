@@ -57,6 +57,60 @@ pub fn backup_local(local: &Path) -> Result<Option<PathBuf>> {
     Ok(Some(path))
 }
 
+/// A fast, non-cryptographic fingerprint of a byte slice: an FNV-1a-style hash
+/// over 8-byte little-endian words, plus the length. It answers only "has the
+/// local copy changed since the last sync?" (see `docs/sync.md` section 4); it
+/// is never a security or integrity guarantee. Deterministic across runs,
+/// processes and machines.
+pub fn fingerprint(bytes: &[u8]) -> String {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = OFFSET;
+    for chunk in bytes.chunks(8) {
+        let mut word = [0u8; 8];
+        // `chunks(8)` bounds the length at 8, so the ranges always match.
+        word[..chunk.len()].copy_from_slice(chunk);
+        hash ^= u64::from_le_bytes(word);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{hash:016x}-{}", bytes.len())
+}
+
+/// The local sync marker path for `local`: `<name>.sync-state` beside it. The
+/// marker records the fingerprint of the last state that was in sync with the
+/// server, so an unchanged copy can skip a push without bumping the generation.
+pub fn state_path(local: &Path) -> PathBuf {
+    let mut name = local
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("catalogue"));
+    name.push(".sync-state");
+    parent_dir(local).join(name)
+}
+
+/// The fingerprint recorded in the local sync marker, if any. A missing,
+/// unreadable or malformed marker reads as "unknown", and the caller then
+/// treats the copy as changed (which is always safe: it only causes a push).
+pub fn read_state(local: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(state_path(local)).ok()?;
+    for line in text.lines() {
+        if let Some(value) = line.trim().strip_prefix("fingerprint=") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Record the fingerprint of the local copy after a successful push or pull.
+/// Best effort: a missing or unreadable marker only means the next sync pushes
+/// again, which is safe.
+pub fn write_state(local: &Path, fingerprint: &str) {
+    let _ = std::fs::write(state_path(local), format!("fingerprint={fingerprint}\n"));
+}
+
 /// Verify that `path` is a valid iCatalog catalogue with the expected id.
 pub fn verify_catalogue(path: &Path, expect_id: &str) -> Result<()> {
     let catalog = icatalog_catalog::Catalog::open(path)?;
@@ -79,4 +133,39 @@ pub fn verify_catalogue(path: &Path, expect_id: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    #[test]
+    fn fingerprint_is_deterministic_and_length_sensitive() {
+        assert_eq!(fingerprint(b"hello"), fingerprint(b"hello"));
+        assert_ne!(fingerprint(b"hello"), fingerprint(b"hellp"));
+        assert_ne!(fingerprint(b"ab"), fingerprint(b"abc"));
+        assert_ne!(fingerprint(b""), fingerprint(b"a"));
+    }
+
+    #[test]
+    fn sync_marker_round_trips_and_tolerates_garbage() {
+        let dir = std::env::temp_dir().join(format!("icat-marker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let local = dir.join("local.sqlite");
+
+        // No marker yet: unknown, so the caller treats the copy as changed.
+        assert_eq!(read_state(&local), None);
+
+        write_state(&local, "deadbeef-3");
+        assert_eq!(read_state(&local).as_deref(), Some("deadbeef-3"));
+
+        // Garbage is "unknown", never a panic.
+        std::fs::write(state_path(&local), "not a marker\n").unwrap();
+        assert_eq!(read_state(&local), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
