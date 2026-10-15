@@ -29,4 +29,20 @@ impl Context {
     pub fn catalog_mut(&mut self) -> &mut icatalog_catalog::Catalog {
         &mut self.catalog
     }
+
+    /// Replace the on-disk catalogue with `temp` (a verified catalogue file on
+    /// the same filesystem), closing the connection so the rename is atomic,
+    /// then reopen it. On failure the existing file is left in place and the
+    /// connection is reopened. Used by the sync client's download-and-swap.
+    pub fn replace_catalogue_file(&mut self, temp: &Path) -> Result<()> {
+        let placeholder = icatalog_catalog::Catalog::open_in_memory()?;
+        let old = std::mem::replace(&mut self.catalog, placeholder);
+        drop(old);
+        if let Err(e) = std::fs::rename(temp, &self.path) {
+            self.catalog = icatalog_catalog::Catalog::open(&self.path)?;
+            return Err(e.into());
+        }
+        self.catalog = icatalog_catalog::Catalog::open(&self.path)?;
+        Ok(())
+    }
 }

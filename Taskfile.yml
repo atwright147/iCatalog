@@ -86,6 +86,11 @@ tasks:
     cmds:
       - cargo test -p icatalog-engine
 
+  sync:
+    desc: Test the icatalog-sync crate
+    cmds:
+      - cargo test -p icatalog-sync
+
   ui:
     desc: Test the icatalog-ui crate
     cmds:

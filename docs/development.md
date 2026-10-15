@@ -1,6 +1,6 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit` exist.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit/sync/serve` exist.
 
 ## 1. Prerequisites
 
@@ -36,6 +36,7 @@ A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common command
 - `task ci`: the full gate (`fmt:check`, `lint`, `test`, in that order); also what CI will run once set up.
 - `task test`, `task lint`, `task fmt:check`: the individual gate steps.
 - `task layers`: the crate layer-rule test.
+- `task sync`: test the `icatalog-sync` crate.
 - `task run -- <args>`: run the `icatalog` CLI, e.g. `task run -- init my.sqlite`.
 - `task gui -- <catalogue>`: run the `icatalog-ui` desktop shell, e.g. `task gui -- photos.sqlite`.
 
@@ -52,9 +53,11 @@ Adding a crate (**Proposed** procedure):
 
 ## 4. Driving the CLI
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update` and `edit`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import <catalogue> --path <dir> [--recursive false]`; rescan with `cargo run -p icatalog-cli -- update <catalogue> [--path <dir>] [--recursive false]`; tag an asset with `cargo run -p icatalog-cli -- edit <catalogue> --id 3 --rating 5 --keyword sunset,beach`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>`; set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
 
-PLANNED (not built): `sync`, `serve`; those rows below are design sketches from `AGENTS.md` section 4. Argument spelling is **Open**.
+Sync (D18) is two processes. On the NAS: `cargo run -p icatalog-cli -- serve nas.sqlite --port 8080` (optional `--bind <addr>`, default `127.0.0.1`). On a client, whose local copy shares the NAS catalogue id: `cargo run -p icatalog-cli -- sync local.sqlite --url http://nas:8080`. Plain HTTP only in this slice (`https://` is rejected). A quick local smoke test: init `nas.sqlite`, copy it to `local.sqlite` (so the ids match), serve on one terminal and sync from another.
+
+The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The `info` alias for `status` is **Open**.
 
 | Subcommand | Example | Purpose |
 |---|---|---|
@@ -64,11 +67,11 @@ PLANNED (not built): `sync`, `serve`; those rows below are design sketches from 
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14) |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |
-| `sync` | `icatalog sync photos.sqlite` | Pull/push against the NAS |
-| `serve` | `icatalog serve` | Run the NAS HTTP(S) sync service |
+| `sync` | `icatalog sync photos.sqlite --url http://nas:8080` | Pull/push against the NAS (EXISTS, D18) |
+| `serve` | `icatalog serve photos.sqlite --port 8080` | Run the NAS-side HTTP sync service (EXISTS, D18) |
 | `status` / `info` | `icatalog status photos.sqlite` | Stats, generation, sync state |
 
-Each subcommand is a thin wrapper over an engine command.
+Each subcommand is a thin wrapper over a command: the engine registry (`init`-`edit`) or the sync registry in `icatalog-sync` (`sync`, `serve`); the shell merges both (D18).
 
 ## 4a. Driving the GUI
 

@@ -1,0 +1,12 @@
+[package]
+name = "icatalog-sync"
+version = "0.1.0"
+edition = "2021"
+description = "iCatalog HTTP sync service and client"
+license = "MIT"
+
+[dependencies]
+icatalog-catalog = { path = "../icatalog-catalog" }
+icatalog-engine = { path = "../icatalog-engine" }
+tiny_http = "0.12"
+ureq = { version = "2", default-features = false }

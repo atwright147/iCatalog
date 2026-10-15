@@ -11,3 +11,4 @@ path = "src/main.rs"
 
 [dependencies]
 icatalog-engine = { path = "../icatalog-engine" }
+icatalog-sync = { path = "../icatalog-sync" }

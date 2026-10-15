@@ -1,5 +1,5 @@
 //! The `icatalog` command-line interface: a thin wrapper that dispatches
-//! engine commands by id. All logic lives in `icatalog-engine`.
+//! commands by id, from the engine registry and the sync registry.
 #![forbid(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
@@ -36,7 +36,7 @@ fn run(raw: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("commands") => {
-            for c in icatalog_engine::commands() {
+            for c in all_commands() {
                 println!("{}  {}", c.id(), c.label());
             }
             ExitCode::SUCCESS
@@ -45,8 +45,32 @@ fn run(raw: &[String]) -> ExitCode {
     }
 }
 
+/// The engine registry plus the sync registry (`icatalog-sync` is L3, above the
+/// engine, so it cannot join the engine's `ALL`; the L4 shells merge them).
+fn all_commands() -> Vec<&'static dyn icatalog_engine::Command> {
+    let mut v: Vec<&'static dyn icatalog_engine::Command> = icatalog_engine::commands().to_vec();
+    v.extend(icatalog_sync::commands().iter().copied());
+    v
+}
+
+fn is_known(cmd: &str) -> bool {
+    icatalog_engine::find_command(cmd).is_some() || icatalog_sync::find_command(cmd).is_some()
+}
+
+fn dispatch_any(
+    ctx: &mut icatalog_engine::Context,
+    id: &str,
+    params: &icatalog_engine::Params,
+) -> icatalog_engine::Result<icatalog_engine::Outcome> {
+    if icatalog_engine::find_command(id).is_some() {
+        icatalog_engine::dispatch_guarded(ctx, id, params)
+    } else {
+        icatalog_sync::dispatch_guarded(ctx, id, params)
+    }
+}
+
 fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
-    if icatalog_engine::find_command(cmd).is_none() {
+    if !is_known(cmd) {
         eprintln!("unknown command '{cmd}'");
         eprintln!("{}", help_text());
         return ExitCode::from(2);
@@ -66,7 +90,7 @@ fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match icatalog_engine::dispatch_guarded(&mut ctx, &inv.command, &inv.params) {
+    match dispatch_any(&mut ctx, &inv.command, &inv.params) {
         Ok(o) => {
             println!("{}", o.render());
             ExitCode::SUCCESS
@@ -81,7 +105,7 @@ fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
 fn help_text() -> String {
     let mut out = String::from("Usage: icatalog <command> <catalogue> [options]\n\n");
     out.push_str("Commands:\n");
-    for c in icatalog_engine::commands() {
+    for c in all_commands() {
         out.push_str(&format!("  {}  {}\n", c.id(), c.label()));
         for p in c.params() {
             let req = if p.required { " (required)" } else { "" };

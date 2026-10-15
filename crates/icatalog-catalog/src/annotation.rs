@@ -66,6 +66,18 @@ impl Catalog {
             .ok_or(CatalogError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
     }
 
+    /// Set the generation counter to an exact value (the sync client records a
+    /// server generation it has caught up to).
+    pub fn set_generation(&self, generation: i64) -> Result<()> {
+        let changed = self
+            .conn
+            .execute("UPDATE catalogue SET generation = ?1", params![generation])?;
+        if changed == 0 {
+            return Err(CatalogError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        }
+        Ok(())
+    }
+
     pub fn ensure_keyword(&self, name: &str, name_raw: Option<&[u8]>) -> Result<i64> {
         self.conn.execute(
             "INSERT OR IGNORE INTO keyword (name, name_raw) VALUES (?1, ?2)",

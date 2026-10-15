@@ -20,7 +20,7 @@ Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). T
 | `docs/schema.md` | EXISTS | SQLite catalogue schema and migrations |
 | `docs/roadmap.md` | EXISTS | Milestones and **current focus** |
 
-The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today, plus the app crates under `crates/` (`icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli`, `icatalog-ui`: EXISTS; the rest below is PLANNED). Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
+The repo root holds `docs/` (the orientation docs above) and `ivc-file-research/` today, plus the app crates under `crates/` (`icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync`, `icatalog-cli`, `icatalog-ui`: EXISTS; the rest below is PLANNED). Nothing listed as PLANNED may be cited as fact until created. (The legacy `samples/` corpus is CC0 and committed; `ivc-file-research/samples/fetch.sh` can optionally re-fetch/verify it.)
 
 ## 2. Workspace map
 
@@ -33,8 +33,8 @@ crates/
   icatalog-catalog           EXISTS. L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
   icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
-  icatalog-sync              L3 sync client + NAS-side HTTP(S) service
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/status; sync/serve not built)
+  icatalog-sync              EXISTS. L3 whole-snapshot sync: NAS-side HTTP `serve` + client `sync` (D18; deps tiny_http, ureq)
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/sync/serve/status)
   icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -63,20 +63,20 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 ### Other rules
 
-1. **Everything is a command.** New user-visible behaviour = a command in `icatalog-engine` (EXISTS) with id, label, params doc, `enabled` and `run`, plus tests. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers. Only pure view/window state belongs to the shell. Sync is a command too.
+1. **Everything is a command.** New user-visible behaviour = a command with id, label, params doc, `enabled` and `run`, plus tests. Engine commands live in `icatalog-engine` (EXISTS); the sync commands `sync`/`serve` live in `icatalog-sync` (L3, D18) because the engine (L2) may not depend on it. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers, and the L4 shells merge the engine and sync registries. Only pure view/window state belongs to the shell.
 2. **Clean-room.** Implement from observation and `ivc-file-research/docs/ivc-format.md`. Third-party assets need a permissive licence and a row in `ATTRIBUTION.md` (PLANNED).
 3. **Tests are the gate.** Every change comes with tests. Add synthetic and round-trip tests for the catalogue and sync. Demo/test images must be public-domain and **never personal photos**; never put personal details in URLs or User-Agents.
 4. **The UI is thin and data-driven.** `icatalog-ui` holds no logic; all actions go through engine commands.
-5. **Never panic on input** (see *Never crash*). Commands return `Err` for any input. A fuzz-style test feeding adversarial params to every command (and truncated/mutated bytes to import/update) EXISTS (`crates/icatalog-engine/tests/adversarial.rs`) and must stay green.
+5. **Never panic on input** (see *Never crash*). Commands return `Err` for any input. A fuzz-style test feeding adversarial params to every command (and truncated/mutated bytes to import/update) EXISTS (`crates/icatalog-engine/tests/adversarial.rs`) and must stay green; `crates/icatalog-sync/tests/sync.rs` does the same for the `sync`/`serve` params (invalid ports only, so `serve` never blocks).
 6. **Never break wasm.** Crates from L0 up (except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`) must stay compilable for `wasm32-unknown-unknown` once that target is installed. Status: the target is NOT installed in this environment today (`rustup target list --installed` shows only `aarch64-apple-darwin`), so `cargo check -p ivc --target wasm32-unknown-unknown` has not been run and no wasm status is claimed.
 7. **Sync safety.** A failed or interrupted sync must never destroy the only copy of a catalogue. SQLite writes are transactional; a rejected local state is kept as a timestamped backup before anything is replaced; downloads land in a temp file and are swapped in atomically after an integrity check; no silent data loss, no silent last-writer-wins.
 8. **Docs track code.** When reality changes, update the matching doc in the same change (see §7); a stale "PLANNED"/"EXISTS" claim is a bug, not a note.
 
 ## 4. CLI and NAS deployment
 
-Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). All PLANNED.
+Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). The CLI and the `serve` service EXIST (D18); the musl build and Docker packaging are PLANNED.
 
-`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|sync|serve|status`; `update` (D14) and `edit` (D16) EXIST, `sync`/`serve` PLANNED) (each maps to an engine command):
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
 
 | Subcommand | Purpose |
 |---|---|
@@ -86,8 +86,8 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
-| `sync` | Pull/push against the NAS catalogue (section 5) |
-| `serve` | Run the NAS-side HTTP(S) sync service |
+| `sync` | EXISTS (D18): pull/push against the NAS catalogue over HTTP (section 5) |
+| `serve` | EXISTS (D18): run the NAS-side HTTP sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |
 
 Deployment on a NAS:
@@ -105,7 +105,7 @@ Model chosen by the human: **each computer keeps a local SQLite copy; it syncs w
 - The catalogue carries a **generation counter**, bumped on every accepted push, plus a per-catalogue id.
 - **Conflict policy:** a push is refused if the server generation moved since the client's base generation (refuse-and-resync, never silent last-writer-wins). On refusal the client saves its rejected local state as a timestamped backup (e.g. `name.rejected-<UTC timestamp>.sqlite`) before resyncing from the server. Merging local changes (per-item, by stable item id) is a later improvement and must keep the same safety guarantees; until then conflicts are surfaced to the user with the backup path.
 - **"Everyone sees the same thing" means sync points, not live co-editing.** Two machines edited between syncs can conflict; the user is told, and nothing is lost.
-- Sync is an engine command, so CLI and GUI behave identically. Details (endpoints, auth, TLS) go in `docs/sync.md`.
+- Sync is a command (in `icatalog-sync`, D18), so CLI and GUI dispatch the same code. Details (endpoints, auth, TLS) are in `docs/sync.md`.
 
 ## 6. Current focus / picking work
 
@@ -142,6 +142,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 9. Where things are tracked
 
-- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, the `icatalog` CLI and the `icatalog-ui` desktop shell; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync` (whole-snapshot `serve`/`sync`, D18), the `icatalog` CLI and the `icatalog-ui` desktop shell; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
 - EXISTS: `log/devlog.md` (local, gitignored; append a terse entry per task).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

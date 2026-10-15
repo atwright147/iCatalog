@@ -6,7 +6,8 @@ fn now() -> std::time::Duration {
         .unwrap_or_default()
 }
 
-pub(crate) fn utc_now_iso8601() -> String {
+/// Current time as an ISO-8601 UTC string (`1970-01-01T00:00:00Z`).
+pub fn utc_now_iso8601() -> String {
     epoch_to_iso8601(i64::try_from(now().as_secs()).unwrap_or(0))
 }
 

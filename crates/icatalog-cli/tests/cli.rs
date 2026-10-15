@@ -21,6 +21,35 @@ fn version_and_help() {
     assert!(o.status.success());
     let out = s(&o.stdout);
     assert!(out.contains("Usage") && out.contains("init"));
+    // The sync registry is merged into the shell's listing.
+    assert!(out.contains("sync") && out.contains("serve"));
+}
+
+#[test]
+fn commands_lists_sync_and_serve() {
+    let o = icatalog(&["commands"]);
+    assert!(o.status.success());
+    let out = s(&o.stdout);
+    assert!(out.contains("sync") && out.contains("serve"), "{out}");
+}
+
+#[test]
+fn sync_requires_url_and_serve_requires_port() {
+    let path =
+        std::env::temp_dir().join(format!("icatalog-cli-sync-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+
+    let o = icatalog(&["sync", p]);
+    assert!(!o.status.success());
+    assert!(s(&o.stderr).contains("url"));
+
+    let o = icatalog(&["serve", p]);
+    assert!(!o.status.success());
+    assert!(s(&o.stderr).contains("port"));
+
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]

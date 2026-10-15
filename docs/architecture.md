@@ -1,6 +1,6 @@
 # iCatalog architecture
 
-Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D7 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-cli` and `icatalog-ui` (under `crates/`); everything else app-side is planned.
+Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decided** (owner decision D1-D18 in `docs/decisions.md` or a golden rule in `AGENTS.md`), **Proposed** (designed here, not accepted or built), **Open** (unresolved). Built today: `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync`, `icatalog-cli` and `icatalog-ui` (under `crates/`); everything else app-side is planned.
 
 ## 1. Purpose and stack
 
@@ -16,9 +16,9 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2, v3) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13); `raw` (embedded JPEG preview of DNG/CR2/NEF/ARW/PEF/RAF/CR3) and `xmp` (packet locate + tolerant parse) modules (D17) | EXISTS |
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
-| `icatalog-sync` | L3 | L0-L2 | Sync client + NAS-side HTTP(S) service | PLANNED |
-| `icatalog-cli` | L4 | `icatalog-engine` only | Binary `icatalog`: thin wrapper dispatching engine commands by id (`init/open/import/list/find/status/update/edit`, `--help`, `--version`, `commands`) | EXISTS |
-| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`); wasm PLANNED | EXISTS (native) |
+| `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq` | Whole-snapshot sync (D18): NAS-side HTTP `serve` + client `sync` with a generation guard, refuse-and-resync, timestamped backup and atomic swap; exposes its own command registry | EXISTS |
+| `icatalog-cli` | L4 | `icatalog-engine`, `icatalog-sync` | Binary `icatalog`: thin wrapper dispatching engine + sync commands by id (`init/open/import/list/find/status/update/edit/sync/serve`, `--help`, `--version`, `commands`) | EXISTS |
+| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`); wasm PLANNED; sync buttons not wired yet | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
 | `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
@@ -48,9 +48,11 @@ L0  ivc (legacy parser, no workspace deps)
 
 ## 4. Engine/command seam
 
-**Decided** (golden rule: everything is a command). A command in `icatalog-engine` has: an **id**, a **label**, a params doc, an `enabled` check and a `run` function, plus tests. The CLI and the GUI both dispatch commands by id. CLI subcommands are thin wrappers over commands. Sync is a command too, so CLI and GUI behave identically.
+**Decided** (golden rule: everything is a command). A command has: an **id**, a **label**, a params doc, an `enabled` check and a `run` function, plus tests. The CLI and the GUI both dispatch commands by id. CLI subcommands are thin wrappers over commands. Sync is a command too, so CLI and GUI behave identically.
 
 **EXISTS** (D12): the engine holds a session `Context` and a static registry (slice of `&dyn Command`) mapping string id to command; `run` takes string-keyed `Params` validated into typed values (bad input is `EngineError::BadParam`) and returns `Outcome::{Text,Table}` or an error, never panics. `dispatch_guarded` wraps `dispatch` in `catch_unwind` as the last-resort guard.
+
+**EXISTS** (D18): the sync commands `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
 May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
 
@@ -81,7 +83,7 @@ Boundary: app code reads `ivc` output only; it never copies iView/Expression/Pha
 
 ## 8. wasm constraints
 
-**Decided:** crates from L0 up, except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`, must stay compilable for `wasm32-unknown-unknown`. **Status:** the target is NOT installed here, so no wasm check has been run and no wasm status is claimed. Consequence (**Proposed**): server/HTTP-listener code in `icatalog-sync` sits behind a feature or module split so the client half compiles for wasm.
+**Decided:** crates from L0 up, except the CLI/server-only parts of `icatalog-sync` and `icatalog-cli`, must stay compilable for `wasm32-unknown-unknown`. **Status:** the target is NOT installed here, so no wasm check has been run and no wasm status is claimed. **EXISTS** (D18): the sync client is written against a small `Transport` trait so a wasm `fetch` implementation can slot in; `ureq` and `tiny_http` are native-only and the server half (`server.rs`) is the part excluded from a future wasm build.
 
 ## 9. Browser storage
 
