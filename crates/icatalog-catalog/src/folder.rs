@@ -51,4 +51,23 @@ impl Catalog {
             .execute("DELETE FROM asset WHERE id = ?1", params![id])?;
         Ok(())
     }
+
+    /// List all folders in the catalogue, ordered by id.
+    pub fn all_folders(&self) -> Result<Vec<Folder>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, parent_id, name FROM folder ORDER BY id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Folder {
+                id: r.get(0)?,
+                parent_id: r.get(1)?,
+                name: r.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
 }

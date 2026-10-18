@@ -19,6 +19,10 @@ pub struct AssetQuery {
     pub min_rating: Option<i64>,
     /// Exact label.
     pub label: Option<i64>,
+    /// Filter by folder id (Some(fid)) or unassigned (Some logic via folder_id_null).
+    pub folder_id: Option<i64>,
+    /// If true, match assets with folder_id IS NULL (takes precedence when filtering unassigned).
+    pub folder_id_null: Option<bool>,
     /// Inclusive lower bound on `asset_meta.captured_local` (ISO-8601 string, lexical compare).
     pub captured_from: Option<String>,
     /// Inclusive upper bound on `asset_meta.captured_local`.
@@ -81,6 +85,17 @@ impl Catalog {
                 " AND EXISTS (SELECT 1 FROM annotation a WHERE a.asset_id = asset.id AND a.label = ?)",
             );
             args.push(Value::Integer(l));
+        }
+        if let Some(fid_null) = q.folder_id_null {
+            if fid_null {
+                sql.push_str(" AND asset.folder_id IS NULL");
+            } else if let Some(fid) = q.folder_id {
+                sql.push_str(" AND asset.folder_id = ?");
+                args.push(Value::Integer(fid));
+            }
+        } else if let Some(fid) = q.folder_id {
+            sql.push_str(" AND asset.folder_id = ?");
+            args.push(Value::Integer(fid));
         }
         if let Some(d) = &q.captured_from {
             sql.push_str(
