@@ -2,6 +2,22 @@
 
 Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). Status vocabulary: **Decided** (D1/D2/D18 or a golden rule), **Implemented** (built and tested; see the section notes), **Proposed** (designed here, not built), **Open** (unresolved). The whole-snapshot `serve`/`sync` slice is **Implemented** in `crates/icatalog-sync` (D18), including the local change marker that makes an idle re-sync a no-op (D19); TLS, auth, delta transfer and merge are **Open**.
 
+**Read this first:** the *Target model* below (D20) is the decided direction — annotation-delta push, previews pulled not pushed, a per-catalogue preview store. It is **not implemented**. Sections 1–8 describe what is built today (the D18/D19 bidirectional whole-snapshot push) and are marked where D20 supersedes them.
+
+## Target model (decided in D20; not implemented)
+
+**Nothing in this section is built.** It records the owner's decided direction (D20) and the points still open.
+
+- **One writer, many readers.** The server (NAS `icatalog serve`) is authoritative for the catalogue and the media; clients pull.
+- **Push is an annotation delta, not a snapshot.** A client sends only user annotations — rating, label, keyword membership — keyed by stable asset `uid`. Never media, thumbnails or previews. This replaces `POST /catalogue`.
+- **Pull is the catalogue** (assets, `metadata_raw`/EXIF, annotations, grid thumbnails). The download / verify / back-up / atomic-swap sequence (section 5) is unchanged.
+- **Previews are content-addressed and pulled only.** `GET /preview/<sha>` returns one preview; the server derives them from the media it holds, a client fetches only what it lacks, and a client never pushes a preview.
+- **The preview store is a per-catalogue choice, one format.** Preview bytes are either **embedded** in the catalogue file (a standalone, portable single file — the `~/Pictures` case) or **external** in `previews/<sha>.jpg` beside it (the NAS case, so a client pull stays small and previews arrive lazily). Grid thumbnails stay in the catalogue in both modes.
+- **A catalogue may be standalone or a replica.** A standalone catalogue simply never runs `sync`; no new flag beyond the preview-store setting.
+- **Single file stays single.** The catalogue uses a rollback journal (no WAL), so there are no `-wal`/`-shm` sidecars. Enabling WAL later requires a checkpoint on close or a `VACUUM INTO` export.
+
+Proposed, not accepted (**Open**): per-item compare-and-swap for annotation pushes (a `base_rev` per asset) replacing the generation guard; push-then-pull when a client has unpushed edits; a `previews --external|--embed` conversion command; a shared-token auth on the write endpoint. Also **Open:** preview sizes and quality, whether the write endpoint survives, and how a push names a keyword the server does not yet have.
+
 ## 1. Model
 
 **Decided (D1, D2).**
@@ -25,7 +41,7 @@ Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). S
 
 ## 3. HTTP(S) API
 
-**Implemented (D18), plain HTTP only.** Paths, status codes and payload encoding are fixed; TLS and auth are **Open**.
+**Implemented (D18), plain HTTP only.** Paths, status codes and payload encoding are fixed; TLS and auth are **Open**. **Superseded in part by D20:** the push endpoint becomes an annotation delta (`POST /annotations`) and `GET /preview/<sha>` is added; not implemented.
 
 | Operation | Request | Response |
 |---|---|---|
@@ -46,7 +62,7 @@ Guards (**Implemented**): the server caps a snapshot body (4 GiB) and verifies a
 
 ## 4. Conflict policy
 
-**Decided (D18).** A push is refused if the server generation moved since the client's base generation (**refuse-and-resync**, never silent last-writer-wins). **Implemented.**
+**Decided (D18).** A push is refused if the server generation moved since the client's base generation (**refuse-and-resync**, never silent last-writer-wins). **Implemented.** **Superseded in part by D20:** the push direction and this coarse generation guard give way to a per-item compare-and-swap on annotation deltas (not implemented).
 
 Sequence (**Implemented**):
 
@@ -88,4 +104,5 @@ Tests: synthetic and round-trip tests **exist** (`crates/icatalog-sync/tests/syn
 - Auth and TLS (section 3).
 - Incremental sync versus whole-snapshot.
 - Merge strategy and stable item ids.
+- **D20 (target model):** preview store mode (embedded vs external), preview sizes and quality, per-item conflict granularity, the `previews --external|--embed` command, and whether the write endpoint survives. See the Target model section.
 - Browser storage.

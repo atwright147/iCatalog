@@ -156,7 +156,7 @@ Decision:
 - **Policy:** server ahead of the client -> back up and pull; level -> push (a refusal is a race: back up, resync, report); client ahead of the server -> refuse. A local copy is backed up (`name.rejected-<UTC>.sqlite`) before any overwrite; downloads land in a temp file and are swapped in atomically after verification.
 - **Limit of this slice:** as first landed there was no change marker, so an idle re-sync re-pushed and bumped the generation (fixed by D19). Delta transfer and merge are later work.
 
-Status: Accepted (owner chose tiny_http + ureq and the `icatalog-sync` command registry, Oct 2026). Implementation: the whole-snapshot `serve`/`sync` slice EXISTS (`crates/icatalog-sync`; CLI `sync`/`serve` wired; help and `commands` list them). Tests cover a real push/pull round trip, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral and hostile params. Open: TLS, auth, incremental transfer, conflict merge (the D1/D2 policy is unchanged).
+Status: Accepted (owner chose tiny_http + ureq and the `icatalog-sync` command registry, Oct 2026). Implementation: the whole-snapshot `serve`/`sync` slice EXISTS (`crates/icatalog-sync`; CLI `sync`/`serve` wired; help and `commands` list them). Tests cover a real push/pull round trip, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral and hostile params. Open: TLS, auth, incremental transfer, conflict merge (the D1/D2 policy is unchanged). **Superseded in part by D20:** the push direction (whole-snapshot `POST /catalogue`) and the generation-guard conflict policy of this entry are replaced by the annotation-delta model; the transport (`tiny_http`+`ureq`), the command location and the download/atomic-swap machinery still stand.
 
 ## D19. An idle re-sync is a no-op (local change marker)
 
@@ -168,7 +168,30 @@ Decision: a **local-only change marker** beside the local copy.
 - The marker is best-effort: missing, unreadable or malformed means "unknown", which is always treated as *changed*, so the failure mode is a redundant push, never a skipped one. Any local writer — CLI, GUI, another tool — marks the copy changed simply by changing its bytes.
 - Fingerprint scope: it detects local change only. It is never a security or integrity guarantee; integrity is still the snapshot verification in D18, and cross-client consistency still rests on the generation counter.
 
-Status: Accepted. Implemented in `crates/icatalog-sync` (`util::fingerprint`/`read_state`/`write_state`, `SyncAction::UpToDate`); tests: `idle_resync_is_a_no_op`, `a_local_change_is_pushed`, and unit tests for the fingerprint and marker.
+Status: Accepted. Implemented in `crates/icatalog-sync` (`util::fingerprint`/`read_state`/`write_state`, `SyncAction::UpToDate`); tests: `idle_resync_is_a_no_op`, `a_local_change_is_pushed`, and unit tests for the fingerprint and marker. **Repurposed by D20:** under annotation-delta push the marker answers "has this replica got unpushed edits?" rather than "should the whole file be pushed?"; the best-effort rule (unknown means changed) is unchanged.
+
+## D20. Sync model: server-authoritative catalogue, annotation-delta push, previews pulled not pushed
+
+Context: D18/D19 shipped a **bidirectional whole-snapshot** sync — a client uploads or downloads the entire SQLite file, guarded by a generation compare, with refuse-and-resync and a rejected-state backup on a lost race. Two owner requirements break that shape. (a) The real model is one writer, many readers: the NAS holds the catalogue and the media; clients (laptop, Surface) consume it — but the owner does want locally made annotations to reach the server (ratings/labels/keywords, never previews). (b) A second, standalone use case: a local catalogue of `~/Pictures`, not necessarily synced, that must be a **single movable file with 1080p previews inside it**. A whole-snapshot push is wrong for (a): a multi-gigabyte upload to save one star rating, and the coarse generation guard cannot merge — if the server moved at all, the client's edits are parked in a backup (`SyncAction::Resynced`) instead of applied.
+
+Decision (owner, Oct 2026) — the target model:
+1. **Push is an annotation delta, never a snapshot.** A client pushes only user annotations (rating, label, keyword membership) keyed by stable asset `uid`; never media, thumbnails or previews. The server stays authoritative for media-derived state.
+2. **Pull is the catalogue.** Assets, EXIF/`metadata_raw`, annotations and grid thumbnails come from the server; the D18 download path (verify, back up, temp file, atomic swap) is unchanged.
+3. **Previews travel server -> client only, content-addressed.** A preview is addressed by `sha256` and fetched on demand (`GET /preview/<sha>`); a client fetches only what it lacks. A preview is always derived from the media by the machine that holds the media, so a client never pushes one.
+4. **The preview store is a per-catalogue choice, one format.** A preview row records its content hash; the bytes are either **embedded** in the catalogue file or **external** in `previews/<sha>.jpg` beside it. Embedded gives the standalone single-file portable catalogue; external gives the NAS catalogue (clients pull metadata + grid thumbs, previews arrive lazily). Grid thumbnails stay in the catalogue in both modes (they are the browsing index).
+5. **A catalogue may be standalone or a replica.** A standalone catalogue simply never runs `sync`; no new mode flag is needed beyond the preview-store setting. The catalogue id and generation guard still apply when a catalogue is synced.
+6. **Single-file portability is a constraint, not an accident.** The catalogue uses a rollback journal (no `PRAGMA journal_mode = WAL`), so there are no `-wal`/`-shm` sidecars to carry. If WAL is ever enabled, a checkpoint on close (or export via `VACUUM INTO`) must be added or "one file" silently becomes three.
+
+Proposed (recommended here; the owner has not accepted the mechanism):
+- **Conflict policy: per-item compare-and-swap.** A push carries `{uid, base_rev, rating, label, keywords}`; the server applies a value only where the asset's annotation revision still equals `base_rev`, and reports the rest as conflicts. This replaces the generation guard for annotations and keeps the "no silent last-writer-wins" guarantee per item. Needs a per-asset annotation revision (schema v4). Open: whole-row versus per-field revision.
+- **A client with unpushed edits** runs push-then-pull in one `sync`, so a pull never clobbers unpushed work; conflicts are reported. Alternative: refuse to pull while edits are pending.
+- **A `previews --external|--embed` conversion command**, so a standalone catalogue can graduate to a replica and a server catalogue can be shipped as one portable file.
+- **Auth:** a shared token (or none on a trusted LAN) on the write endpoint; the blast radius is now annotations, not the whole catalogue.
+
+Open: preview tiers and quality (big tier long edge 1080 or 1920; grid 256 only, or add 512); whether the write endpoint survives at all or only a designated master pushes; how a push names a keyword the server does not yet have; whether preview generation is a per-catalogue default and how it is triggered (at ingest or by an explicit command).
+
+Status: **Accepted as the target model (owner, Oct 2026); NOT IMPLEMENTED.** What is built today is D18/D19 (bidirectional whole-snapshot push). This entry fixes the direction and the open points; no code or schema has changed yet.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
+
