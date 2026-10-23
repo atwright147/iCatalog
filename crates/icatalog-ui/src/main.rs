@@ -688,29 +688,6 @@ impl eframe::App for App {
                     self.dirty = true;
                 }
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("Search");
-                    let mut search = self.search.clone();
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut search)
-                            .hint_text("name or path")
-                            .desired_width(100.0)
-                    );
-                    if resp.changed() {
-                        self.search = search.clone();
-                    }
-                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.dirty = true;
-                    }
-                    if ui.add_enabled(!self.search.is_empty(), egui::Button::new("x").small()).clicked() {
-                        self.search.clear();
-                        self.dirty = true;
-                    }
-                    if ui.small_button("Go").clicked() {
-                        self.dirty = true;
-                    }
-                });
-                ui.separator();
                 ui.label(format!("{} assets", self.assets.len()));
             });
 
@@ -752,9 +729,34 @@ impl eframe::App for App {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
+            // Full-width toolbar: view switch on the left, search on the right.
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.view_mode, ViewMode::Grid, "Grid");
                 ui.selectable_value(&mut self.view_mode, ViewMode::List, "List");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Go").clicked() {
+                        self.dirty = true;
+                    }
+                    if ui
+                        .add_enabled(!self.search.is_empty(), egui::Button::new("x").small())
+                        .clicked()
+                    {
+                        self.search.clear();
+                        self.dirty = true;
+                    }
+                    let mut search = self.search.clone();
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut search)
+                            .hint_text("Search name or path")
+                            .desired_width(220.0),
+                    );
+                    if resp.changed() {
+                        self.search = search.clone();
+                    }
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.dirty = true;
+                    }
+                });
             });
             ui.separator();
             if let Some(id) = match self.view_mode {
