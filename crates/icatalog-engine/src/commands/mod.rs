@@ -1,5 +1,6 @@
 mod edit;
 mod find;
+mod folders;
 mod import;
 mod init;
 mod list;

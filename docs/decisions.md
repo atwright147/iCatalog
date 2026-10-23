@@ -183,7 +183,7 @@ Decision (owner, Oct 2026) — the target model:
 6. **Single-file portability is a constraint, not an accident.** The catalogue uses a rollback journal (no `PRAGMA journal_mode = WAL`), so there are no `-wal`/`-shm` sidecars to carry. If WAL is ever enabled, a checkpoint on close (or export via `VACUUM INTO`) must be added or "one file" silently becomes three.
 
 Proposed (recommended here; the owner has not accepted the mechanism):
-- **Conflict policy: per-item compare-and-swap.** A push carries `{uid, base_rev, rating, label, keywords}`; the server applies a value only where the asset's annotation revision still equals `base_rev`, and reports the rest as conflicts. This replaces the generation guard for annotations and keeps the "no silent last-writer-wins" guarantee per item. Needs a per-asset annotation revision (schema v4). Open: whole-row versus per-field revision.
+- **Conflict policy: per-item compare-and-swap.** A push carries `{uid, base_rev, rating, label, keywords}`; the server applies a value only where the asset's annotation revision still equals `base_rev`, and reports the rest as conflicts. This replaces the generation guard for annotations and keeps the "no silent last-writer-wins" guarantee per item. Needs a per-asset annotation revision (the next free migration, v6; v4 is D21 and v5 is device provenance). Open: whole-row versus per-field revision.
 - **A client with unpushed edits** runs push-then-pull in one `sync`, so a pull never clobbers unpushed work; conflicts are reported. Alternative: refuse to pull while edits are pending.
 - **A `previews --external|--embed` conversion command**, so a standalone catalogue can graduate to a replica and a server catalogue can be shipped as one portable file.
 - **Auth:** a shared token (or none on a trusted LAN) on the write endpoint; the blast radius is now annotations, not the whole catalogue.
@@ -191,6 +191,23 @@ Proposed (recommended here; the owner has not accepted the mechanism):
 Open: preview tiers and quality (big tier long edge 1080 or 1920; grid 256 only, or add 512); whether the write endpoint survives at all or only a designated master pushes; how a push names a keyword the server does not yet have; whether preview generation is a per-catalogue default and how it is triggered (at ingest or by an explicit command).
 
 Status: **Accepted as the target model (owner, Oct 2026); NOT IMPLEMENTED.** What is built today is D18/D19 (bidirectional whole-snapshot push). This entry fixes the direction and the open points; no code or schema has changed yet.
+
+## D21. Source-rooted folders; collections separate from folders
+
+Context: the format study shows the legacy folder tree (`FSM!`) as a separate virtual hierarchy while every item carries its own native path — the item-to-folder linkage is still undecoded. The owner directed (Oct 2026) that iCatalog's folders should instead be based on **where assets were imported from**: a source may be a local disk, a CD/DVD/Blu-ray, an external HDD or a network share such as a NAS. Sets, albums and other groupings belong to a separate **Collections** concept, which can be manual or **Smart** (rules over metadata such as file type, dates or lens).
+
+Decision:
+1. A **source** row records `kind` (`local`, `optical`, `removable`, `network`), `label`, `identity`, `last_mount_path` and `last_seen_utc`. Identity is currently the **absolute import-root path**; `import --kind` declares the kind (default `local`) until volume identity is implemented.
+2. `folder` gains `source_id` and `path` (POSIX-relative to the source root; `""` is the root folder), unique per `(source_id, path)`. `parent_id` still gives the tree.
+3. `import` makes the import root the source root folder (named after the root) and mirrors the directory tree below it; each asset's `folder_id` points at the folder for its own directory. Re-importing the same root reuses the source and folders.
+4. `update` files newly found assets into the same tree and refreshes moved assets' `folder_id`.
+5. **Offline is not missing.** A source whose `last_mount_path` is absent (an ejected disc, an unplugged drive, a disconnected share) is skipped by `update`, reported as `offline`, and its assets are never marked `missing`.
+6. **Collections stay separate** from folders: `collection` + `collection_asset` is many-to-many and will hold manual sets/albums; Smart Collections will store rule definitions (an `AssetQuery`-shaped predicate over format, capture date, lens, etc.). Neither is built yet.
+7. **Device provenance (v5).** A source also records `device_id` (the volume or share root: `/` for the boot volume, `/Volumes/<name>`, `/mnt/<name>`, `/media/<name>`, a Windows drive prefix or UNC share) and `device_label` (`This Mac`, `NAS`, `DVD_01`, ...). Both are derived heuristically from `last_mount_path` with no filesystem call (`device_of`), refreshed by `ensure_source`/`touch_source`, and `Source::device()` falls back to the same derivation for pre-v5 rows. The UI groups source roots under one header per device, so an import from this Mac is visibly "This Mac" rather than an unqualified top-level folder. The header is an accordion: its arrow collapses the section, and clicking the device name selects every asset from every source on that device (`AssetQuery::source_ids`).
+
+Rejected: mirroring the filesystem for every catalogued path with no source concept (unstable across mounts, and it cannot tell an offline disc from deleted files); and reusing `folder` as a many-to-many grouping (that is what collections are for). Also rejected for now: making the source the device itself with the chosen folder as a path inside it. The import root stays the source identity until stable volume identity exists, so a second import from the same device creates a second source under the same device header.
+
+Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget), and Collections (manual and smart). Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

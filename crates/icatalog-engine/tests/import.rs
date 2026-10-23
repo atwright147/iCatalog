@@ -93,6 +93,70 @@ fn skip_reasons_reported() {
 }
 
 #[test]
+fn import_builds_source_and_folder_tree() {
+    let (mut ctx, base, dir) = setup("folders");
+    run(&mut ctx, &dir, None).unwrap();
+    let sources = ctx.catalog().all_sources().unwrap();
+    assert_eq!(sources.len(), 1);
+    let s = &sources[0];
+    assert_eq!(s.kind, "local");
+    assert_eq!(s.label, "scan");
+    assert_eq!(
+        s.identity,
+        std::path::absolute(&dir).unwrap().to_string_lossy()
+    );
+    assert_eq!(s.last_mount_path.as_deref(), Some(s.identity.as_str()));
+    #[cfg(not(windows))]
+    assert_eq!(s.device_label.as_deref(), Some("This Mac"));
+
+    let folders = ctx.catalog().all_folders().unwrap();
+    assert_eq!(folders.len(), 2, "root + sub");
+    let root = folders.iter().find(|f| f.parent_id.is_none()).unwrap();
+    assert_eq!(root.source_id, Some(s.id));
+    assert_eq!(root.path.as_deref(), Some(""));
+    assert_eq!(root.name, "scan");
+    let sub = ctx
+        .catalog()
+        .folder_by_source_path(s.id, "sub")
+        .unwrap()
+        .unwrap();
+    assert_eq!(sub.parent_id, Some(root.id));
+    assert_eq!(sub.name, "sub");
+
+    let assets = ctx.catalog().query_assets(&AssetQuery::default()).unwrap();
+    let in_folder = |fid: i64| assets.iter().filter(|a| a.folder_id == Some(fid)).count();
+    assert_eq!(in_folder(root.id), 2, "a.png + b.PNG");
+    assert_eq!(in_folder(sub.id), 1, "sub/d.png");
+
+    // Re-importing the same root reuses the source and its folders.
+    run(&mut ctx, &dir, None).unwrap();
+    assert_eq!(ctx.catalog().all_sources().unwrap().len(), 1);
+    assert_eq!(ctx.catalog().all_folders().unwrap().len(), 2);
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn import_kind_is_declared_and_validated() {
+    let (mut ctx, base, dir) = setup("kind");
+    let mut p = Params::new();
+    p.set("path", dir.to_str().unwrap());
+    p.set("kind", "optical");
+    dispatch(&mut ctx, "import", &p).unwrap();
+    assert_eq!(ctx.catalog().all_sources().unwrap()[0].kind, "optical");
+
+    let mut p = Params::new();
+    p.set("path", dir.to_str().unwrap());
+    p.set("kind", "floppy");
+    assert!(matches!(
+        dispatch(&mut ctx, "import", &p),
+        Err(EngineError::BadParam(_))
+    ));
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn bad_params() {
     let (mut ctx, base, dir) = setup("c");
     assert!(matches!(

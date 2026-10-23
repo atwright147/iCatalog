@@ -82,7 +82,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 |---|---|
 | `init` / `new <catalogue>` | Create an empty SQLite catalogue |
 | `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
-| `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory, or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
+| `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory (creating a source and mirroring its directory tree into folders, grouped under a device in the UI; `--kind local\|optical\|removable\|network`), or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |

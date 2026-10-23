@@ -306,7 +306,12 @@ fn raw_has_exif(bytes: &[u8]) -> bool {
 /// Ingest one file. With `refresh`, a file already catalogued at this path is
 /// compared and updated in place (uid stays stable, `missing` is cleared);
 /// without it, content already known by uid is a duplicate.
-pub(super) fn ingest(ctx: &Context, path: &Path, refresh: bool) -> Result<Ingested> {
+pub(super) fn ingest(
+    ctx: &Context,
+    path: &Path,
+    refresh: bool,
+    folder_id: Option<i64>,
+) -> Result<Ingested> {
     if !has_image_ext(path) {
         return Ok(Ingested::Skipped(SkipReason::UnsupportedExt));
     }
@@ -319,13 +324,23 @@ pub(super) fn ingest(ctx: &Context, path: &Path, refresh: bool) -> Result<Ingest
     let file_size = i64::try_from(md.len()).unwrap_or(i64::MAX);
     let mtime = mtime_secs(&md);
     let path_str = path.to_string_lossy().into_owned();
-    let existing = if refresh {
+    let mut existing = if refresh {
         ctx.catalog().asset_by_path(&path_str)?
     } else {
         None
     };
-    if let Some(a) = &existing {
+    let mut folder_changed = false;
+    if let Some(a) = &mut existing {
+        if let Some(fid) = folder_id {
+            if a.folder_id != Some(fid) {
+                a.folder_id = Some(fid);
+                folder_changed = true;
+            }
+        }
         if a.file_size == Some(file_size) && a.mtime == Some(mtime) {
+            if folder_changed {
+                ctx.catalog().update_asset(a)?;
+            }
             if a.missing {
                 ctx.catalog().set_asset_missing(a.id, false)?;
             }
@@ -400,7 +415,7 @@ pub(super) fn ingest(ctx: &Context, path: &Path, refresh: bool) -> Result<Ingest
     let a = Asset {
         id: 0,
         uid: hash.clone(),
-        folder_id: None,
+        folder_id,
         path: path_str,
         path_raw: None,
         name: path

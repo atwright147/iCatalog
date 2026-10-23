@@ -13,7 +13,7 @@
 )]
 
 use eframe::egui;
-use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Folder};
+use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Folder, Source};
 use icatalog_engine::{dispatch_guarded, Context, Params};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -70,11 +70,20 @@ enum Action {
     Update,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum FolderSelection {
     All,
     Unassigned,
     Folder(i64),
+    /// All assets from every source on one device (e.g. "This Mac").
+    Device(String),
+}
+
+/// Mutable tree state shared by the recursive folder-tree builder.
+struct TreeState<'a> {
+    expanded: &'a mut HashSet<i64>,
+    collapsed_devices: &'a mut HashSet<String>,
+    selected: &'a mut FolderSelection,
 }
 
 struct App {
@@ -82,8 +91,10 @@ struct App {
     path: PathBuf,
     assets: Vec<Asset>,
     folders: Vec<Folder>,
+    sources: Vec<Source>,
     folder_sel: FolderSelection,
     expanded: HashSet<i64>,
+    collapsed_devices: HashSet<String>,
     view_mode: ViewMode,
     selected: Option<i64>,
     textures: HashMap<i64, egui::TextureHandle>,
@@ -104,8 +115,10 @@ impl App {
             path,
             assets: Vec::new(),
             folders: Vec::new(),
+            sources: Vec::new(),
             folder_sel: FolderSelection::All,
             expanded: HashSet::new(),
+            collapsed_devices: HashSet::new(),
             view_mode: ViewMode::Grid,
             selected: None,
             textures: HashMap::new(),
@@ -123,15 +136,28 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        self.folders = self.ctx.catalog().all_folders().unwrap_or_default();
+        self.sources = self.ctx.catalog().all_sources().unwrap_or_default();
+        let source_ids = match &self.folder_sel {
+            FolderSelection::Device(device) => Some(
+                self.sources
+                    .iter()
+                    .filter(|s| &s.device().0 == device)
+                    .map(|s| s.id)
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        };
         let q = AssetQuery {
-            folder_id: match self.folder_sel {
-                FolderSelection::Folder(fid) => Some(fid),
+            folder_id: match &self.folder_sel {
+                FolderSelection::Folder(fid) => Some(*fid),
                 _ => None,
             },
-            folder_id_null: match self.folder_sel {
+            folder_id_null: match &self.folder_sel {
                 FolderSelection::Unassigned => Some(true),
                 _ => None,
             },
+            source_ids,
             text_like: if self.search.trim().is_empty() { None } else { Some(self.search.trim().to_string()) },
             ..Default::default()
         };
@@ -140,7 +166,6 @@ impl App {
             .catalog()
             .query_assets(&q)
             .unwrap_or_default();
-        self.folders = self.ctx.catalog().all_folders().unwrap_or_default();
         if let Some(id) = self.selected {
             if !self.assets.iter().any(|a| a.id == id) {
                 self.selected = None;
@@ -297,6 +322,15 @@ impl App {
         }
         ui.separator();
         ui.label(format!("Path: {}", asset.path));
+        if let Some(src) = asset
+            .folder_id
+            .and_then(|fid| self.folders.iter().find(|f| f.id == fid))
+            .and_then(|f| f.source_id)
+            .and_then(|sid| self.sources.iter().find(|s| s.id == sid))
+        {
+            let (_, device) = src.device();
+            ui.label(format!("Imported from: {device} · {}", src.label));
+        }
         let dims = match (asset.width, asset.height) {
             (Some(w), Some(h)) => format!("{w}x{h}"),
             _ => "dimensions unknown".to_string(),
@@ -410,6 +444,28 @@ impl App {
     }
 }
 
+/// A disclosure arrow button for a collapsible section or folder row.
+///
+/// The triangle is painted rather than drawn from a text glyph: egui's bundled
+/// proportional fonts cover the right-pointing triangle (`▶`) but not the
+/// down-pointing one (`▼`), so a text arrow left a missing-character box on
+/// screen whenever the section was open. Painting keeps both states the same
+/// size and weight.
+fn disclosure_arrow(ui: &mut egui::Ui, open: bool) -> egui::Response {
+    let response = ui.add(
+        egui::Button::new("")
+            .small()
+            .min_size(egui::vec2(18.0, ui.spacing().interact_size.y)),
+    );
+    let icon_rect = egui::Rect::from_center_size(
+        response.rect.center(),
+        egui::Vec2::splat(ui.spacing().icon_width_inner),
+    );
+    let icon_response = response.clone().with_new_rect(icon_rect);
+    egui::collapsing_header::paint_default_icon(ui, if open { 1.0 } else { 0.0 }, &icon_response);
+    response
+}
+
 /// Paint one grid tile: a square thumbnail box with the filename below it.
 /// `rect` is the full cell (image box + label); the image fits inside the
 /// square, and the selection stroke surrounds the whole cell.
@@ -501,7 +557,7 @@ impl eframe::App for App {
                 });
                 ui.separator();
                 // folder tree
-                let mut sel = self.folder_sel;
+                let mut sel = self.folder_sel.clone();
                 ui.label("Folders");
                 if ui.selectable_label(matches!(sel, FolderSelection::All), "All").clicked() {
                     sel = FolderSelection::All;
@@ -509,41 +565,124 @@ impl eframe::App for App {
                 if ui.selectable_label(matches!(sel, FolderSelection::Unassigned), "Unassigned").clicked() {
                     sel = FolderSelection::Unassigned;
                 }
+                fn folder_device(
+                    f: &Folder,
+                    devices: &HashMap<i64, (String, String)>,
+                ) -> (Option<String>, String) {
+                    match f.source_id.and_then(|s| devices.get(&s)) {
+                        Some((id, label)) => (Some(id.clone()), label.clone()),
+                        None => (None, "Other".to_string()),
+                    }
+                }
                 fn build_tree(
                     ui: &mut egui::Ui,
                     folders: &[Folder],
                     parent: Option<i64>,
-                    expanded: &mut HashSet<i64>,
-                    selected: &mut FolderSelection,
+                    state: &mut TreeState<'_>,
                     depth: usize,
+                    devices: &HashMap<i64, (String, String)>,
                 ) {
-                    for f in folders.iter().filter(|x| x.parent_id == parent) {
+                    let mut children: Vec<&Folder> = folders
+                        .iter()
+                        .filter(|x| x.parent_id == parent)
+                        .collect();
+                    if parent.is_none() {
+                        // Group sources under their device (This Mac, disc, share).
+                        children.sort_by(|a, b| {
+                            folder_device(a, devices)
+                                .1
+                                .cmp(&folder_device(b, devices).1)
+                                .then_with(|| {
+                                    a.path
+                                        .as_deref()
+                                        .unwrap_or(&a.name)
+                                        .cmp(b.path.as_deref().unwrap_or(&b.name))
+                                })
+                        });
+                    }
+                    let mut last_device: Option<String> = None;
+                    for f in children {
+                        if parent.is_none() {
+                            let (did, dev) = folder_device(f, devices);
+                            if last_device.as_deref() != Some(dev.as_str()) {
+                                last_device = Some(dev.clone());
+                                ui.add_space(6.0);
+                                let key = did.clone().unwrap_or_else(|| "Other".to_string());
+                                ui.horizontal(|ui| {
+                                    if did.is_some() {
+                                        // Accordion: the arrow collapses the
+                                        // device; its name selects every source
+                                        // on that device.
+                                        let open = !state.collapsed_devices.contains(&key);
+                                        if disclosure_arrow(ui, open).clicked() {
+                                            if open {
+                                                state.collapsed_devices.insert(key.clone());
+                                            } else {
+                                                state.collapsed_devices.remove(&key);
+                                            }
+                                        }
+                                        let is_sel = matches!(
+                                            state.selected,
+                                            FolderSelection::Device(d) if *d == key
+                                        );
+                                        if ui
+                                            .selectable_label(
+                                                is_sel,
+                                                egui::RichText::new(&dev).strong(),
+                                            )
+                                            .clicked()
+                                        {
+                                            state.collapsed_devices.remove(&key);
+                                            *state.selected = FolderSelection::Device(key.clone());
+                                        }
+                                    } else {
+                                        ui.add_space(16.0);
+                                        ui.label(egui::RichText::new(&dev).strong());
+                                    }
+                                });
+                            }
+                            if let Some(id) = &did {
+                                if state.collapsed_devices.contains(id) {
+                                    continue;
+                                }
+                            }
+                        }
                         ui.horizontal(|ui| {
-                            ui.add_space(depth as f32 * 12.0);
+                            ui.add_space(8.0 + depth as f32 * 12.0);
                             let has_children = folders.iter().any(|x| x.parent_id == Some(f.id));
                             if has_children {
-                                let exp = expanded.contains(&f.id);
-                                if ui.small_button(if exp { "▼" } else { "▶" }).clicked() {
+                                let exp = state.expanded.contains(&f.id);
+                                if disclosure_arrow(ui, exp).clicked() {
                                     if exp {
-                                        expanded.remove(&f.id);
+                                        state.expanded.remove(&f.id);
                                     } else {
-                                        expanded.insert(f.id);
+                                        state.expanded.insert(f.id);
                                     }
                                 }
                             } else {
                                 ui.add_space(16.0);
                             }
-                            let is_sel = matches!(selected, FolderSelection::Folder(id) if *id == f.id);
+                            let is_sel = matches!(state.selected, FolderSelection::Folder(id) if *id == f.id);
                             if ui.selectable_label(is_sel, &f.name).clicked() {
-                                *selected = FolderSelection::Folder(f.id);
+                                *state.selected = FolderSelection::Folder(f.id);
                             }
                         });
-                        if expanded.contains(&f.id) {
-                            build_tree(ui, folders, Some(f.id), expanded, selected, depth + 1);
+                        if state.expanded.contains(&f.id) {
+                            build_tree(ui, folders, Some(f.id), state, depth + 1, devices);
                         }
                     }
                 }
-                build_tree(ui, &self.folders, None, &mut self.expanded, &mut sel, 0);
+                let devices: HashMap<i64, (String, String)> = self
+                    .sources
+                    .iter()
+                    .map(|s| (s.id, s.device()))
+                    .collect();
+                let mut tree = TreeState {
+                    expanded: &mut self.expanded,
+                    collapsed_devices: &mut self.collapsed_devices,
+                    selected: &mut sel,
+                };
+                build_tree(ui, &self.folders, None, &mut tree, 0, &devices);
                 if sel != self.folder_sel {
                     self.folder_sel = sel;
                     self.dirty = true;

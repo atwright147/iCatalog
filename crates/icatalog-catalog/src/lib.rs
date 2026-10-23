@@ -19,14 +19,19 @@ mod folder;
 mod metadata;
 mod model;
 mod query;
+mod source;
 
-pub use model::{Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Thumbnail};
+pub use model::{
+    device_of, Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Source, Thumbnail,
+};
 pub use query::{AssetQuery, CatalogStats};
 
 const MIGRATIONS: &[&str] = &[
     include_str!("v1.sql"),
     include_str!("v2.sql"),
     include_str!("v3.sql"),
+    include_str!("v4.sql"),
+    include_str!("v5.sql"),
 ];
 
 /// Errors from opening, migrating or querying a catalogue.

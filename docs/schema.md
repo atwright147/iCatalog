@@ -1,6 +1,6 @@
 # iCatalog SQLite schema
 
-Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2 and v3 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
+Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2, v3, v4 and v5 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
 
 ## 1. Basis
 
@@ -12,12 +12,12 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 
 - Versioned, **forward-only**, each migration in a single transaction.
 - A `schema_migrations` table records applied versions; it is created in code (not in a migration file) before migrations run.
-- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes) and `v3.sql` (`asset.missing` + index, D14). `foreign_keys` is ON for every connection.
+- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21) and `v5.sql` (`source.device_id`/`device_label`, D21). `foreign_keys` is ON for every connection.
 - A catalogue with a newer schema version than the app knows is refused with an actionable error, never opened read-write.
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
 
-## 3. DDL (v1 + v2, implemented; the v3 column is marked inline)
+## 3. DDL (v1-v5, implemented; later columns are marked inline)
 
 ```sql
 -- catalogue-level metadata (single row)
@@ -34,12 +34,29 @@ CREATE TABLE schema_migrations (
   applied_utc TEXT NOT NULL
 );
 
--- PROPOSED: folder tree (from FSM! for imports)
+-- v4 (D21): where assets were imported from
+CREATE TABLE source (
+  id              INTEGER PRIMARY KEY,
+  kind            TEXT NOT NULL DEFAULT 'local',   -- local | optical | removable | network
+  label           TEXT NOT NULL,                   -- import root's directory name
+  identity        TEXT NOT NULL UNIQUE,            -- absolute import-root path (see D21)
+  last_mount_path TEXT,                            -- where it was last seen
+  last_seen_utc   TEXT,                            -- ISO-8601
+  device_id       TEXT,                            -- v5: volume/share root, e.g. "/" or "/Volumes/NAS"
+  device_label    TEXT                             -- v5: "This Mac", "NAS", ...
+);
+
+-- PROPOSED: folder tree (source-rooted for raster imports, D21; FSM! for legacy imports)
 CREATE TABLE folder (
   id        INTEGER PRIMARY KEY,
   parent_id INTEGER REFERENCES folder(id),
+  source_id INTEGER REFERENCES source(id) ON DELETE CASCADE,  -- v4
+  path      TEXT,                                -- v4: POSIX path relative to the source root, "" = root
   name      TEXT NOT NULL
 );
+
+-- v4: one folder per (source, path)
+CREATE UNIQUE INDEX idx_folder_source_path ON folder(source_id, path) WHERE source_id IS NOT NULL;
 
 -- PROPOSED: one row per catalogued asset
 CREATE TABLE asset (
@@ -144,6 +161,8 @@ Notes (**Proposed**, per D8):
 - **`metadata_raw` rows:** EXIF as one blob, XMP as one packet, IPTC one row per field, `ex??` one row per block. Legacy `tail_blocks` go to scheme `ivc_tail`.
 - **Legacy `pict`:** raw bytes are retained only for items with no extracted JPEG, so the PICT decoder (in `ivc`) can fill the thumbnail later.
 - **User annotations** (keywords, rating, label, caption) are authoritative and stored separately from extracted metadata. Merge/display order: EXIF, then IPTC fills gaps, then XMP overrides, then the user's edit wins.
+- **Sources and folders (v4, D21):** `import` makes the import root a `source` (`identity` = its absolute path) and mirrors the directory tree below it into `folder` rows keyed by `(source_id, path)`. Each asset's `folder_id` points at the folder for its own directory. `--kind` declares `optical`/`removable`/`network`; detection by volume identity is **Open**. `update` treats a source whose `last_mount_path` is absent as **offline**: it neither scans it nor marks its assets missing.
+- **Device provenance (v5, D21):** `source.device_id`/`source.device_label` record the volume or share root and a human label, derived from `last_mount_path` by `device_of` (`/` → `This Mac`, `/Volumes/NAS` → `NAS`, `/mnt/*` and `/media/*` likewise). Both are refreshed on import and update; pre-v5 rows are derived on read by `Source::device()`. This is a display/provenance key, not yet stable hardware identity.
 
 User-annotation tables (D11) and `find` indexes are done (migration v2). Still **Open**: where unknown chunks go.
 
@@ -152,6 +171,7 @@ User-annotation tables (D11) and `find` indexes are done (migration v2). Still *
 - **Encoding:** resolved by D10 (decoded text plus raw bytes). Mac Roman detection remains an `ivc` RE item.
 - **Path normalisation:** separators (legacy Mac paths versus POSIX/Windows), case, Unicode normalisation, and the rule that a catalogued path is never trusted to stay inside a directory (**Decided** in golden rules; representation **Open**).
 - Stable asset ids across machines (needed for merge, see `docs/sync.md`).
+- **Source identity:** currently the absolute import-root path, so a NAS share remounted elsewhere or a drive that changes mount point looks like a new source. Volume UUID/label detection is **Open**.
 - `size_class` (long edge in pixels, grid = 256), `source` (`"rendered"`), `derived_from` (`"<file_size>:<mtime>"`), `orientation_applied` (false until pixels are rotated) and `content_hash` (`"sha256:<hex>"`, also the `asset.uid`) are **RESOLVED per D13**. Raw-versus-decoded metadata storage is answered by D8.
 
 ## 5. Test requirements

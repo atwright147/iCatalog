@@ -53,7 +53,7 @@ Adding a crate (**Proposed** procedure):
 
 ## 4. Driving the CLI
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>`; set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
 
 Sync (D18) is two processes. On the NAS: `cargo run -p icatalog-cli -- serve nas.sqlite --port 8080` (optional `--bind <addr>`, default `127.0.0.1`). On a client, whose local copy shares the NAS catalogue id: `cargo run -p icatalog-cli -- sync local.sqlite --url http://nas:8080`. Plain HTTP only in this slice (`https://` is rejected). An idle sync with nothing changed prints `already up to date` and does not bump the generation; the client records a `local.sqlite.sync-state` fingerprint marker beside the catalogue (D19). A quick local smoke test: init `nas.sqlite`, copy it to `local.sqlite` (so the ids match), serve on one terminal and sync from another.
 
@@ -63,9 +63,9 @@ The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The
 |---|---|---|
 | `init` / `new` | `icatalog init photos.sqlite` | Create an empty catalogue |
 | `open` | `icatalog open photos.sqlite` | Validate and print a summary |
-| `import` | `icatalog import photos.sqlite --path ~/Pictures` | Import a directory (EXISTS, raster only) or a `.ivc`/`.mpcatalog` (not built) |
+| `import` | `icatalog import photos.sqlite --path ~/Pictures --kind removable` | Import a directory (EXISTS, raster only; builds a source + folder tree, D21) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
-| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14) |
+| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21) |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |
 | `sync` | `icatalog sync photos.sqlite --url http://nas:8080` | Pull/push against the NAS (EXISTS, D18) |
 | `serve` | `icatalog serve photos.sqlite --port 8080` | Run the NAS-side HTTP sync service (EXISTS, D18) |
@@ -75,7 +75,7 @@ Each subcommand is a thin wrapper over a command: the engine registry (`init`-`e
 
 ## 4a. Driving the GUI
 
-EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. The left panel lists assets; selecting one shows its stored grid thumbnail, basic metadata, and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear). The **Import…** button picks a folder and dispatches the `import` command; **Update** dispatches `update` (whole-catalogue rescan); each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome. Native desktop only; the wasm build is PLANNED.
+EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. The left panel holds a source-rooted folder tree grouped under device headers such as "This Mac" or a volume/share name (D21), with collapsible device sections; clicking a device name lists every asset on that device, plus an "Unassigned" entry and a search box; the centre switches between a thumbnail grid and a list; selecting an asset shows its stored grid thumbnail, basic metadata (including the device and source it was imported from), EXIF and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear) in the right panel. The **Import…** button picks a folder and dispatches the `import` command; **Update** dispatches `update` (whole-catalogue rescan); each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome, including how many assets belong to offline sources. Native desktop only; the wasm build is PLANNED.
 
 ## 5. Debugging tricks
 

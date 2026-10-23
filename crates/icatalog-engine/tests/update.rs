@@ -98,6 +98,37 @@ fn no_path_mode() {
 }
 
 #[test]
+fn offline_source_is_not_marked_missing() {
+    let (mut ctx, dir) = setup("offline");
+    let parked = dir.with_file_name("scan-offline");
+    std::fs::rename(&dir, &parked).unwrap();
+    let o = update(&mut ctx, None);
+    assert_eq!(metric(&o, "offline"), 2);
+    assert_eq!(metric(&o, "missing"), 0);
+    assert!(all(&ctx).iter().all(|a| !a.missing));
+    std::fs::rename(&parked, &dir).unwrap();
+    let o = update(&mut ctx, None);
+    assert_eq!(metric(&o, "offline"), 0);
+    assert_eq!(metric(&o, "missing"), 0);
+}
+
+#[test]
+fn update_files_new_assets_into_source_folders() {
+    let (mut ctx, dir) = setup("newfolders");
+    std::fs::create_dir_all(dir.join("newdir")).unwrap();
+    png(&dir.join("newdir/c.png"), 12, 12, 3);
+    update(&mut ctx, Some(&dir));
+    let sources = ctx.catalog().all_sources().unwrap();
+    let sub = ctx
+        .catalog()
+        .folder_by_source_path(sources[0].id, "newdir")
+        .unwrap()
+        .unwrap();
+    let a = all(&ctx).into_iter().find(|a| a.name == "c.png").unwrap();
+    assert_eq!(a.folder_id, Some(sub.id));
+}
+
+#[test]
 fn skip_reasons_reported() {
     let (mut ctx, dir) = setup("skip");
     std::fs::write(dir.join("notes.txt"), b"hi").unwrap();

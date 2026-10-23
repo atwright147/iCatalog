@@ -23,6 +23,9 @@ pub struct AssetQuery {
     pub folder_id: Option<i64>,
     /// If true, match assets with folder_id IS NULL (takes precedence when filtering unassigned).
     pub folder_id_null: Option<bool>,
+    /// Restrict to assets in folders belonging to any of these sources (device/volume view).
+    /// An empty list matches nothing.
+    pub source_ids: Option<Vec<i64>>,
     /// Inclusive lower bound on `asset_meta.captured_local` (ISO-8601 string, lexical compare).
     pub captured_from: Option<String>,
     /// Inclusive upper bound on `asset_meta.captured_local`.
@@ -96,6 +99,21 @@ impl Catalog {
         } else if let Some(fid) = q.folder_id {
             sql.push_str(" AND asset.folder_id = ?");
             args.push(Value::Integer(fid));
+        }
+        if let Some(sids) = &q.source_ids {
+            if sids.is_empty() {
+                sql.push_str(" AND 0");
+            } else {
+                let marks = std::iter::repeat_n("?", sids.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                sql.push_str(&format!(
+                    " AND asset.folder_id IN (SELECT id FROM folder WHERE source_id IN ({marks}))"
+                ));
+                for sid in sids {
+                    args.push(Value::Integer(*sid));
+                }
+            }
         }
         if let Some(d) = &q.captured_from {
             sql.push_str(
@@ -318,6 +336,38 @@ mod tests {
     }
 
     #[test]
+    fn source_filter_selects_a_device() {
+        let (c, i) = setup();
+        let s1 = c
+            .ensure_source("local", "P1", "/a", "/a", "t")
+            .unwrap();
+        let s2 = c
+            .ensure_source("network", "N", "/b", "/b", "t")
+            .unwrap();
+        let f1 = c
+            .insert_folder_at(None, Some(s1), "P1", Some(""))
+            .unwrap();
+        let f2 = c.insert_folder_at(None, Some(s2), "N", Some("")).unwrap();
+        for (idx, fid) in [(0, f1), (2, f2)] {
+            let mut a = c.asset(i[idx]).unwrap().unwrap();
+            a.folder_id = Some(fid);
+            c.update_asset(&a).unwrap();
+        }
+        let run = |sids: Option<Vec<i64>>| {
+            ids(c
+                .query_assets(&AssetQuery {
+                    source_ids: sids,
+                    ..Default::default()
+                })
+                .unwrap())
+        };
+        assert_eq!(run(Some(vec![s1])), vec![i[0]]);
+        assert_eq!(run(Some(vec![s1, s2])), vec![i[0], i[2]]);
+        assert!(run(Some(vec![])).is_empty());
+        assert_eq!(run(None), i);
+    }
+
+    #[test]
     fn paging() {
         let (c, i) = setup();
         let run = |limit, offset| {
@@ -362,6 +412,6 @@ mod tests {
         assert_eq!(s.keywords, 1);
         assert_eq!(s.thumbnails, 1);
         assert_eq!(s.generation, Some(0));
-        assert_eq!(s.schema_version, 3);
+        assert_eq!(s.schema_version, 5);
     }
 }
