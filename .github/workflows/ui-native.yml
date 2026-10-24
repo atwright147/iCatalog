@@ -1,0 +1,20 @@
+name: Native macOS UI smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    # A logged-in, dedicated Mac with Accessibility/Automation pre-authorized.
+    # Never run untrusted PR code automatically on this runner.
+    runs-on: [self-hosted, macOS, ui]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: task ui:smoke
+      - name: Upload native test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-diagnostics
+          path: target/ui-smoke/

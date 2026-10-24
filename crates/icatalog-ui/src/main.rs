@@ -12,6 +12,8 @@
     clippy::unreachable
 )]
 
+#[cfg(test)]
+mod ui_tests;
 mod worker;
 
 use eframe::egui;
@@ -87,7 +89,11 @@ struct TreeState<'a> {
 }
 
 #[cfg(target_os = "macos")]
-type NativeMenu = muda::Menu;
+struct NativeMenu {
+    _menu: muda::Menu,
+    import: muda::MenuItem,
+    update: muda::MenuItem,
+}
 #[cfg(not(target_os = "macos"))]
 type NativeMenu = ();
 
@@ -171,7 +177,11 @@ fn install_native_menu(
                 app_menu.setTitle(&NSString::from_str("iCatalog"));
             }
         }
-        Some(menu)
+        Some(NativeMenu {
+            _menu: menu,
+            import,
+            update,
+        })
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -281,10 +291,21 @@ impl App {
         match worker::Worker::start(self.path.clone(), id.to_string(), params.clone()) {
             Ok(worker) => {
                 self.worker = Some(worker);
+                self.set_menu_enabled(false);
                 self.status = format!("Running {id}…");
             }
             Err(error) => self.status = format!("Cannot start {id}: {error}"),
         }
+    }
+
+    fn set_menu_enabled(&self, enabled: bool) {
+        #[cfg(target_os = "macos")]
+        if let Some(menu) = &self.menu {
+            menu.import.set_enabled(enabled);
+            menu.update.set_enabled(enabled);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = enabled;
     }
 
     fn poll_worker(&mut self) {
@@ -292,6 +313,7 @@ impl App {
             return;
         };
         self.worker = None;
+        self.set_menu_enabled(true);
         self.status = match result {
             Ok(outcome) => outcome.render(),
             Err(error) => error.to_string(),
@@ -417,6 +439,14 @@ impl App {
                                 egui::vec2(tile, height),
                                 egui::Sense::click(),
                             );
+                            response.widget_info(|| {
+                                egui::WidgetInfo::selected(
+                                    egui::WidgetType::SelectableLabel,
+                                    ui.is_enabled(),
+                                    self.selected == Some(id),
+                                    &name,
+                                )
+                            });
                             draw_tile(
                                 ui,
                                 rect,
@@ -549,7 +579,16 @@ impl App {
         ui.horizontal(|ui| {
             ui.label("Rating");
             for r in 0..=5 {
-                if ui.selectable_label(rating == r, r.to_string()).clicked() && rating != r {
+                let response = ui.selectable_label(rating == r, r.to_string());
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::SelectableLabel,
+                        ui.is_enabled(),
+                        rating == r,
+                        format!("Rating {r}"),
+                    )
+                });
+                if response.clicked() && rating != r {
                     edit = Some(edit_params(id, "rating", &r.to_string()));
                 }
             }
@@ -557,18 +596,28 @@ impl App {
         ui.horizontal(|ui| {
             ui.label("Label");
             for l in 0..=7 {
-                if ui.selectable_label(label == l, l.to_string()).clicked() && label != l {
+                let response = ui.selectable_label(label == l, l.to_string());
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::SelectableLabel,
+                        ui.is_enabled(),
+                        label == l,
+                        format!("Label {l}"),
+                    )
+                });
+                if response.clicked() && label != l {
                     edit = Some(edit_params(id, "label", &l.to_string()));
                 }
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Keyword");
+            let keyword_label = ui.label("Keyword");
             ui.add(
                 egui::TextEdit::singleline(&mut self.keyword_input)
                     .hint_text("add")
                     .desired_width(150.0),
-            );
+            )
+            .labelled_by(keyword_label.id);
             if ui.button("Add").clicked() {
                 let name = self.keyword_input.trim().to_owned();
                 if !name.is_empty() {
@@ -951,6 +1000,16 @@ impl eframe::App for App {
                             .hint_text("Search name or path")
                             .desired_width(220.0),
                     );
+                    resp.widget_info(|| {
+                        let mut info = egui::WidgetInfo::text_edit(
+                            ui.is_enabled(),
+                            &self.search,
+                            &search,
+                            "Search name or path",
+                        );
+                        info.label = Some("Search name or path".into());
+                        info
+                    });
                     if resp.changed() {
                         self.search = search.clone();
                     }

@@ -231,6 +231,14 @@ Validation: regressions for panic-after-write, commit failure, invalid rating af
 
 Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, Collections, legacy import and wasm remain pending.
 
+## D24. Automated UI verification (2026-10-24)
+
+Use the matching `egui_kittest` 0.36.2 dev dependency to drive the real eframe App with pointer/key events and render deterministic image comparisons. Keep ordinary interactions in the workspace gate; GPU snapshots and native macOS smoke tests are separately named tasks. Tests generate their own catalogue/media and validate persistent results, not just button state. Screenshot baselines require explicit regeneration and visual review; CI never updates them.
+
+Native coverage launches the production binary and uses macOS System Events through a Rust test driver for menu Update, picker cancellation and Command-Q. It runs on a logged-in Mac with explicit OS permissions, separate from headless PR CI. Current coverage does not include choosing a folder in the native picker or Windows/Linux native shells. Custom tiles, rating/label choices and text fields now expose accessible names. Native Import/Update menu items disable while a worker is running, matching the in-app fallback.
+
+Status: local headless interactions, four visual baselines and native macOS smoke verified. GitHub workflows are configured; their hosted/self-hosted executions remain unverified until run there. No schema or command-engine changes.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

@@ -22,6 +22,8 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 
 D23 hardening is implemented: atomic engine command dispatch, reported UI refresh/startup errors, background import/update/edit, visible-row rendering and bounded thumbnail caching. Regression coverage includes partial writes, panic/commit rollback and 10,000-row viewport bounds; `task scale` adds opt-in generated-image and sync workloads. Remaining scale work includes asset-query paging, asynchronous visible-thumbnail decoding, per-file progress/cancellation and representative RAW-library benchmarks.
 
+D24 UI checks exist: real-widget interaction/persistence tests in the workspace gate, four opt-in GPU screenshot comparisons, and a separately invoked native macOS menu/picker-cancellation/quit smoke test. Local validation passed. PR and manual self-hosted workflows are configured but not yet run on GitHub. Broader native interaction/platform coverage remains open.
+
 ## 4. Next
 
 - **Collections (D21)** — manual sets/albums on the existing `collection`/`collection_asset` tables, then Smart Collections storing `AssetQuery`-shaped rules over format, capture date, lens and other metadata. Needs a command surface (`collection create/add/remove`, `smart create`) and UI. Not started.

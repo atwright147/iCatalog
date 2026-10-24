@@ -64,6 +64,8 @@ Commands return `Err` for any input (hostile params included). A fuzz-style test
 - **Decided (goal):** wasm browser build via trunk + wasm-bindgen, Rust only, using the same engine and model as desktop (D3).
 - **Open:** the exact data-driven mechanism (e.g. menus generated from the command registry) is not designed.
 
+UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless tests instantiate the same eframe App without installing OS menus; screenshot tests use its real renderer at fixed viewport/theme/scale. The native smoke integration test launches the production binary and operates macOS menus/dialog cancellation through System Events. Test fixtures and snapshot baselines live under `crates/icatalog-ui`; no test logic enters the engine or catalogue layers.
+
 ## 6. `ivc` seam and clean-room boundary
 
 `ivc` lives in `ivc-file-research/` by design (D6) and is consumed through a **path dependency**; it stays standalone. Existing API (EXISTS): `parse(&[u8]) -> Result<Catalog>`; `Catalog { header, items, chunks, trailer }`; `Item` with `path`, `name`, `format` (4cc), `file_size`, `width`, `height`, `color_space`, `pict`, `jpeg: Option<&[u8]>`, `tail_blocks`, `iptc: Vec<IptcRecord>`; `Chunk { kind, offset, payload }` including the `FSM!` folder tree. Format spec: `ivc-file-research/docs/ivc-format.md`. Strings are likely Mac Roman (an open RE item); currently decoded lossy.

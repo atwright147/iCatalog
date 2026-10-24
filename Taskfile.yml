@@ -106,3 +106,26 @@ tasks:
     cmds:
       - cargo test -p icatalog-engine --test scale -- --ignored --nocapture
       - cargo test -p icatalog-sync --test sync large_snapshot_round_trip -- --ignored --nocapture
+
+  ui:test:
+    desc: Headless UI interaction, persistence and viewport tests (also in task ci)
+    cmds:
+      - cargo test -p icatalog-ui
+
+  ui:visual:
+    desc: Compare deterministic UI screenshots against reviewed baselines
+    cmds:
+      - env UPDATE_SNAPSHOTS=false cargo test -p icatalog-ui --bin icatalog-ui ui_tests::visual_snapshots -- --ignored --nocapture
+
+  ui:visual:update:
+    desc: Regenerate UI screenshot baselines for explicit visual review
+    cmds:
+      - env UPDATE_SNAPSHOTS=true cargo test -p icatalog-ui --bin icatalog-ui ui_tests::visual_snapshots -- --ignored --nocapture
+
+  ui:smoke:
+    desc: Native macOS menus, picker cancellation, rescan and Command-Q (requires desktop permissions)
+    preconditions:
+      - sh: 'test "$(uname -s)" = Darwin'
+        msg: Native UI smoke tests require a logged-in macOS desktop
+    cmds:
+      - cargo test -p icatalog-ui --test native_smoke -- --ignored --nocapture --test-threads=1

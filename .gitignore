@@ -30,3 +30,8 @@ log/
 *.sqlite
 *.sync-state
 *.sync-state
+
+# UI screenshot comparison artefacts (reviewed .png baselines are committed)
+**/tests/snapshots/**/*.diff.png
+**/tests/snapshots/**/*.new.png
+**/tests/snapshots/**/*.old.png

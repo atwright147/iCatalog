@@ -14,6 +14,7 @@ const LAYERS: &[(&str, u8, &str)] = &[
 ];
 const GUI: &[&str] = &[
     "egui",
+    "egui_kittest",
     "eframe",
     "winit",
     "rfd",
