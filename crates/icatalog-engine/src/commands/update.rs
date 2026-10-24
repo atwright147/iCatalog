@@ -70,13 +70,12 @@ impl Command for Update {
                 .map(|s| offline.contains(&s))
                 .unwrap_or(false)
         };
-        let offline_count = u64::try_from(all.iter().filter(|a| offline_asset(a)).count())
-            .unwrap_or(u64::MAX);
+        let offline_count =
+            u64::try_from(all.iter().filter(|a| offline_asset(a)).count()).unwrap_or(u64::MAX);
         // (root, recursive) scan scopes.
         let scopes: Vec<(PathBuf, bool)> = match params.get("path") {
             Some(p) => {
-                let root =
-                    std::path::absolute(p).unwrap_or_else(|_| PathBuf::from(p));
+                let root = std::path::absolute(p).unwrap_or_else(|_| PathBuf::from(p));
                 if !std::fs::metadata(&root)?.is_dir() {
                     return Err(EngineError::BadParam(format!("not a directory: {p}")));
                 }
@@ -105,7 +104,8 @@ impl Command for Update {
                 scanned += 1;
                 let mut folder_id = None;
                 if let Some(src) = source_for(&sources, f) {
-                    if let std::collections::hash_map::Entry::Vacant(e) = folderizers.entry(src.id) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = folderizers.entry(src.id)
+                    {
                         if let Some(fz) = Folderizer::for_source(ctx, src)? {
                             e.insert(fz);
                         }

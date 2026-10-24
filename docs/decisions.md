@@ -113,7 +113,7 @@ Status: Accepted.
 Context: the owner asked to try the app in a UI while sync (M3) was still unbuilt; the engine, catalogue and media crates were already usable. This pulls M4 ahead of M3 by owner request.
 
 Decision:
-- New **`icatalog-ui`** crate at **L4** (binary `icatalog-ui <catalogue>`), **native desktop only for now**; the wasm build stays a later goal (D3). Deps: `eframe`/`egui` and `rfd`, GUI-only and allowed for `icatalog-ui` by the layer rule; no media dependency.
+- New **`icatalog-ui`** crate at **L4** (binary `icatalog-ui <catalogue>`), **native desktop only for now**; the wasm build stays a later goal (D3). Deps: `eframe`/`egui`, `rfd` and `muda` (the native macOS menu bar), GUI-only and allowed for `icatalog-ui` by the layer rule; no media dependency.
 - **Thin and data-driven** (golden rule 4): browsing reads the local catalogue directly (`query_assets`, `thumbnail`, `annotation`, `asset_keywords`), while every action (`init` on a fresh path, `import` via a folder picker, `update`, and per-asset `edit`) is dispatched as an engine command through `dispatch_guarded`, so CLI and GUI behave identically.
 - To keep media deps isolated (D8), the only media addition is **`icatalog-media::decode_rgba(&[u8]) -> DecodedImage`** (bytes in, RGBA8 out, `Limits`-bounded); the shell turns that into an egui texture.
 - `icatalog-ui` is compiled natively only; the wasm target is not installed and no wasm status is claimed.
@@ -192,7 +192,7 @@ Open: preview tiers and quality (big tier long edge 1080 or 1920; grid 256 only,
 
 Status: **Accepted as the target model (owner, Oct 2026); NOT IMPLEMENTED.** What is built today is D18/D19 (bidirectional whole-snapshot push). This entry fixes the direction and the open points; no code or schema has changed yet.
 
-## D21. Source-rooted folders; collections separate from folders
+## D21. Source-rooted folders and device provenance
 
 Context: the format study shows the legacy folder tree (`FSM!`) as a separate virtual hierarchy while every item carries its own native path — the item-to-folder linkage is still undecoded. The owner directed (Oct 2026) that iCatalog's folders should instead be based on **where assets were imported from**: a source may be a local disk, a CD/DVD/Blu-ray, an external HDD or a network share such as a NAS. Sets, albums and other groupings belong to a separate **Collections** concept, which can be manual or **Smart** (rules over metadata such as file type, dates or lens).
 
@@ -208,6 +208,28 @@ Decision:
 Rejected: mirroring the filesystem for every catalogued path with no source concept (unstable across mounts, and it cannot tell an offline disc from deleted files); and reusing `folder` as a many-to-many grouping (that is what collections are for). Also rejected for now: making the source the device itself with the chosen folder as a path inside it. The import root stays the source identity until stable volume identity exists, so a second import from the same device creates a second source under the same device header.
 
 Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget), and Collections (manual and smart). Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
+
+## D22. Native macOS menu bar via `muda` (2026-10-23)
+
+Context: The owner asked to move the Import/Update actions out of the in-app egui menu bar and into a real OS menu. On macOS that means installing an `NSMenu` on `NSApp.mainMenu`. eframe/egui has no built-in native menu installation API in the version used; `rfd` covers file pickers but not menus.
+
+Decision:
+- Add `muda` (Apache-2.0/MIT) as a GUI dependency to `icatalog-ui` only. It is allowed for L4 per the layer rules (added to `GUI` list in `crates/icatalog-cli/tests/layers.rs`). No other crate may depend on it.
+- On **macOS only**, build an `NSMenu` with an app menu (Quit) and a **File** menu containing **Import…** and **Update**, install it via `menu.init_for_nsapp()`, and forward clicks through `muda::MenuEvent` to the UI thread with `egui::Context::request_repaint()`. Menu item ids are `file.import` / `file.update`.
+- Keep the existing in-app egui `MenuBar` as a fallback when the native menu cannot be installed or on non-macOS platforms.
+- The actions remain engine commands (`import`/`update`) dispatched the same way as before; only the menu host changes.
+
+Status: Accepted (macOS native menu installed; other platforms fall back to in-app menu).
+
+## D23. Atomic engine commands and bounded desktop work (2026-10-24)
+
+Decision: each engine command runs in a deferred SQLite transaction. Success commits; a returned error, escaped panic, or failed commit rolls back. This covers earlier writes in the same command (including keyword changes before rating validation). Import/update still report recoverable per-file skips in a successful outcome; a fatal command error rolls back the whole command. Sync keeps its separate backup/verify/swap protocol, not this transaction wrapper. Shell panic messages no longer claim that every previously completed action was undone.
+
+Desktop import/update/edit run one at a time on a worker with its own engine context. The UI polls completion, shows a busy indicator, disables overlapping edits, and defers window close while work runs. Database refreshes wait until completion. Grid/list drawing uses visible rows; only visible and selected thumbnails stay cached, including failed/missing-thumbnail attempts to avoid retrying every frame. Catalogue refresh failures preserve prior results and report the error. Invalid catalogue startup returns failure.
+
+Validation: regressions for panic-after-write, commit failure, invalid rating after keyword writes, startup/refresh errors, background outcomes, and viewport thumbnail bounds. `task scale` checks 10,000 generated PNGs through import/browse/search/edit/update/reopen/integrity validation, plus a separate 10,000-asset HTTP snapshot round trip. Synthetic sync thumbnail blobs test transport size, not decoding.
+
+Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, Collections, legacy import and wasm remain pending.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

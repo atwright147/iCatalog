@@ -33,6 +33,7 @@ Media/metadata dependencies may appear only in `icatalog-media` (see `docs/archi
 A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common commands:
 
 - `task` lists all tasks.
+- `task scale`: opt-in 10,000-image workflow and 10,000-asset HTTP sync round trip; prints timings and needs localhost listener permission. Uses generated media in temporary directories; run separately from the normal gate.
 - `task ci`: the full gate (`fmt:check`, `lint`, `test`, in that order); also what CI will run once set up.
 - `task test`, `task lint`, `task fmt:check`: the individual gate steps.
 - `task layers`: the crate layer-rule test.
@@ -75,20 +76,20 @@ Each subcommand is a thin wrapper over a command: the engine registry (`init`-`e
 
 ## 4a. Driving the GUI
 
-EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. The left panel holds a source-rooted folder tree grouped under device headers such as "This Mac" or a volume/share name (D21), with collapsible device sections; clicking a device name lists every asset on that device, plus an "Unassigned" entry; the centre has a full-width toolbar with the grid/list switch on the left and the search box (name/path, Enter or Go to apply, × to clear) on the right, above the thumbnails; selecting an asset shows its stored grid thumbnail, basic metadata (including the device and source it was imported from), EXIF and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear) in the right panel. The **Import…** button picks a folder and dispatches the `import` command; **Update** dispatches `update` (whole-catalogue rescan); each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome, including how many assets belong to offline sources. Native desktop only; the wasm build is PLANNED.
+EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. A native macOS **File** menu (in-app fallback on other platforms) provides Import and Update; its **Import…** item picks a folder and dispatches the `import` command, and **Update** dispatches `update` (whole-catalogue rescan). The left panel holds a source-rooted folder tree grouped under device headers such as "This Mac" or a volume/share name (D21), with collapsible device sections; clicking a device name lists every asset on that device, plus an "Unassigned" entry; the centre has a full-width toolbar with the grid/list switch on the left and the search box (name/path, Enter or Go to apply, × to clear) on the right, above the thumbnails; selecting an asset shows its stored grid thumbnail, basic metadata (including the device and source it was imported from), EXIF and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear) in the right panel. Each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome, including how many assets belong to offline sources, and the catalogue's file name at its right end (full path on hover). Native desktop only; the wasm build is PLANNED.
 
 ## 5. Debugging tricks
 
 - **Debug builds and breakpoints (Decided):** `cargo build`/`cargo run` use the dev profile (symbols, `debug_assertions`, no optimisation), so an ordinary debugger attaches with no extra flags. There is no in-process inspector like a browser's devtools; you drive a debugger instead.
 - **VS Code (recommended):** install the CodeLLDB extension (`vadimcn.vscode-lldb`, recommended in `.vscode/extensions.json`). `.vscode/launch.json` (committed) provides: *Debug icatalog-ui (GUI)*, *Debug icatalog CLI (edit)*, *Debug engine tests*, *Debug edit integration tests* and *Attach to icatalog-ui*. Pick one, set a breakpoint (e.g. in `crates/icatalog-engine/src/commands/edit.rs`) and press F5. Edit the `args` in the config to point at your catalogue. `dbg!(x)` and `eprintln!` work as console-style output and appear in the Debug Console.
 - **Terminal:** `rust-lldb target/debug/icatalog-ui -- catalogue.sqlite`, then `breakpoint set --file edit.rs --line <n>` (or by symbol), `run`, `bt`, `frame variable`. `rust-gdb` is the same for gdb users.
-- **GUI caveat:** the shell dispatches commands synchronously on the main thread, so the window freezes while execution is stopped at a breakpoint; the catalogue is not left in a bad state and stepping resumes normally.
+- **GUI workers (D23):** import/update/edit run on a background thread. A busy indicator is shown; further edits and window close wait for completion. Debugger breakpoints may suspend all threads. There is no per-file progress or cancellation yet. Grid/list rendering visits visible rows, and thumbnails are cached only for those rows and the selection. All matching asset rows are still queried together.
 - **Panic backtraces:** run with `RUST_BACKTRACE=1`. Because `dispatch_guarded` turns an escaped panic into an error, a panicking command shows an error rather than a backtrace; to see the backtrace, call the engine directly (e.g. `cargo test`) instead of through the guard.
 - **Logging:** nothing wires a logger yet, so there is no `RUST_LOG`; use `dbg!`/`eprintln!` or the debugger for now.
 - **Legacy files:** the `ivc` crate has `examples/dump.rs` for inspecting `.ivc` files; check `ivc-file-research/AGENTS.md` for current usage. Format spec: `ivc-file-research/docs/ivc-format.md`; sample oracles: `ivc-file-research/crates/ivc/tests/samples.rs`.
 - **Parallel agents:** use `CARGO_TARGET_DIR=target/agent-<name>` to avoid the Cargo build lock; delete finished `target/agent-*` dirs. Edit only files you own; shared files get small surgical edits.
 - **Devlog:** `log/devlog.md` (local, gitignored) records a terse entry per task; read its "Still open" bullets when picking work.
-- **Panics:** the CLI `main` and the GUI shell catch an escaped panic around dispatch and import and report it as an error, leaving the catalogue untouched (the `dispatch_guarded` guard, D12). It is a safety net, never a licence to panic.
+- **Panics/errors:** engine commands commit atomically; errors, panics and failed commits roll back writes from that command (D23). Outer shell guards report errors without claiming that earlier successful commands were undone. Sync keeps its backup/verify/swap policy. Never use the guard as a licence to panic.
 
 ## 6. Definition of done
 
@@ -110,3 +111,7 @@ The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*
 - Final CLI argument syntax.
 - Per-crate `clippy.toml` (allow panics in tests); check whether `ivc` already has the deny attributes before assuming.
 - Samples corpus: resolved (CC0, committed; `ivc-file-research/samples/fetch.sh` is an optional re-fetch/verifier; see `docs/decisions.md` D9).
+
+## Scale validation
+
+`task scale` generates 10,000 unique 8×8 PNGs across 100 folders, imports thumbnails, browses/searches, edits annotations, rescans unchanged and added/changed/missing files, reopens the catalogue and checks SQLite integrity. The separate sync case transfers 10,000 assets with 1 KiB synthetic thumbnail blobs and checks push, pull and idle sync. These are functional scale checks, not representative RAW/photo decode benchmarks. The normal UI tests also render a headless grid over 10,000 rows and assert that fewer than 100 thumbnails are requested in a 900×600 viewport.

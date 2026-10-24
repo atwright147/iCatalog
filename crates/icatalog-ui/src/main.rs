@@ -12,6 +12,8 @@
     clippy::unreachable
 )]
 
+mod worker;
+
 use eframe::egui;
 use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Folder, Source};
 use icatalog_engine::{dispatch_guarded, Context, Params};
@@ -28,7 +30,7 @@ fn main() -> ExitCode {
         }
         Err(_) => {
             eprintln!(
-                "icatalog-ui: internal error (panic caught); the catalogue was left unchanged"
+                "icatalog-ui: internal error (panic caught); reopen the catalogue to check its state"
             );
             ExitCode::from(70)
         }
@@ -40,23 +42,21 @@ fn run() -> eframe::Result<()> {
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("catalogue.sqlite"));
-    let mut ctx = match Context::open(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("icatalog-ui: cannot open {}: {e}", path.display());
-            return Ok(());
-        }
-    };
-    // A brand-new path is initialised so the window is usable immediately.
-    if ctx.catalog().catalogue().ok().flatten().is_none() {
-        let _ = dispatch_guarded(&mut ctx, "init", &Params::new());
-    }
+    let ctx = open_catalogue(&path).map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "iCatalog",
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, ctx, path)))),
     )
+}
+
+fn open_catalogue(path: &std::path::Path) -> icatalog_engine::Result<Context> {
+    let mut ctx = Context::open(path)?;
+    if ctx.catalog().catalogue()?.is_none() {
+        dispatch_guarded(&mut ctx, "init", &Params::new())?;
+    }
+    Ok(ctx)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +86,11 @@ struct TreeState<'a> {
     selected: &'a mut FolderSelection,
 }
 
+#[cfg(target_os = "macos")]
+type NativeMenu = muda::Menu;
+#[cfg(not(target_os = "macos"))]
+type NativeMenu = ();
+
 struct App {
     ctx: Context,
     path: PathBuf,
@@ -106,10 +111,88 @@ struct App {
     status: String,
     dirty: bool,
     search: String,
+    /// Native (macOS) menu bar; kept alive for the app's lifetime. `None` when
+    /// it could not be installed, in which case the in-app menu bar is shown.
+    menu: Option<NativeMenu>,
+    /// Menu-item ids delivered from the native menu.
+    menu_events: std::sync::mpsc::Receiver<String>,
+    worker: Option<worker::Worker>,
+    attempted_thumbnails: HashSet<i64>,
+    visible_thumbnails: HashSet<i64>,
+}
+
+/// Build the native macOS menu bar. Returns `None` on other platforms or if
+/// the menu cannot be installed, so the in-app menu bar remains the fallback.
+fn install_native_menu(
+    ctx: &egui::Context,
+    tx: std::sync::mpsc::Sender<String>,
+) -> Option<NativeMenu> {
+    #[cfg(target_os = "macos")]
+    {
+        use muda::accelerator::Accelerator;
+        use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+
+        let menu = Menu::new();
+        let app_menu = Submenu::new("iCatalog", true);
+        let file_menu = Submenu::new("File", true);
+        let import = MenuItem::with_id("file.import", "Import…", true, None::<Accelerator>);
+        let update = MenuItem::with_id("file.update", "Update", true, None::<Accelerator>);
+
+        // Keep the standard app menu (Quit/⌘Q): installing our menu replaces
+        // NSApp's main menu wholesale.
+        let built = app_menu.append(&PredefinedMenuItem::quit(None)).is_ok()
+            && file_menu.append_items(&[&import, &update]).is_ok()
+            && menu.append_items(&[&app_menu, &file_menu]).is_ok();
+        if !built {
+            return None;
+        }
+
+        // muda reports clicks on its own channel; forward them to the UI
+        // thread and wake egui so the action runs without another input event.
+        let repaint = ctx.clone();
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            let _ = tx.send(event.id().0.clone());
+            repaint.request_repaint();
+        }));
+        menu.init_for_nsapp();
+        // Ensure the app menu shows "iCatalog" (eframe/muda may derive it from
+        // the process/bundle name in some environments).
+        #[cfg(target_os = "macos")]
+        {
+            use objc2_app_kit::NSApplication;
+            use objc2_foundation::{MainThreadMarker, NSString};
+            let mtm = MainThreadMarker::new()?;
+            let app = NSApplication::sharedApplication(mtm);
+            if let Some(app_menu) = app
+                .mainMenu()
+                .and_then(|menu| menu.itemAtIndex(0))
+                .and_then(|item| item.submenu())
+            {
+                app_menu.setTitle(&NSString::from_str("iCatalog"));
+            }
+        }
+        Some(menu)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (ctx, tx);
+        None
+    }
 }
 
 impl App {
-    fn new(_cc: &eframe::CreationContext<'_>, ctx: Context, path: PathBuf) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, ctx: Context, path: PathBuf) -> Self {
+        let (menu_tx, menu_events) = std::sync::mpsc::channel();
+        let menu = install_native_menu(&cc.egui_ctx, menu_tx);
+        Self::with_menu(ctx, path, menu, menu_events)
+    }
+
+    fn with_menu(
+        ctx: Context,
+        path: PathBuf,
+        menu: Option<NativeMenu>,
+        menu_events: std::sync::mpsc::Receiver<String>,
+    ) -> Self {
         let mut app = App {
             ctx,
             path,
@@ -130,17 +213,28 @@ impl App {
             status: String::new(),
             dirty: true,
             search: String::new(),
+            menu,
+            menu_events,
+            worker: None,
+            attempted_thumbnails: HashSet::new(),
+            visible_thumbnails: HashSet::new(),
         };
         app.refresh();
         app
     }
 
     fn refresh(&mut self) {
-        self.folders = self.ctx.catalog().all_folders().unwrap_or_default();
-        self.sources = self.ctx.catalog().all_sources().unwrap_or_default();
+        if let Err(error) = self.try_refresh() {
+            self.status = format!("Cannot refresh catalogue: {error}");
+        }
+    }
+
+    fn try_refresh(&mut self) -> icatalog_engine::Result<()> {
+        let folders = self.ctx.catalog().all_folders()?;
+        let sources = self.ctx.catalog().all_sources()?;
         let source_ids = match &self.folder_sel {
             FolderSelection::Device(device) => Some(
-                self.sources
+                sources
                     .iter()
                     .filter(|s| &s.device().0 == device)
                     .map(|s| s.id)
@@ -158,14 +252,17 @@ impl App {
                 _ => None,
             },
             source_ids,
-            text_like: if self.search.trim().is_empty() { None } else { Some(self.search.trim().to_string()) },
+            text_like: if self.search.trim().is_empty() {
+                None
+            } else {
+                Some(self.search.trim().to_string())
+            },
             ..Default::default()
         };
-        self.assets = self
-            .ctx
-            .catalog()
-            .query_assets(&q)
-            .unwrap_or_default();
+        let assets = self.ctx.catalog().query_assets(&q)?;
+        self.folders = folders;
+        self.sources = sources;
+        self.assets = assets;
         if let Some(id) = self.selected {
             if !self.assets.iter().any(|a| a.id == id) {
                 self.selected = None;
@@ -174,15 +271,34 @@ impl App {
         // keep cached textures only for assets that are still in view
         let ids: HashSet<i64> = self.assets.iter().map(|a| a.id).collect();
         self.textures.retain(|k, _| ids.contains(k));
+        Ok(())
     }
 
     fn run_command(&mut self, id: &str, params: &Params) {
-        self.status = match dispatch_guarded(&mut self.ctx, id, params) {
-            Ok(o) => o.render(),
-            Err(e) => e.to_string(),
+        if self.worker.is_some() {
+            return;
+        }
+        match worker::Worker::start(self.path.clone(), id.to_string(), params.clone()) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                self.status = format!("Running {id}…");
+            }
+            Err(error) => self.status = format!("Cannot start {id}: {error}"),
+        }
+    }
+
+    fn poll_worker(&mut self) {
+        let Some(result) = self.worker.as_mut().and_then(worker::Worker::poll) else {
+            return;
+        };
+        self.worker = None;
+        self.status = match result {
+            Ok(outcome) => outcome.render(),
+            Err(error) => error.to_string(),
         };
         self.dirty = true;
         self.textures.clear();
+        self.attempted_thumbnails.clear();
         self.detail_for = None;
     }
 
@@ -198,15 +314,30 @@ impl App {
         if self.detail_for == Some(id) {
             return;
         }
+        if self.worker.is_some() {
+            return;
+        }
+        let result = (|| -> icatalog_catalog::Result<_> {
+            Ok((
+                self.ctx.catalog().annotation(id)?,
+                self.ctx.catalog().asset_keywords(id)?,
+                self.ctx.catalog().asset_meta(id)?,
+            ))
+        })();
         self.detail_for = Some(id);
-        self.annotation = self.ctx.catalog().annotation(id).ok().flatten();
-        self.keywords = self
-            .ctx
-            .catalog()
-            .asset_keywords(id)
-            .map(|v| v.into_iter().map(|k| k.name).collect())
-            .unwrap_or_default();
-        self.meta = self.ctx.catalog().asset_meta(id).ok().flatten();
+        match result {
+            Ok((annotation, keywords, meta)) => {
+                self.annotation = annotation;
+                self.keywords = keywords.into_iter().map(|k| k.name).collect();
+                self.meta = meta;
+            }
+            Err(error) => {
+                self.annotation = None;
+                self.keywords.clear();
+                self.meta = None;
+                self.status = format!("Cannot load asset details: {error}");
+            }
+        }
         self.keyword_input.clear();
     }
 
@@ -214,32 +345,35 @@ impl App {
         let mut clicked = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for a in &self.assets {
-                    if ui
-                        .selectable_label(self.selected == Some(a.id), &a.name)
-                        .clicked()
-                    {
-                        clicked = Some(a.id);
+            .show_rows(
+                ui,
+                ui.spacing().interact_size.y,
+                self.assets.len(),
+                |ui, rows| {
+                    for index in rows {
+                        if let Some(asset) = self.assets.get(index) {
+                            if ui
+                                .selectable_label(self.selected == Some(asset.id), &asset.name)
+                                .clicked()
+                            {
+                                clicked = Some(asset.id);
+                            }
+                        }
                     }
-                }
-            });
+                },
+            );
         clicked
     }
 
-    fn ensure_texture(&mut self, ctx: &egui::Context) {
-        let Some(id) = self.selected else {
-            return;
-        };
-        if self.textures.contains_key(&id) {
+    fn ensure_texture(&mut self, ctx: &egui::Context, id: i64) {
+        self.visible_thumbnails.insert(id);
+        if self.worker.is_some() || !self.attempted_thumbnails.insert(id) {
             return;
         }
-        if let Some(tex) = self.load_thumbnail(ctx, id) {
-            self.textures.insert(id, tex);
+        if let Some(texture) = self.load_thumbnail(ctx, id) {
+            self.textures.insert(id, texture);
         }
     }
-
-
 
     fn load_thumbnail(&self, ctx: &egui::Context, id: i64) -> Option<egui::TextureHandle> {
         let t = self
@@ -258,43 +392,45 @@ impl App {
 
     fn grid(&mut self, ui: &mut egui::Ui) -> Option<i64> {
         let mut clicked = None;
-        let tile = 160.0f32;
-        let label_h = 20.0f32;
-        let spacing = 8.0f32;
-        let available = ui.available_width();
-        let cols = ((available / (tile + spacing)).floor() as usize).max(1);
+        let tile = 160.0;
+        let height = 180.0;
+        let cols =
+            ((ui.available_width() / (tile + ui.spacing().item_spacing.x)).floor() as usize).max(1);
+        let row_count = self.assets.len().div_ceil(cols);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .show(ui, |ui| {
-                egui::Grid::new("grid")
-                    .num_columns(cols)
-                    .spacing([spacing, spacing])
-                    .show(ui, |ui| {
-                        let mut i = 0;
-                        for a in &self.assets {
-                            let (rect, resp) = ui.allocate_exact_size(
-                                egui::vec2(tile, tile + label_h),
+            .show_rows(ui, height, row_count, |ui, rows| {
+                for row in rows {
+                    ui.horizontal(|ui| {
+                        for index in row.saturating_mul(cols)
+                            ..row
+                                .saturating_add(1)
+                                .saturating_mul(cols)
+                                .min(self.assets.len())
+                        {
+                            let Some(asset) = self.assets.get(index) else {
+                                continue;
+                            };
+                            let (id, name) = (asset.id, asset.name.clone());
+                            self.ensure_texture(ui.ctx(), id);
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(tile, height),
                                 egui::Sense::click(),
                             );
                             draw_tile(
                                 ui,
                                 rect,
-                                self.textures.get(&a.id),
-                                &a.name,
-                                self.selected == Some(a.id),
+                                self.textures.get(&id),
+                                &name,
+                                self.selected == Some(id),
                             );
-                            if resp.clicked() {
-                                clicked = Some(a.id);
+                            if response.clicked() {
+                                clicked = Some(id);
                             }
-                            if resp.hovered() {
-                                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                            }
-                            i += 1;
-                            if i % cols == 0 {
-                                ui.end_row();
-                            }
+                            response.on_hover_cursor(egui::CursorIcon::PointingHand);
                         }
                     });
+                }
             });
         clicked
     }
@@ -318,7 +454,6 @@ impl App {
             )));
         } else {
             ui.label("(no thumbnail)");
-            let _ = self.load_thumbnail(ui.ctx(), id).map(|t| self.textures.insert(id, t));
         }
         ui.separator();
         ui.label(format!("Path: {}", asset.path));
@@ -365,21 +500,31 @@ impl App {
             if let Some(l) = &m.lens {
                 ui.label(format!("Lens: {l}"));
             }
-            if m.focal_length_mm.is_some() || m.f_number.is_some() || m.exposure_s.is_some() || m.iso.is_some() {
+            if m.focal_length_mm.is_some()
+                || m.f_number.is_some()
+                || m.exposure_s.is_some()
+                || m.iso.is_some()
+            {
                 let mut s = String::new();
                 if let Some(f) = m.focal_length_mm {
                     s.push_str(&format!("{f}mm"));
                 }
                 if let Some(n) = m.f_number {
-                    if !s.is_empty() { s.push_str("  "); }
+                    if !s.is_empty() {
+                        s.push_str("  ");
+                    }
                     s.push_str(&format!("f/{n}"));
                 }
                 if let Some(e) = m.exposure_s {
-                    if !s.is_empty() { s.push_str("  "); }
+                    if !s.is_empty() {
+                        s.push_str("  ");
+                    }
                     s.push_str(&format!("{e}s"));
                 }
                 if let Some(iso) = m.iso {
-                    if !s.is_empty() { s.push_str("  "); }
+                    if !s.is_empty() {
+                        s.push_str("  ");
+                    }
                     s.push_str(&format!("ISO{iso}"));
                 }
                 if !s.is_empty() {
@@ -390,7 +535,11 @@ impl App {
                 ui.label(format!("Duration: {}ms", d));
             }
             if m.gps_lat.is_some() && m.gps_lon.is_some() {
-                ui.label(format!("GPS: {}, {}", m.gps_lat.unwrap_or(0.0), m.gps_lon.unwrap_or(0.0)));
+                ui.label(format!(
+                    "GPS: {}, {}",
+                    m.gps_lat.unwrap_or(0.0),
+                    m.gps_lon.unwrap_or(0.0)
+                ));
             }
         }
         ui.separator();
@@ -482,12 +631,11 @@ fn draw_tile(
     match tex {
         Some(tex) => {
             let size = tex.size_vec2();
-            let scale = (img_rect.width() / size.x.max(1.0))
-                .min(img_rect.height() / size.y.max(1.0));
+            let scale =
+                (img_rect.width() / size.x.max(1.0)).min(img_rect.height() / size.y.max(1.0));
             let draw_size = size * scale;
             let dest = egui::Rect::from_center_size(img_rect.center(), draw_size);
-            egui::Image::new(egui::load::SizedTexture::new(tex.id(), draw_size))
-                .paint_at(ui, dest);
+            egui::Image::new(egui::load::SizedTexture::new(tex.id(), draw_size)).paint_at(ui, dest);
         }
         None => {
             ui.painter().text(
@@ -533,29 +681,69 @@ fn edit_params(id: i64, key: &str, value: &str) -> Params {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.dirty {
+        self.poll_worker();
+        self.visible_thumbnails.clear();
+        if self.worker.is_some() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(50));
+            if ui.ctx().input(|input| input.viewport().close_requested()) {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.status = "A command is running; wait for it to finish before closing.".into();
+            }
+        }
+        if self.dirty && self.worker.is_none() {
             self.refresh();
             self.dirty = false;
         }
         let ctx = ui.ctx().clone();
 
         let mut action = None;
+        // Native macOS menu clicks arrive through the handler installed in
+        // `install_native_menu`; drain them before drawing.
+        while let Ok(id) = self.menu_events.try_recv() {
+            if self.worker.is_some() {
+                continue;
+            }
+            match id.as_str() {
+                "file.import" => {
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        action = Some(Action::Import(dir));
+                    }
+                }
+                "file.update" => action = Some(Action::Update),
+                _ => {}
+            }
+        }
+        // Fallback toolbar menu when no native menu bar could be installed
+        // (non-macOS today).
+        if self.menu.is_none() {
+            egui::Panel::top("menu").show(ui, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui
+                            .add_enabled(self.worker.is_none(), egui::Button::new("Import…"))
+                            .clicked()
+                        {
+                            ui.close();
+                            if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                action = Some(Action::Import(dir));
+                            }
+                        }
+                        if ui
+                            .add_enabled(self.worker.is_none(), egui::Button::new("Update"))
+                            .clicked()
+                        {
+                            ui.close();
+                            action = Some(Action::Update);
+                        }
+                    });
+                });
+            });
+        }
         egui::Panel::left("folders")
             .default_size(220.0)
             .show(ui, |ui| {
-                ui.heading("iCatalog");
-                ui.label(self.path.display().to_string());
-                ui.horizontal(|ui| {
-                    if ui.button("Import…").clicked() {
-                        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                            action = Some(Action::Import(dir));
-                        }
-                    }
-                    if ui.button("Update").clicked() {
-                        action = Some(Action::Update);
-                    }
-                });
-                ui.separator();
                 // folder tree
                 let mut sel = self.folder_sel.clone();
                 ui.label("Folders");
@@ -582,6 +770,10 @@ impl eframe::App for App {
                     depth: usize,
                     devices: &HashMap<i64, (String, String)>,
                 ) {
+                    if depth >= 128 {
+                        ui.label("Folder nesting limit reached");
+                        return;
+                    }
                     let mut children: Vec<&Folder> = folders
                         .iter()
                         .filter(|x| x.parent_id == parent)
@@ -692,10 +884,24 @@ impl eframe::App for App {
             });
 
         egui::Panel::bottom("status").show(ui, |ui| {
-            ui.label(if self.status.is_empty() {
-                "Ready".to_string()
-            } else {
-                self.status.clone()
+            ui.horizontal(|ui| {
+                if self.worker.is_some() {
+                    ui.spinner();
+                }
+                ui.label(if self.status.is_empty() {
+                    "Ready".to_string()
+                } else {
+                    self.status.clone()
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let name = self
+                        .path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| self.path.display().to_string());
+                    ui.label(egui::RichText::new(name).weak())
+                        .on_hover_text(self.path.display().to_string());
+                });
             });
         });
 
@@ -710,22 +916,17 @@ impl eframe::App for App {
             }
         }
 
-        self.ensure_texture(&ctx);
-        self.ensure_detail();
-        // preload thumbnails for visible assets in grid/list as needed
-        let ids: Vec<i64> = self.assets.iter().map(|a| a.id).collect();
-        for id in ids {
-            if !self.textures.contains_key(&id) {
-                if let Some(tex) = self.load_thumbnail(&ctx, id) {
-                    self.textures.insert(id, tex);
-                }
-            }
+        if let Some(id) = self.selected {
+            self.ensure_texture(&ctx, id);
         }
+        self.ensure_detail();
         let mut edit = None;
         egui::Panel::right("details")
             .default_size(320.0)
             .show(ui, |ui| {
-                edit = self.details_panel(ui);
+                ui.add_enabled_ui(self.worker.is_none(), |ui| {
+                    edit = self.details_panel(ui);
+                });
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -766,8 +967,83 @@ impl eframe::App for App {
                 self.selected = Some(id);
             }
         });
+        self.textures
+            .retain(|id, _| self.visible_thumbnails.contains(id));
+        self.attempted_thumbnails
+            .retain(|id| self.visible_thumbnails.contains(id));
         if let Some(params) = edit {
             self.run_command("edit", &params);
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn app() -> App {
+        let ctx = open_catalogue(std::path::Path::new(":memory:")).unwrap();
+        ctx.catalog().connection().execute_batch(
+            "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000)
+             INSERT INTO asset(uid,path,name) SELECT 'uid-'||x, '/synthetic/'||x||'.png', x||'.png' FROM n;"
+        ).unwrap();
+        let (_, receiver) = std::sync::mpsc::channel();
+        App::with_menu(ctx, ":memory:".into(), None, receiver)
+    }
+
+    #[test]
+    fn grid_only_requests_visible_thumbnails_in_large_catalogue() {
+        let mut app = app();
+        let context = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = context.run_ui(input.clone(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                app.grid(ui);
+            });
+        });
+        output.textures_delta.clear();
+        let attempted = app.attempted_thumbnails.len();
+        assert!(
+            attempted > 0 && attempted < 100,
+            "requested {attempted} of 10,000 thumbnails"
+        );
+        let mut output = context.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                app.grid(ui);
+            });
+        });
+        output.textures_delta.clear();
+        assert_eq!(app.attempted_thumbnails.len(), attempted);
+        // Missing thumbnails are remembered rather than queried every frame.
+        assert!(app.textures.is_empty());
+    }
+
+    #[test]
+    fn refresh_error_preserves_previous_results_and_reports_failure() {
+        let mut app = app();
+        app.ctx
+            .catalog()
+            .connection()
+            .execute_batch("ALTER TABLE source RENAME TO unavailable_source")
+            .unwrap();
+        app.refresh();
+        assert_eq!(app.assets.len(), 10000);
+        assert!(app.status.contains("Cannot refresh catalogue"));
+    }
+
+    #[test]
+    fn opening_invalid_catalogue_is_an_error() {
+        let path =
+            std::env::temp_dir().join(format!("icatalog-ui-invalid-{}.sqlite", std::process::id()));
+        std::fs::write(&path, b"not a SQLite database").unwrap();
+        assert!(open_catalogue(&path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

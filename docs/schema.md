@@ -17,6 +17,8 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
 
+Engine command writes are grouped in a single deferred transaction (D23), with rollback on error, panic or failed commit. This does not change the schema version. Direct catalogue CRUD callers manage their own transaction boundaries.
+
 ## 3. DDL (v1-v5, implemented; later columns are marked inline)
 
 ```sql

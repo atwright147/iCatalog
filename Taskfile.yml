@@ -100,3 +100,9 @@ tasks:
     desc: Run the icatalog-ui desktop shell (e.g. `task gui -- my.sqlite`)
     cmds:
       - cargo run -q -p icatalog-ui -- {{.CLI_ARGS}}
+
+  scale:
+    desc: Validate 10,000 generated images and a large sync snapshot
+    cmds:
+      - cargo test -p icatalog-engine --test scale -- --ignored --nocapture
+      - cargo test -p icatalog-sync --test sync large_snapshot_round_trip -- --ignored --nocapture

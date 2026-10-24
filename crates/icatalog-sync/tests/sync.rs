@@ -311,3 +311,51 @@ impl Transport for ScriptedTransport {
         self.next()
     }
 }
+
+#[test]
+#[ignore = "10,000-asset snapshot round trip; run task scale"]
+fn large_snapshot_round_trip() {
+    let dir = temp_dir("scale");
+    let server_path = make_catalogue(&dir, "nas.sqlite", "scale", 0);
+    let local_path = dir.join("local.sqlite");
+    let reader_path = dir.join("reader.sqlite");
+    std::fs::copy(&server_path, &local_path).unwrap();
+    std::fs::copy(&server_path, &reader_path).unwrap();
+    let mut local = Context::open(&local_path).unwrap();
+    local
+        .catalog()
+        .connection()
+        .execute_batch(
+            "BEGIN;
+         WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000)
+         INSERT INTO asset(uid,path,name) SELECT 'scale-'||x, '/synthetic/'||x, 'image-'||x FROM n;
+         INSERT INTO thumbnail(asset_id,size_class,format,bytes,source,orientation_applied,width,height,generator_version)
+         SELECT id,256,'jpeg',zeroblob(1024),'synthetic',0,8,8,1 FROM asset;
+         COMMIT;",
+        )
+        .unwrap();
+    let url = format!("http://127.0.0.1:{}", start_server(server_path));
+    let transport = icatalog_sync::transport::UreqTransport::new();
+    let start = std::time::Instant::now();
+    let pushed = client::sync_once(&mut local, &transport, &url).unwrap();
+    assert!(matches!(pushed.action, SyncAction::Pushed));
+    let mut reader = Context::open(&reader_path).unwrap();
+    let pulled = client::sync_once(&mut reader, &transport, &url).unwrap();
+    assert!(matches!(pulled.action, SyncAction::Pulled { .. }));
+    assert_eq!(reader.catalog().stats().unwrap().assets, 10000);
+    assert_eq!(reader.catalog().stats().unwrap().thumbnails, 10000);
+    assert!(matches!(
+        client::sync_once(&mut local, &transport, &url)
+            .unwrap()
+            .action,
+        SyncAction::UpToDate
+    ));
+    eprintln!(
+        "10,000 assets + 1 KiB synthetic thumbnail blobs: {} bytes, push/pull/idle {:?}",
+        pushed.bytes,
+        start.elapsed()
+    );
+    drop(local);
+    drop(reader);
+    let _ = std::fs::remove_dir_all(dir);
+}

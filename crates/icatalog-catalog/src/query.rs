@@ -338,15 +338,9 @@ mod tests {
     #[test]
     fn source_filter_selects_a_device() {
         let (c, i) = setup();
-        let s1 = c
-            .ensure_source("local", "P1", "/a", "/a", "t")
-            .unwrap();
-        let s2 = c
-            .ensure_source("network", "N", "/b", "/b", "t")
-            .unwrap();
-        let f1 = c
-            .insert_folder_at(None, Some(s1), "P1", Some(""))
-            .unwrap();
+        let s1 = c.ensure_source("local", "P1", "/a", "/a", "t").unwrap();
+        let s2 = c.ensure_source("network", "N", "/b", "/b", "t").unwrap();
+        let f1 = c.insert_folder_at(None, Some(s1), "P1", Some("")).unwrap();
         let f2 = c.insert_folder_at(None, Some(s2), "N", Some("")).unwrap();
         for (idx, fid) in [(0, f1), (2, f2)] {
             let mut a = c.asset(i[idx]).unwrap().unwrap();

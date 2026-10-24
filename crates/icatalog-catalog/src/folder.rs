@@ -52,9 +52,7 @@ impl Catalog {
         Ok(self
             .conn
             .query_row(
-                &format!(
-                    "SELECT {FOLDER_COLUMNS} FROM folder WHERE source_id = ?1 AND path = ?2"
-                ),
+                &format!("SELECT {FOLDER_COLUMNS} FROM folder WHERE source_id = ?1 AND path = ?2"),
                 params![source_id, path],
                 folder_from_row,
             )

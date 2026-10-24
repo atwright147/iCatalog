@@ -74,7 +74,10 @@ fn annotation(asset_id: i64, rating: i64, label: i64) -> Annotation {
 
 #[test]
 fn device_derivation_groups_by_volume() {
-    assert_eq!(device_of("/Users/andy/Pictures"), ("/".into(), "This Mac".into()));
+    assert_eq!(
+        device_of("/Users/andy/Pictures"),
+        ("/".into(), "This Mac".into())
+    );
     assert_eq!(
         device_of("/private/var/folders/x/y"),
         ("/".into(), "This Mac".into())
@@ -83,7 +86,10 @@ fn device_derivation_groups_by_volume() {
         device_of("/Volumes/NAS/Photos"),
         ("/Volumes/NAS".into(), "NAS".into())
     );
-    assert_eq!(device_of("/mnt/disc/2024"), ("/mnt/disc".into(), "disc".into()));
+    assert_eq!(
+        device_of("/mnt/disc/2024"),
+        ("/mnt/disc".into(), "disc".into())
+    );
     assert_eq!(device_of("/media/usb"), ("/media/usb".into(), "usb".into()));
     assert_eq!(device_of("relative/path"), ("/".into(), "This Mac".into()));
     // A pre-v5 source still reports a device.
@@ -173,9 +179,7 @@ fn source_round_trip_and_idempotent_ensure() {
 #[test]
 fn source_folders_unique_by_path_and_cascade() {
     let c = Catalog::open_in_memory().unwrap();
-    let sid = c
-        .ensure_source("local", "Photos", "/p", "/p", "t")
-        .unwrap();
+    let sid = c.ensure_source("local", "Photos", "/p", "/p", "t").unwrap();
     let root = c
         .insert_folder_at(None, Some(sid), "Photos", Some(""))
         .unwrap();
@@ -183,7 +187,10 @@ fn source_folders_unique_by_path_and_cascade() {
         .insert_folder_at(Some(root), Some(sid), "2024", Some("2024"))
         .unwrap();
     assert_eq!(c.folder(sub).unwrap().unwrap().source_id, Some(sid));
-    assert_eq!(c.folder_by_source_path(sid, "2024").unwrap().unwrap().id, sub);
+    assert_eq!(
+        c.folder_by_source_path(sid, "2024").unwrap().unwrap().id,
+        sub
+    );
     assert_eq!(c.folder_by_source_path(sid, "").unwrap().unwrap().id, root);
     assert!(c.folder_by_source_path(sid, "2025").unwrap().is_none());
     assert_eq!(c.folders_in_source(sid).unwrap().len(), 2);

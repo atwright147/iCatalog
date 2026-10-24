@@ -19,7 +19,9 @@ fn main() -> ExitCode {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&raw))) {
         Ok(code) => code,
         Err(_) => {
-            eprintln!("icatalog: internal error (panic caught); the catalogue was left unchanged");
+            eprintln!(
+                "icatalog: internal error (panic caught); reopen the catalogue to check its state"
+            );
             ExitCode::from(70)
         }
     }

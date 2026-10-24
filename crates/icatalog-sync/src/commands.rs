@@ -42,7 +42,7 @@ pub fn dispatch_guarded(ctx: &mut Context, id: &str, params: &Params) -> EngineR
     }))
     .unwrap_or_else(|_| {
         Err(EngineError::Internal(format!(
-            "command '{id}' panicked; catalogue left unchanged"
+            "command '{id}' panicked; reopen the catalogue and check sync status"
         )))
     })
 }

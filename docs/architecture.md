@@ -13,12 +13,12 @@ Status column: EXISTS means present in the repo today; PLANNED means not created
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
-| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1, v2, v3) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1-v5) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13); `raw` (embedded JPEG preview of DNG/CR2/NEF/ARW/PEF/RAF/CR3) and `xmp` (packet locate + tolerant parse) modules (D17) | EXISTS |
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq` | Whole-snapshot sync (D18): NAS-side HTTP `serve` + client `sync` with a generation guard, refuse-and-resync, timestamped backup and atomic swap, plus a local change marker so an idle re-sync is a no-op (D19); exposes its own command registry. Decided target (D20, **not built**): annotation-delta push + content-addressed pull-only previews | EXISTS |
 | `icatalog-cli` | L4 | `icatalog-engine`, `icatalog-sync` | Binary `icatalog`: thin wrapper dispatching engine + sync commands by id (`init/open/import/list/find/status/update/edit/sync/serve`, `--help`, `--version`, `commands`) | EXISTS |
-| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd` | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`); wasm PLANNED; sync buttons not wired yet | EXISTS (native) |
+| `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd`, `muda` (native macOS menu) | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`); wasm PLANNED; sync buttons not wired yet | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
 | `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
@@ -42,7 +42,7 @@ L0  ivc (legacy parser, no workspace deps)
 **Decided rules:**
 
 - A crate may depend only on lower layers. `ivc` depends on nothing in the workspace.
-- Nothing below `icatalog-ui` may use egui, eframe, winit or rfd.
+- Nothing below `icatalog-ui` may use egui, eframe, winit, rfd or muda.
 
 **Enforcement.** EXISTS: a layer test at `crates/icatalog-cli/tests/layers.rs` parses each `Cargo.toml` and fails on an upward workspace dependency or on egui/eframe/winit/rfd below `icatalog-ui`. **Proposed:** later replaced or joined by `cargo xtask layers` (PLANNED). New crates must be registered in the test.
 
@@ -50,7 +50,7 @@ L0  ivc (legacy parser, no workspace deps)
 
 **Decided** (golden rule: everything is a command). A command has: an **id**, a **label**, a params doc, an `enabled` check and a `run` function, plus tests. The CLI and the GUI both dispatch commands by id. CLI subcommands are thin wrappers over commands. Sync is a command too, so CLI and GUI behave identically.
 
-**EXISTS** (D12): the engine holds a session `Context` and a static registry (slice of `&dyn Command`) mapping string id to command; `run` takes string-keyed `Params` validated into typed values (bad input is `EngineError::BadParam`) and returns `Outcome::{Text,Table}` or an error, never panics. `dispatch_guarded` wraps `dispatch` in `catch_unwind` as the last-resort guard.
+**EXISTS** (D12): the engine holds a session `Context` and a static registry (slice of `&dyn Command`) mapping string id to command; `run` takes string-keyed `Params` validated into typed values (bad input is `EngineError::BadParam`) and returns `Outcome::{Text,Table}` or an error, never panics. `dispatch` runs each engine command in a SQLite transaction and rolls back on an error, panic or failed commit (D23). `dispatch_guarded` also catches panics outside command execution. Sync retains its separate file-replacement protocol.
 
 **EXISTS** (D18): the sync commands `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
@@ -60,7 +60,7 @@ Commands return `Err` for any input (hostile params included). A fuzz-style test
 
 ## 5. UI shell
 
-- **EXISTS (D15):** `icatalog-ui` is a thin, data-driven native egui desktop shell. Browsing reads the local catalogue (`query_assets`, `thumbnail`, `annotation`, `asset_keywords`); every action (`init`, `import`, `update`, and per-asset `edit` of rating/label/keywords) is dispatched as an engine command, so CLI and GUI behave identically. It holds no logic of its own. egui/eframe native desktop; no webview. The only media contact is `icatalog-media::decode_rgba` (D8).
+- **EXISTS (D15):** `icatalog-ui` is a thin, data-driven native egui desktop shell. Browsing reads the local catalogue (`query_assets`, `thumbnail`, `annotation`, `asset_keywords`); every action (`init`, `import`, `update`, and per-asset `edit` of rating/label/keywords) is dispatched as an engine command, so CLI and GUI behave identically. The shell runs import/update/edit on a single background worker using the same engine dispatcher, reports failures, and draws only visible grid/list rows with visible/selected thumbnail caching (D23). Asset queries still fetch all matching rows. egui/eframe native desktop; no webview. The only media contact is `icatalog-media::decode_rgba` (D8).
 - **Decided (goal):** wasm browser build via trunk + wasm-bindgen, Rust only, using the same engine and model as desktop (D3).
 - **Open:** the exact data-driven mechanism (e.g. menus generated from the command registry) is not designed.
 

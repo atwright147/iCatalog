@@ -12,7 +12,15 @@ const LAYERS: &[(&str, u8, &str)] = &[
     ("icatalog-ui", 4, "crates/icatalog-ui"),
     ("testkit", 4, "crates/testkit"),
 ];
-const GUI: &[&str] = &["egui", "eframe", "winit", "rfd"];
+const GUI: &[&str] = &[
+    "egui",
+    "eframe",
+    "winit",
+    "rfd",
+    "muda",
+    "objc2-app-kit",
+    "objc2-foundation",
+];
 
 fn layer_of(name: &str) -> Option<u8> {
     LAYERS

@@ -4,7 +4,8 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::{device_of, Catalog, Result, Source};
 
-const SOURCE_COLUMNS: &str = "id, kind, label, identity, last_mount_path, last_seen_utc, device_id, device_label";
+const SOURCE_COLUMNS: &str =
+    "id, kind, label, identity, last_mount_path, last_seen_utc, device_id, device_label";
 
 impl Catalog {
     /// Insert a source and return its row id (`s.id` is ignored).

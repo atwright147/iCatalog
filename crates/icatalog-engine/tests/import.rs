@@ -168,3 +168,29 @@ fn bad_params() {
     drop(ctx);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn fatal_database_error_rolls_back_entire_import() {
+    let (mut ctx, base, dir) = setup("rollback");
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "CREATE TRIGGER fail_second_asset BEFORE INSERT ON asset
+         WHEN (SELECT COUNT(*) FROM asset) >= 1
+         BEGIN SELECT RAISE(ABORT, 'synthetic database failure'); END;",
+        )
+        .unwrap();
+    assert!(run(&mut ctx, &dir, None).is_err());
+    let stats = ctx.catalog().stats().unwrap();
+    assert_eq!(stats.assets, 0);
+    assert_eq!(stats.thumbnails, 0);
+    assert_eq!(stats.folders, 0);
+    assert!(ctx.catalog().all_sources().unwrap().is_empty());
+    ctx.catalog()
+        .connection()
+        .execute_batch("DROP TRIGGER fail_second_asset")
+        .unwrap();
+    assert_eq!(metric(run(&mut ctx, &dir, None).unwrap(), "imported"), 3);
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(base);
+}

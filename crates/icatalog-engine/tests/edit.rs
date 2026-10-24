@@ -200,3 +200,21 @@ fn uninitialised_is_unsupported() {
     drop(ctx);
     let _ = std::fs::remove_file(&p);
 }
+
+#[test]
+fn invalid_rating_rolls_back_keywords_written_before_validation() {
+    let (mut ctx, id, _, path) = seed("rollback");
+    let mut params = Params::new();
+    params.set("id", id.to_string());
+    params.set("keyword", "must-not-survive");
+    params.set("rating", "99");
+    assert!(dispatch_guarded(&mut ctx, "edit", &params).is_err());
+    assert!(names(&ctx, id).is_empty());
+    assert_eq!(ctx.catalog().stats().unwrap().keywords, 0);
+    assert!(ctx.catalog().annotation(id).unwrap().is_none());
+    drop(ctx);
+    let ctx = Context::open(&path).unwrap();
+    assert!(names(&ctx, id).is_empty());
+    drop(ctx);
+    let _ = std::fs::remove_file(path);
+}
