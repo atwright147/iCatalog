@@ -66,6 +66,8 @@ Commands return `Err` for any input (hostile params included). A fuzz-style test
 
 UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless tests instantiate the same eframe App without installing OS menus; screenshot tests use its real renderer at fixed viewport/theme/scale. The native smoke integration test launches the production binary and operates macOS menus/dialog cancellation through System Events. Test fixtures and snapshot baselines live under `crates/icatalog-ui`; no test logic enters the engine or catalogue layers.
 
+List view (D32) renders a thumbnail and three metadata columns per asset: filename/rating/captured and modified dates/filesize; document type/camera/lens/focal length; dimensions/colour model/ICC description. It uses the browsing width by default; its Details toggle opens the existing inspector. Narrow windows and an open inspector use horizontal scrolling. Metadata reads are cached only for visible/selected rows and invalidated after refresh; errors are surfaced without repeating failed reads every frame. List display works from stored catalogue data, including offline media.
+
 ## 6. `ivc` seam and clean-room boundary
 
 `ivc` lives in `ivc-file-research/` by design (D6) and is consumed through a **path dependency**; it stays standalone. Existing API (EXISTS): `parse(&[u8]) -> Result<Catalog>`; `Catalog { header, items, chunks, trailer }`; `Item` with `path`, `name`, `format` (4cc), `file_size`, `width`, `height`, `color_space`, `pict`, `jpeg: Option<&[u8]>`, `tail_blocks`, `iptc: Vec<IptcRecord>`; `Chunk { kind, offset, payload }` including the `FSM!` folder tree. Format spec: `ivc-file-research/docs/ivc-format.md`. Strings are likely Mac Roman (an open RE item); currently decoded lossy.
@@ -84,6 +86,8 @@ EXIF orientation transforms stay in `icatalog-media` (D31): `thumbnail_jpeg_with
 - `image` (default features off, explicit codecs, `Limits`) is the single pixel stack; never two decoders in the wasm bundle. EXIF via `kamadak-exif`.
 - ArtCraft siblings are sources only (study, vendor or git-dep; commit-pinned; feature-flagged): FilmCraft for video metadata + frames; never their pixel stacks. D17 **superseded** the planned LightCraft route for photo XMP and RAW: `icatalog-media` reads embedded RAW previews and XMP packets by hand, with no new dependency (see section 7 and D17).
 - wasm: `icatalog-media` default features must build for `wasm32-unknown-unknown`; the ffmpeg escape hatch is native-only, user-installed, deferred.
+
+Source colour metadata (D32) uses `icatalog-media::read_color_info`: bounded header/ICC description reads through the existing image stack, including v2 `desc` and v4 `mluc` names. The engine stores small UTF-8 display values in the existing `metadata_raw` table, under `image_info`. Import and changed-file Update refresh those values, clearing lost profiles; Update also backfills absent values for older entries without regenerating thumbnails when content is unchanged. RAW preview colour is not attributed to the original RAW. No dependency or schema migration is added.
 
 ## 8. wasm constraints
 

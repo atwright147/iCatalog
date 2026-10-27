@@ -10,7 +10,9 @@
     clippy::unreachable
 )]
 
+mod color;
 mod raw;
+pub use color::{read_color_info, ColorInfo};
 pub use raw::{is_raw, raw_dimensions, raw_preview};
 mod xmp;
 pub use xmp::{parse_xmp, read_xmp, xmp_packet, XmpData};

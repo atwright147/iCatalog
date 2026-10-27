@@ -58,11 +58,24 @@ impl Catalog {
     }
 
     pub fn metadata_raw_for_asset(&self, asset_id: i64) -> Result<Vec<MetadataRaw>> {
+        self.metadata_raw_query(asset_id, None)
+    }
+
+    /// Read one metadata scheme without loading unrelated packets or binary blobs.
+    pub fn metadata_raw_for_asset_scheme(
+        &self,
+        asset_id: i64,
+        scheme: &str,
+    ) -> Result<Vec<MetadataRaw>> {
+        self.metadata_raw_query(asset_id, Some(scheme))
+    }
+
+    fn metadata_raw_query(&self, asset_id: i64, scheme: Option<&str>) -> Result<Vec<MetadataRaw>> {
         let mut stmt = self.conn.prepare(
             "SELECT asset_id, scheme, key, seq, value FROM metadata_raw
-             WHERE asset_id = ?1 ORDER BY scheme, key, seq",
+             WHERE asset_id = ?1 AND (?2 IS NULL OR scheme = ?2) ORDER BY scheme, key, seq",
         )?;
-        let rows = stmt.query_map(params![asset_id], |r| {
+        let rows = stmt.query_map(params![asset_id, scheme], |r| {
             Ok(MetadataRaw {
                 asset_id: r.get(0)?,
                 scheme: r.get(1)?,

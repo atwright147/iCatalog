@@ -83,6 +83,95 @@ fn settle(h: &mut Harness<'_, App>) {
     h.run();
 }
 
+fn seed_list_metadata(fixture: &Fixture) {
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "UPDATE asset SET file_size=1572864,mtime=951782400 WHERE id=1;
+         INSERT INTO annotation(asset_id,rating) VALUES(1,4);
+         INSERT INTO asset_meta(asset_id,captured_local,make,model,lens,focal_length_mm) VALUES
+         (1,'2000-02-28T14:30:00','Example','Camera 1','24–70 mm f/2.8',50);
+         INSERT INTO metadata_raw(asset_id,scheme,key,seq,value) VALUES
+         (1,'image_info','color_model',0,CAST('RGB' AS BLOB)),
+         (1,'image_info','icc_profile',0,CAST('Synthetic RGB profile' AS BLOB)),
+         (2,'image_info','color_model',0,CAST('CMYK' AS BLOB)),
+         (3,'image_info','color_model',0,CAST('Lab' AS BLOB));",
+        )
+        .unwrap();
+}
+
+#[test]
+fn list_rows_present_metadata_columns_and_refresh_after_edit() {
+    let fixture = Fixture::new();
+    seed_list_metadata(&fixture);
+    let mut h = fixture.harness([1100.0, 720.0]);
+    h.get_by_label("List").click();
+    settle(&mut h);
+    let red = asset_rect(&h, "Red.bmp");
+    let blue = asset_rect(&h, "Blue.bmp");
+    assert!(red.height() >= 100.0);
+    assert!(blue.top() > red.bottom());
+    assert!(h.state().textures.contains_key(&1));
+    let name = h
+        .get(
+            By::new()
+                .label("Red.bmp")
+                .role(egui::accesskit::Role::Label),
+        )
+        .rect();
+    let camera = h.get_by_label("Camera: Example Camera 1").rect();
+    let color = h.get_by_label("Colour: RGB").rect();
+    assert!(name.left() > red.left() + 100.0);
+    assert!(camera.left() > name.right());
+    assert!(color.left() > camera.right());
+    for label in [
+        "Rating: ★★★★☆",
+        "Captured: 2000-02-28 14:30:00",
+        "Modified: 2000-02-29 00:00:00 UTC",
+        "Size: 1.5 MiB",
+        "Type: BMP",
+        "Lens: 24–70 mm f/2.8",
+        "Focal length: 50 mm",
+        "64 × 32 px",
+        "Profile: Synthetic RGB profile",
+        "Colour: CMYK",
+        "Colour: Lab",
+        "Captured: —",
+        "Profile: —",
+    ] {
+        assert!(
+            h.query_all(By::new().label(label)).next().is_some(),
+            "{label}"
+        );
+    }
+    h.get(
+        By::new()
+            .label("Red.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click();
+    settle(&mut h);
+    h.get_by_label("Details").click();
+    settle(&mut h);
+    h.get_by_label("Rating 5").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Rating: ★★★★★").is_some());
+    assert_eq!(
+        open_catalogue(&fixture.path())
+            .unwrap()
+            .catalog()
+            .annotation(1)
+            .unwrap()
+            .unwrap()
+            .rating,
+        5
+    );
+    h.get_by_label("Details").click();
+    settle(&mut h);
+    assert!(h.get_by_label("Colour: RGB").rect().right() < 1100.0);
+}
+
 #[test]
 fn stored_thumbnail_orientation_supports_old_catalogues_without_double_rotation() {
     for (orientation, applied, expected) in [
@@ -415,7 +504,7 @@ fn interaction_rectangle_selection_tracks_scroll_in_content_coordinates() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         phase: egui::TouchPhase::Move,
-        delta: egui::vec2(0.0, -400.0),
+        delta: egui::vec2(0.0, -1600.0),
         modifiers: egui::Modifiers::NONE,
     });
     h.run();
@@ -1523,6 +1612,23 @@ fn visual_snapshots() {
     counts.run();
     counts.snapshot("catalogue-collection-counts");
     results.extend(counts.take_snapshot_results());
+
+    let rich_fixture = Fixture::new();
+    seed_list_metadata(&rich_fixture);
+    let mut rich = rich_fixture.harness([1100.0, 720.0]);
+    rich.get_by_label("List").click();
+    settle(&mut rich);
+    rich.event(egui::Event::PointerGone);
+    rich.run();
+    rich.snapshot("catalogue-list-metadata");
+    results.extend(rich.take_snapshot_results());
+    let mut rich_narrow = rich_fixture.harness([800.0, 600.0]);
+    rich_narrow.get_by_label("List").click();
+    settle(&mut rich_narrow);
+    rich_narrow.event(egui::Event::PointerGone);
+    rich_narrow.run();
+    rich_narrow.snapshot("catalogue-list-narrow");
+    results.extend(rich_narrow.take_snapshot_results());
 }
 
 #[test]

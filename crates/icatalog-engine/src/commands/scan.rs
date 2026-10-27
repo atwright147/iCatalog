@@ -150,6 +150,7 @@ fn write_derived(
     file_size: i64,
     mtime: i64,
 ) -> Result<u64> {
+    capture_color(ctx, asset_id, image_bytes, source)?;
     let mut errors = 0;
     let d = match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
         Ok(d) => d,
@@ -199,6 +200,25 @@ fn write_derived(
         Err(_) => errors += 1,
     }
     Ok(errors)
+}
+
+fn capture_color(ctx: &Context, asset_id: i64, image_bytes: &[u8], source: &str) -> Result<()> {
+    // A RAW preview describes rendered preview pixels, not the source sensor data.
+    let color = if source == "rendered" {
+        icatalog_media::read_color_info(image_bytes).unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    for (key, value) in [("color_model", color.model), ("icc_profile", color.profile)] {
+        ctx.catalog().insert_metadata_raw(&MetadataRaw {
+            asset_id,
+            scheme: "image_info".into(),
+            key: key.into(),
+            seq: 0,
+            value: value.unwrap_or_default().into_bytes(),
+        })?;
+    }
+    Ok(())
 }
 
 /// Locate and store the XMP packet verbatim (idempotent); returns the parsed data.
@@ -346,7 +366,12 @@ pub(super) fn ingest(
                 folder_changed = true;
             }
         }
-        if a.file_size == Some(file_size) && a.mtime == Some(mtime) {
+        let has_color_info = ctx
+            .catalog()
+            .metadata_raw_for_asset_scheme(a.id, "image_info")?
+            .iter()
+            .any(|m| m.key == "color_model");
+        if a.file_size == Some(file_size) && a.mtime == Some(mtime) && has_color_info {
             if folder_changed {
                 ctx.catalog().update_asset(a)?;
             }
@@ -406,6 +431,7 @@ pub(super) fn ingest(
         a.mtime = Some(mtime);
         a.missing = false;
         if same {
+            capture_color(ctx, a.id, image_bytes, source)?;
             ctx.catalog().update_asset(&a)?;
             return Ok(Ingested::Unchanged);
         }

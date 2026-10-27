@@ -138,6 +138,12 @@ The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*
 
 `task scale` generates 10,000 unique 8×8 PNGs across 100 folders, imports thumbnails, browses/searches, edits annotations, rescans unchanged and added/changed/missing files, reopens the catalogue and checks SQLite integrity. The separate sync case transfers 10,000 assets with 1 KiB synthetic thumbnail blobs and checks push, pull and idle sync. These are functional scale checks, not representative RAW/photo decode benchmarks. The normal UI tests also render a headless grid over 10,000 rows and assert that fewer than 100 thumbnails are requested in a 900×600 viewport.
 
+## List view
+
+List displays each asset as a thumbnail row with three columns: filename, rating, captured/modified dates and file size; document type, camera, lens and focal length; dimensions, colour model and ICC profile description (D32). Modified dates are displayed in UTC; capture dates retain their stored local time. Unavailable values show an em dash, and truncated values have tooltips. List uses the browsing width; **Details** opens the existing inspector for editing. Narrow windows scroll horizontally with a visible scrollbar. Selection, rectangle selection, collection drag/drop and context actions work across the row.
+
+Import and Update capture colour/profile data for supported images. Run **File → Update** (or `task run -- update my.sqlite`) to fill these fields in an older catalogue. An unchanged asset keeps its thumbnail bytes and identity. Lost profiles clear on changed files; RAW preview colour is not used as RAW source metadata. Browsing itself reads stored metadata and works with offline originals.
+
 ## Automated UI checks
 
 - `task ui:test`: headless interaction tests against the real eframe App using `egui_kittest` 0.36.2. Included in `task ci` through the workspace test suite. Exercises folder selection, search/Enter/clear, grid selection, rating/label/keyword edits and reopened database state, disabled controls during a blocked write, failed-edit recovery, collection modal submission/cancellation/input blocking/error retry, membership/filtering/reopen and failed-write recovery, drag/drop and context-menu targeting/cancellation/busy/error behaviour, collection Shift ranges and Ctrl/⌘ toggles with combined search in grid/list, and scrolling through 10,000 assets with bounded thumbnail caching.

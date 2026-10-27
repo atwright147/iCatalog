@@ -24,6 +24,8 @@ D23 hardening is implemented: atomic engine command dispatch, reported UI refres
 
 D24 UI checks exist: real-widget interaction/persistence tests in the workspace gate, opt-in GPU screenshot comparisons (including populated/multiple collections, creation modal, context menu, drop target and long-name collection counts, D25-D30), and a separately invoked native macOS menu/picker-cancellation/quit smoke test. Regression coverage includes membership-cache invalidation and busy/read-error handling, count/name spacing and rectangle selection while scrolling. Local validation passed. PR and manual self-hosted workflows are configured but not yet run on GitHub. Broader native interaction/platform coverage remains open.
 
+List rows (D32) show thumbnails plus filename/rating/captured and modified dates/filesize; document/camera/lens/focal length; dimensions/colour/ICC profile. List uses the browsing width, an optional Details inspector, and horizontal scrolling in narrow windows. Import/update capture supported source colour information, and Update fills older entries without regenerating unchanged thumbnails. RAW source colour remains unavailable rather than inferred from its preview. Tests cover layout, missing metadata, edit refresh, profile removal/backfill/reopen and narrow/list visual baselines.
+
 ## 4. Next
 
 - **Smart Collections (D21)** — manual Collections are implemented (D25) on the existing `collection`/`collection_asset` tables with engine/CLI/UI create, browse and membership editing. Next: stored `AssetQuery`-shaped rules over format, capture date, lens and other metadata, with a command surface and UI. Smart rules are not started.

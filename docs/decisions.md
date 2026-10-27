@@ -309,6 +309,16 @@ Synthetic tests verify pixel positions for all eight transforms, encoded geometr
 
 Status: implemented.
 
+## D32. Metadata rows in List view (2026-10-27)
+
+Each List asset is a row with a left thumbnail and three aligned columns: filename/rating/capture and modification dates/filesize; document type/camera/lens/focal length; dimensions/colour model/ICC profile description. Missing metadata is explicit; long text truncates with tooltips. Modified timestamps use UTC and capture timestamps retain the stored local value. List uses the browsing width with an optional Details inspector; narrow windows and an open inspector scroll horizontally. Existing selection, rectangle selection, drag/drop and context actions apply to the whole row. Visible/selected thumbnail and metadata caches stay bounded and refresh after commands.
+
+The existing media stack reads source colour headers and embedded ICC descriptions (v2 `desc`, v4 `mluc`, with bounded offsets/counts/text). Import and changed-file Update store UTF-8 display strings in `metadata_raw` under scheme `image_info`, keys `color_model` and `icc_profile`, sequence zero. Empty values mean unavailable and clear stale data. Update backfills absent entries even when file size/mtime are unchanged; matching content hashes preserve thumbnail bytes. RAW preview colour does not describe the source RAW and is left unavailable. No new schema, dependency, CLI command or Taskfile task is needed.
+
+Tests cover populated/missing metadata, layout, edit refresh, source colour/profile import/update/backfill/reopen, profile removal, malformed/truncated ICC data and existing grid/list gestures/viewport bounds. Visual baselines include populated and narrow List rows.
+
+Status: implemented.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

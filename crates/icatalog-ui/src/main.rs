@@ -12,6 +12,7 @@
     clippy::unreachable
 )]
 
+mod list_row;
 mod selection;
 #[cfg(test)]
 mod ui_tests;
@@ -117,6 +118,8 @@ struct App {
     expanded: HashSet<i64>,
     collapsed_devices: HashSet<String>,
     view_mode: ViewMode,
+    list_details: bool,
+    list_metadata: HashMap<i64, Option<list_row::Metadata>>,
     selection: selection::AssetSelection,
     marquee: Option<selection::Marquee>,
     textures: HashMap<i64, egui::TextureHandle>,
@@ -245,6 +248,8 @@ impl App {
             expanded: HashSet::new(),
             collapsed_devices: HashSet::new(),
             view_mode: ViewMode::Grid,
+            list_details: false,
+            list_metadata: HashMap::new(),
             selection: selection::AssetSelection::default(),
             marquee: None,
             textures: HashMap::new(),
@@ -319,6 +324,7 @@ impl App {
         self.collections = collections;
         self.collection_counts = collection_counts;
         self.assets = assets;
+        self.list_metadata.clear();
         self.selection.retain(&self.assets);
         self.selection_membership_for = None;
         self.selection_membership_loaded = false;
@@ -742,23 +748,41 @@ impl App {
     }
 
     fn list(&mut self, ui: &mut egui::Ui) -> Option<Params> {
+        // Keep horizontal overflow discoverable in narrow windows/with Details open.
+        ui.style_mut().spacing.scroll.floating = false;
         let mut command = None;
-        let height = ui.spacing().interact_size.y;
+        let height = list_row::HEIGHT;
         let spacing = ui.spacing().item_spacing;
         let mut origin = None;
         let mut cell = egui::vec2(1.0, height);
         let mut rects = Vec::new();
-        let output = egui::ScrollArea::vertical()
+        let output = egui::ScrollArea::both()
+            .id_salt("asset_list")
             .auto_shrink([false, false])
             .show_rows(ui, height, self.assets.len(), |ui, rows| {
+                ui.set_min_width(list_row::MIN_WIDTH);
                 for index in rows {
-                    if let Some(asset) = self.assets.get(index) {
+                    if let Some(asset) = self.assets.get(index).cloned() {
                         let (id, name) = (asset.id, asset.name.clone());
-                        let response = ui.add_sized(
-                            [(ui.available_width() - 32.0).max(1.0), height],
-                            egui::Button::selectable(self.selection.ids.contains(&id), &name)
-                                .truncate()
-                                .sense(egui::Sense::click_and_drag()),
+                        self.ensure_texture(ui.ctx(), id);
+                        if self.worker.is_none() && !self.list_metadata.contains_key(&id) {
+                            let metadata = list_row::Metadata::load(self.ctx.catalog(), id);
+                            let metadata = match metadata {
+                                Ok(metadata) => Some(metadata),
+                                Err(error) => {
+                                    self.status = format!("Cannot load list metadata: {error}");
+                                    None
+                                }
+                            };
+                            self.list_metadata.insert(id, metadata);
+                        }
+                        let response = list_row::draw(
+                            ui,
+                            &asset,
+                            self.textures.get(&id),
+                            self.list_metadata.get(&id).and_then(Option::as_ref),
+                            self.selection.ids.contains(&id),
+                            index,
                         );
                         rects.push(response.rect);
                         cell = response.rect.size();
@@ -1564,19 +1588,24 @@ impl eframe::App for App {
         }
         self.ensure_detail();
         let mut edit = None;
-        egui::Panel::right("details")
-            .default_size(320.0)
-            .show(ui, |ui| {
-                ui.add_enabled_ui(self.worker.is_none(), |ui| {
-                    edit = self.details_panel(ui);
+        if self.view_mode == ViewMode::Grid || self.list_details {
+            egui::Panel::right("details")
+                .default_size(320.0)
+                .show(ui, |ui| {
+                    ui.add_enabled_ui(self.worker.is_none(), |ui| {
+                        edit = self.details_panel(ui);
+                    });
                 });
-            });
+        }
 
         egui::CentralPanel::default().show(ui, |ui| {
             // Full-width toolbar: view switch on the left, search on the right.
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.view_mode, ViewMode::Grid, "Grid");
                 ui.selectable_value(&mut self.view_mode, ViewMode::List, "List");
+                if self.view_mode == ViewMode::List {
+                    ui.toggle_value(&mut self.list_details, "Details");
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Go").clicked() {
                         self.dirty = true;
@@ -1624,6 +1653,8 @@ impl eframe::App for App {
             .retain(|id, _| self.visible_thumbnails.contains(id));
         self.attempted_thumbnails
             .retain(|id| self.visible_thumbnails.contains(id));
+        self.list_metadata
+            .retain(|id, _| self.visible_thumbnails.contains(id));
         if let Some(params) = edit {
             self.run_command("edit", &params);
         }
