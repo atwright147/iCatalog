@@ -15,6 +15,8 @@ pub struct AssetQuery {
     pub path_like: Option<String>,
     /// Exact keyword name; the asset must have this keyword.
     pub keyword: Option<String>,
+    /// Restrict to members of one manual collection.
+    pub collection_id: Option<i64>,
     /// Minimum rating, inclusive.
     pub min_rating: Option<i64>,
     /// Exact label.
@@ -76,6 +78,12 @@ impl Catalog {
                 " AND EXISTS (SELECT 1 FROM asset_keyword ak JOIN keyword k ON k.id = ak.keyword_id WHERE ak.asset_id = asset.id AND k.name = ?)",
             );
             args.push(Value::Text(k.clone()));
+        }
+        if let Some(id) = q.collection_id {
+            sql.push_str(
+                " AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.asset_id = asset.id AND ca.collection_id = ?)",
+            );
+            args.push(Value::Integer(id));
         }
         if let Some(r) = q.min_rating {
             sql.push_str(
@@ -285,6 +293,48 @@ mod tests {
             ..Default::default()
         };
         assert!(c.query_assets(&q).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collection_membership_composes_with_filters_and_paging() {
+        let (c, i) = setup();
+        let album = c.insert_collection("Album").unwrap();
+        let other = c.insert_collection("Other").unwrap();
+        for id in [i[0], i[2], i[0]] {
+            c.add_to_collection(album, id).unwrap();
+        }
+        c.add_to_collection(other, i[0]).unwrap();
+        assert_eq!(c.asset_collection_ids(i[0]).unwrap(), vec![album, other]);
+        assert_eq!(c.all_collections().unwrap().len(), 2);
+        let mut q = AssetQuery {
+            collection_id: Some(album),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[0], i[2]]);
+        q.limit = Some(1);
+        q.offset = Some(1);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[2]]);
+        q.limit = None;
+        q.offset = None;
+        q.text_like = Some("beach".into());
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[0]]);
+        q.text_like = None;
+        let keyword = c.ensure_keyword("keep", None).unwrap();
+        c.add_asset_keyword(i[2], keyword).unwrap();
+        c.set_annotation(&ann(i[2], 5, 2)).unwrap();
+        q.keyword = Some("keep".into());
+        q.min_rating = Some(4);
+        q.label = Some(2);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[2]]);
+        c.remove_from_collection(album, i[2]).unwrap();
+        assert!(c.query_assets(&q).unwrap().is_empty());
+        assert_eq!(c.collection_assets(other).unwrap(), vec![i[0]]);
+        c.connection()
+            .execute("DELETE FROM asset WHERE id = ?1", [i[0]])
+            .unwrap();
+        assert!(c.collection_assets(album).unwrap().is_empty());
+        assert!(c.collection_assets(other).unwrap().is_empty());
+        assert_eq!(c.all_collections().unwrap().len(), 2);
     }
 
     #[test]

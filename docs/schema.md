@@ -116,7 +116,7 @@ CREATE TABLE asset_meta (
   duration_ms    INTEGER       -- video
 );
 
--- PROPOSED: collections / albums
+-- Manual collections / albums (D25); Smart Collection rules are not built
 CREATE TABLE collection (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL
@@ -167,6 +167,8 @@ Notes (**Proposed**, per D8):
 - **Device provenance (v5, D21):** `source.device_id`/`source.device_label` record the volume or share root and a human label, derived from `last_mount_path` by `device_of` (`/` → `This Mac`, `/Volumes/NAS` → `NAS`, `/mnt/*` and `/media/*` likewise). Both are refreshed on import and update; pre-v5 rows are derived on read by `Source::device()`. This is a display/provenance key, not yet stable hardware identity.
 
 User-annotation tables (D11) and `find` indexes are done (migration v2). Still **Open**: where unknown chunks go.
+
+Manual Collections (D25) use the existing v1 tables without a migration. Collection ids identify albums; display names may repeat. Membership is many-to-many, adding/removing a member is idempotent, and removing membership preserves the asset and its source/folder. `AssetQuery::collection_id` composes with other filters and paging. `all_collections` orders by name then id; `asset_collection_ids` returns membership for a selected asset. Smart Collection rule storage remains planned.
 
 ## 4. Open items
 

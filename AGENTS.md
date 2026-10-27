@@ -34,8 +34,8 @@ crates/
   icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              EXISTS. L3 whole-snapshot sync: NAS-side HTTP `serve` + client `sync` (D18; deps tiny_http, ureq)
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/sync/serve/status)
-  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit actions); wasm PLANNED
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/collection/sync/serve/status)
+  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
 packaging/          Docker image + compose example (PLANNED)
@@ -76,7 +76,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). The CLI and the `serve` service EXIST (D18); the musl build and Docker packaging are PLANNED.
 
-`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|collection|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
 
 | Subcommand | Purpose |
 |---|---|
@@ -86,6 +86,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
+| `collection <catalogue> <action>` | EXISTS (D25): manual albums; `list`, `create --name <name>`, `show --id <collection>`, `add/remove --id <collection> --asset <asset>`; `list`/`find --collection <id>` browse members |
 | `sync` | EXISTS (D18): pull/push against the NAS catalogue over HTTP (section 5) |
 | `serve` | EXISTS (D18): run the NAS-side HTTP sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |
@@ -117,6 +118,8 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 2. Engine + `icatalog` CLI.
 3. Sync service and client.
 4. egui browser (desktop shell EXISTS in `icatalog-ui`, D15; wasm later).
+
+Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Smart Collections remain PLANNED.
 
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 

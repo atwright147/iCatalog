@@ -1,6 +1,6 @@
 # iCatalog development guide
 
-Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit/sync/serve` exist.
+Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed, not built), **Open** (unresolved). The `ivc`, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync`, `icatalog-cli` and `icatalog-ui` crates build today; of the `icatalog` commands below `init/open/import/list/find/status/update/edit/collection/sync/serve` exist.
 
 ## 1. Prerequisites
 
@@ -38,7 +38,7 @@ A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common command
 - `task test`, `task lint`, `task fmt:check`: the individual gate steps.
 - `task layers`: the crate layer-rule test.
 - `task sync`: test the `icatalog-sync` crate.
-- `task run -- <args>`: run the `icatalog` CLI, e.g. `task run -- init my.sqlite`.
+- `task run -- <args>`: run the `icatalog` CLI, e.g. `task run -- init my.sqlite` or `task run -- collection my.sqlite list`.
 - `task gui -- <catalogue>`: run the `icatalog-ui` desktop shell, e.g. `task gui -- photos.sqlite`.
 
 ## 3. Workspace layout
@@ -54,7 +54,7 @@ Adding a crate (**Proposed** procedure):
 
 ## 4. Driving the CLI
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
 
 Sync (D18) is two processes. On the NAS: `cargo run -p icatalog-cli -- serve nas.sqlite --port 8080` (optional `--bind <addr>`, default `127.0.0.1`). On a client, whose local copy shares the NAS catalogue id: `cargo run -p icatalog-cli -- sync local.sqlite --url http://nas:8080`. Plain HTTP only in this slice (`https://` is rejected). An idle sync with nothing changed prints `already up to date` and does not bump the generation; the client records a `local.sqlite.sync-state` fingerprint marker beside the catalogue (D19). A quick local smoke test: init `nas.sqlite`, copy it to `local.sqlite` (so the ids match), serve on one terminal and sync from another.
 
@@ -68,22 +68,41 @@ The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21) |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |
+| `collection` | `icatalog collection photos.sqlite create --name "Favourites"` | Manual collections: list/create/show/add/remove (EXISTS, D25) |
 | `sync` | `icatalog sync photos.sqlite --url http://nas:8080` | Pull/push against the NAS (EXISTS, D18) |
 | `serve` | `icatalog serve photos.sqlite --port 8080` | Run the NAS-side HTTP sync service (EXISTS, D18) |
 | `status` / `info` | `icatalog status photos.sqlite` | Stats, generation, sync state |
 
-Each subcommand is a thin wrapper over a command: the engine registry (`init`-`edit`) or the sync registry in `icatalog-sync` (`sync`, `serve`); the shell merges both (D18).
+Each subcommand is a thin wrapper over a command: the engine registry (including `collection`) or the sync registry in `icatalog-sync` (`sync`, `serve`); the shell merges both (D18).
+
+Manual Collections (D25) use `collection <catalogue> <action>`, preserving the catalogue-first CLI convention:
+
+```sh
+task run -- collection photos.sqlite create --name "Favourites"
+task run -- collection photos.sqlite list
+task run -- collection photos.sqlite add --id 1 --asset 3
+task run -- collection photos.sqlite show --id 1
+task run -- find photos.sqlite sunset --collection 1 --rating 4
+task run -- list photos.sqlite --collection 1 --limit 20
+task run -- collection photos.sqlite remove --id 1 --asset 3
+```
+
+Use the ids returned by create/list and the asset ids from `list`. Names are trimmed, limited to 1024 UTF-8 bytes and cannot contain control characters; names may repeat, so commands identify collections by id. Add/remove are idempotent. Membership does not move or delete assets, folders or media. Smart Collections remain planned.
 
 ## 4a. Driving the GUI
 
 EXISTS (D15): the `icatalog-ui` desktop shell. `cargo run -p icatalog-ui -- <catalogue>` (or `task gui -- <catalogue>`). A missing catalogue file is created and initialised automatically. A native macOS **File** menu (in-app fallback on other platforms) provides Import and Update; its **Import…** item picks a folder and dispatches the `import` command, and **Update** dispatches `update` (whole-catalogue rescan). The left panel holds a source-rooted folder tree grouped under device headers such as "This Mac" or a volume/share name (D21), with collapsible device sections; clicking a device name lists every asset on that device, plus an "Unassigned" entry; the centre has a full-width toolbar with the grid/list switch on the left and the search box (name/path, Enter or Go to apply, × to clear) on the right, above the thumbnails; selecting an asset shows its stored grid thumbnail, basic metadata (including the device and source it was imported from), EXIF and an **Annotations** section (rating 0-5, label 0-7, keyword add/remove/clear) in the right panel. Each annotation click/save dispatches the `edit` command. The status bar shows the last command's outcome, including how many assets belong to offline sources, and the catalogue's file name at its right end (full path on hover). Native desktop only; the wasm build is PLANNED.
+
+The **Collections** section below the folder tree lists albums and opens a **New Collection…** modal (D26). Its name field receives focus; **Create** or Enter submits through the engine, and **Cancel**, Escape or a backdrop click dismisses it without saving. Empty names disable Create. While saving, the modal stays open with disabled controls; success closes it, and a failure preserves the name with an inline error for retry. Native Import/Update actions disable while the modal is open. Each collection is a single row filling the available sidebar width, including selection/drop highlights. Long names truncate within the row; hover to read the full name. Clicking a collection browses its assets; clicking the selected collection again clears the collection filter and returns to All, preserving the search text. Search narrows the selected album. Membership is edited through drag-and-drop or the asset context menu below.
+
+You can also drag a single asset from the grid or list onto a collection in the sidebar (D27). The target highlights while hovered; dropping adds membership and preserves the asset's folders and other collections. Escape or dropping elsewhere cancels. Right-click an asset for a **Collections** menu with **Add to <name>** or **Remove from <name>** actions according to its membership. The menu acts on the asset you right-click, including when another asset was selected. Both gestures use the `collection` engine command on the same background worker as annotation edits. Drag/drop and menu writes disable while a command is running or the creation modal is open; errors appear in the status bar.
 
 ## 5. Debugging tricks
 
 - **Debug builds and breakpoints (Decided):** `cargo build`/`cargo run` use the dev profile (symbols, `debug_assertions`, no optimisation), so an ordinary debugger attaches with no extra flags. There is no in-process inspector like a browser's devtools; you drive a debugger instead.
 - **VS Code (recommended):** install the CodeLLDB extension (`vadimcn.vscode-lldb`, recommended in `.vscode/extensions.json`). `.vscode/launch.json` (committed) provides: *Debug icatalog-ui (GUI)*, *Debug icatalog CLI (edit)*, *Debug engine tests*, *Debug edit integration tests* and *Attach to icatalog-ui*. Pick one, set a breakpoint (e.g. in `crates/icatalog-engine/src/commands/edit.rs`) and press F5. Edit the `args` in the config to point at your catalogue. `dbg!(x)` and `eprintln!` work as console-style output and appear in the Debug Console.
 - **Terminal:** `rust-lldb target/debug/icatalog-ui -- catalogue.sqlite`, then `breakpoint set --file edit.rs --line <n>` (or by symbol), `run`, `bt`, `frame variable`. `rust-gdb` is the same for gdb users.
-- **GUI workers (D23):** import/update/edit run on a background thread. A busy indicator is shown; further edits and window close wait for completion. Debugger breakpoints may suspend all threads. There is no per-file progress or cancellation yet. Grid/list rendering visits visible rows, and thumbnails are cached only for those rows and the selection. All matching asset rows are still queried together.
+- **GUI workers (D23/D25):** import/update/edit/collection run on a background thread. A busy indicator is shown; further edits and window close wait for completion. Debugger breakpoints may suspend all threads. There is no per-file progress or cancellation yet. Grid/list rendering visits visible rows, and thumbnails are cached only for those rows and the selection. All matching asset rows are still queried together.
 - **Panic backtraces:** run with `RUST_BACKTRACE=1`. Because `dispatch_guarded` turns an escaped panic into an error, a panicking command shows an error rather than a backtrace; to see the backtrace, call the engine directly (e.g. `cargo test`) instead of through the guard.
 - **Logging:** nothing wires a logger yet, so there is no `RUST_LOG`; use `dbg!`/`eprintln!` or the debugger for now.
 - **Legacy files:** the `ivc` crate has `examples/dump.rs` for inspecting `.ivc` files; check `ivc-file-research/AGENTS.md` for current usage. Format spec: `ivc-file-research/docs/ivc-format.md`; sample oracles: `ivc-file-research/crates/ivc/tests/samples.rs`.
@@ -118,8 +137,8 @@ The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*
 
 ## Automated UI checks
 
-- `task ui:test`: headless interaction tests against the real eframe App using `egui_kittest` 0.36.2. Included in `task ci` through the workspace test suite. Exercises folder selection, search/Enter/clear, grid selection, rating/label/keyword edits and reopened database state, disabled controls during a blocked write, failed-edit recovery, and scrolling through 10,000 assets with bounded thumbnail caching.
-- `task ui:visual`: GPU-backed screenshot comparisons for grid, selected details, list and an 800×600 narrow window. Baselines live in `crates/icatalog-ui/tests/snapshots/`. Theme (dark), fonts (egui bundled), scale (1), operating-system conventions and fixtures are fixed. No native window is needed, but a graphics adapter or software Vulkan renderer is required. These tests are opt-in locally; the PR workflow runs them with Mesa on Linux.
+- `task ui:test`: headless interaction tests against the real eframe App using `egui_kittest` 0.36.2. Included in `task ci` through the workspace test suite. Exercises folder selection, search/Enter/clear, grid selection, rating/label/keyword edits and reopened database state, disabled controls during a blocked write, failed-edit recovery, collection modal submission/cancellation/input blocking/error retry, membership/filtering/reopen and failed-write recovery, drag/drop and context-menu targeting/cancellation/busy/error behaviour in grid/list, and scrolling through 10,000 assets with bounded thumbnail caching.
+- `task ui:visual`: GPU-backed screenshot comparisons for grid, selected details, list, an 800×600 narrow window and a populated collection with selected-asset membership controls, the New Collection modal, a collection context menu and an active drop target. Baselines live in `crates/icatalog-ui/tests/snapshots/`. Theme (dark), fonts (egui bundled), scale (1), operating-system conventions and fixtures are fixed. No native window is needed, but a graphics adapter or software Vulkan renderer is required. These tests are opt-in locally; the PR workflow runs them with Mesa on Linux.
 - `task ui:visual:update`: deliberately regenerates baselines. Inspect every changed PNG before committing; do not use update mode to make CI green. Missing/different baselines fail normal comparisons and produce `.new.png`/`.diff.png` evidence. Generated comparison/backup images are gitignored. Initial baselines were inspected on macOS; the first Linux CI run must validate cross-renderer tolerance, which remains at the library default (no failing pixels allowed).
 - `task ui:smoke`: opt-in native macOS test. Launches the actual binary with generated BMPs in a temporary catalogue, invokes File → Update, verifies the new asset in SQLite, opens/cancels Import's native folder picker with Escape, and exits using Command-Q. Uses the macOS System Events automation interface from a Rust test driver. It polls observable state with deadlines and terminates only its own child processes on failure. Diagnostics: `target/ui-smoke/native-stderr.log`.
 

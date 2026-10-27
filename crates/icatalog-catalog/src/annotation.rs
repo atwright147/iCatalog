@@ -3,6 +3,28 @@ use rusqlite::{params, OptionalExtension};
 use crate::{Annotation, Catalog, CatalogError, Collection, Keyword, Result};
 
 impl Catalog {
+    /// Manual collections, ordered by name and then id (names need not be unique).
+    pub fn all_collections(&self) -> Result<Vec<Collection>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM collection ORDER BY name, id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Collection {
+                id: r.get(0)?,
+                name: r.get(1)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Collections containing an asset, ordered by collection id.
+    pub fn asset_collection_ids(&self, asset_id: i64) -> Result<Vec<i64>> {
+        self.id_list(
+            "SELECT collection_id FROM collection_asset WHERE asset_id = ?1 ORDER BY collection_id",
+            asset_id,
+        )
+    }
+
     pub fn insert_collection(&self, name: &str) -> Result<i64> {
         self.conn
             .execute("INSERT INTO collection (name) VALUES (?1)", params![name])?;

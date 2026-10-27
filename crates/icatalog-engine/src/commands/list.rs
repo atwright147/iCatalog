@@ -12,12 +12,20 @@ impl Command for List {
         "List assets"
     }
     fn params(&self) -> &'static [ParamSpec] {
-        &[ParamSpec {
-            name: "limit",
-            required: false,
-            positional: false,
-            doc: "maximum number of assets to list",
-        }]
+        &[
+            ParamSpec {
+                name: "limit",
+                required: false,
+                positional: false,
+                doc: "maximum number of assets to list",
+            },
+            ParamSpec {
+                name: "collection",
+                required: false,
+                positional: false,
+                doc: "restrict to members of this collection id",
+            },
+        ]
     }
     fn enabled(&self, ctx: &Context) -> bool {
         is_initialised(ctx)
@@ -26,6 +34,7 @@ impl Command for List {
         let limit = params.get_i64("limit")?;
         let q = AssetQuery {
             limit,
+            collection_id: super::collection::filter_id(ctx, params)?,
             ..Default::default()
         };
         Ok(asset_table(ctx.catalog().query_assets(&q)?))

@@ -202,12 +202,12 @@ Decision:
 3. `import` makes the import root the source root folder (named after the root) and mirrors the directory tree below it; each asset's `folder_id` points at the folder for its own directory. Re-importing the same root reuses the source and folders.
 4. `update` files newly found assets into the same tree and refreshes moved assets' `folder_id`.
 5. **Offline is not missing.** A source whose `last_mount_path` is absent (an ejected disc, an unplugged drive, a disconnected share) is skipped by `update`, reported as `offline`, and its assets are never marked `missing`.
-6. **Collections stay separate** from folders: `collection` + `collection_asset` is many-to-many and will hold manual sets/albums; Smart Collections will store rule definitions (an `AssetQuery`-shaped predicate over format, capture date, lens, etc.). Neither is built yet.
+6. **Collections stay separate** from folders: `collection` + `collection_asset` is many-to-many and holds manual sets/albums (implemented in D25); Smart Collections will store rule definitions (an `AssetQuery`-shaped predicate over format, capture date, lens, etc.). Smart Collections are not built yet.
 7. **Device provenance (v5).** A source also records `device_id` (the volume or share root: `/` for the boot volume, `/Volumes/<name>`, `/mnt/<name>`, `/media/<name>`, a Windows drive prefix or UNC share) and `device_label` (`This Mac`, `NAS`, `DVD_01`, ...). Both are derived heuristically from `last_mount_path` with no filesystem call (`device_of`), refreshed by `ensure_source`/`touch_source`, and `Source::device()` falls back to the same derivation for pre-v5 rows. The UI groups source roots under one header per device, so an import from this Mac is visibly "This Mac" rather than an unqualified top-level folder. The header is an accordion: its arrow collapses the section, and clicking the device name selects every asset from every source on that device (`AssetQuery::source_ids`).
 
 Rejected: mirroring the filesystem for every catalogued path with no source concept (unstable across mounts, and it cannot tell an offline disc from deleted files); and reusing `folder` as a many-to-many grouping (that is what collections are for). Also rejected for now: making the source the device itself with the chosen folder as a path inside it. The import root stays the source identity until stable volume identity exists, so a second import from the same device creates a second source under the same device header.
 
-Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget), and Collections (manual and smart). Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
+Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget), and Smart Collections (manual Collections are implemented in D25). Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
 
 ## D22. Native macOS menu bar via `muda` (2026-10-23)
 
@@ -229,7 +229,7 @@ Desktop import/update/edit run one at a time on a worker with its own engine con
 
 Validation: regressions for panic-after-write, commit failure, invalid rating after keyword writes, startup/refresh errors, background outcomes, and viewport thumbnail bounds. `task scale` checks 10,000 generated PNGs through import/browse/search/edit/update/reopen/integrity validation, plus a separate 10,000-asset HTTP snapshot round trip. Synthetic sync thumbnail blobs test transport size, not decoding.
 
-Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, Collections, legacy import and wasm remain pending.
+Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, Smart Collections, legacy import and wasm remain pending (manual Collections landed in D25).
 
 ## D24. Automated UI verification (2026-10-24)
 
@@ -238,6 +238,34 @@ Use the matching `egui_kittest` 0.36.2 dev dependency to drive the real eframe A
 Native coverage launches the production binary and uses macOS System Events through a Rust test driver for menu Update, picker cancellation and Command-Q. It runs on a logged-in Mac with explicit OS permissions, separate from headless PR CI. Current coverage does not include choosing a folder in the native picker or Windows/Linux native shells. Custom tiles, rating/label choices and text fields now expose accessible names. Native Import/Update menu items disable while a worker is running, matching the in-app fallback.
 
 Status: local headless interactions, four visual baselines and native macOS smoke verified. GitHub workflows are configured; their hosted/self-hosted executions remain unverified until run there. No schema or command-engine changes.
+
+## D25. Manual Collections across engine, CLI and desktop (2026-10-26)
+
+Manual albums use the existing v1 `collection`/`collection_asset` tables; no schema migration or dependency is needed. One engine command, `collection`, declares an `action` parameter (`list`, `create`, `show`, `add`, `remove`), plus `name`, collection `id` and asset `asset` as appropriate. The CLI follows the existing catalogue-first convention: `icatalog collection <catalogue> <action> [options]`. The CLI parses the action; all validation and writes stay in the engine's atomic dispatcher.
+
+Collection ids are authoritative; display names may repeat, matching the existing schema. New names are trimmed, limited to 1-1024 UTF-8 bytes and reject control characters. Membership is many-to-many and add/remove are idempotent; missing collection/asset ids return actionable errors. Membership changes preserve assets, paths and source/folder assignments. `list`/`find --collection <id>` compose membership with existing search/annotation filters and limits through `AssetQuery::collection_id`.
+
+The desktop sidebar creates collections through a modal (D26) and selects collections; membership uses drag-and-drop and asset context-menu actions (D27). Search applies within the selected collection. All writes use the same background worker and engine command as other edits; controls disable while busy and failed writes are reported. Removing a selected asset from the active collection refreshes the view and clears that selection. Tests cover persistence/reopen, overlapping membership, idempotency, invalid inputs, filter composition, failed writes and real-widget interactions.
+
+Status: implemented. Smart Collections, rename/delete, bulk selection and collection-specific conflict merging remain future work. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
+
+## D26. Create Collection modal (2026-10-26)
+
+The sidebar's **New Collection…** button opens egui's built-in `Modal` with a focused Name field and Create/Cancel buttons. Enter submits, while Cancel, Escape or a backdrop click dismisses without writing. Create disables for blank names. A pending creation keeps the modal open with controls disabled until the engine worker finishes. Success closes and clears the dialog; an error keeps the entered name and displays an inline error for retry. Native menu actions are disabled and queued Import/Update events ignored while the modal is open.
+
+This is shell state only: creation still dispatches the D25 `collection` command with `action=create` through the existing background worker and atomic transaction. Tests cover modal dismissal, background input blocking, Enter submission, pending controls and error recovery; the visual suite includes a populated creation modal. No new dependency or schema change.
+
+Status: implemented.
+
+## D27. Collection drag-and-drop and asset context menus (2026-10-26)
+
+Grid tiles and list rows support dragging one asset onto a sidebar collection. The drag selects the source asset and carries a typed asset-id/name payload; the target highlights with a copy cursor and release dispatches `collection action=add`. Membership is added without moving folders or removing other memberships. Escape or release outside a collection cancels without writing. A filename follows the pointer as drag feedback. Collection rows and their selection/drop highlights span the sidebar's available width; names stay left-aligned and truncate. Clicking an already selected collection clears the collection filter and returns to All while preserving search text. Each collection is a single row without per-row membership buttons; add/remove uses drag-and-drop and the asset context menu (updated 2026-10-27).
+
+Right-clicking a grid/list asset selects it and opens a Collections menu. Each collection offers Add to or Remove from according to that asset's membership. Actions identify the right-clicked asset, including when a different asset was previously selected; removing from the active collection refreshes the view and selection. An empty catalogue offers a hint to create a collection first. The menu scrolls when needed.
+
+Both gestures dispatch the existing D25 engine command on the same atomic background worker. Membership actions disable while busy or while the creation modal is open; a new worker/modal clears any active drag payload. Command failures surface in the status bar. Tests drive real pointer events in both views, repeated drops, invalid/cancelled drops, right-click targeting, active-collection removal, blocked writes and failed drops. Visual baselines cover the context menu and hovered drop target. No schema, dependency or CLI change; multiple-asset selection remains future work.
+
+Status: implemented.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

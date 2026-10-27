@@ -77,3 +77,51 @@ fn end_to_end() {
     assert!(!o.stderr.is_empty());
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn collection_cli_round_trip_and_argument_errors() {
+    let path =
+        std::env::temp_dir().join(format!("icat-cli-collection-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    let ctx = icatalog_engine::Context::open(&path).unwrap();
+    ctx.catalog().connection().execute_batch(
+        "INSERT INTO asset(id,uid,path,name) VALUES (7,'synthetic','/synthetic/Photo.jpg','Photo.jpg');"
+    ).unwrap();
+    drop(ctx);
+    let created = icatalog(&["collection", p, "create", "--name", "Holiday favourites"]);
+    assert!(created.status.success(), "{}", s(&created.stderr));
+    assert!(s(&created.stdout).contains("Holiday favourites"));
+    assert!(s(&icatalog(&["collection", p, "list"]).stdout).contains("Holiday favourites"));
+    for _ in 0..2 {
+        assert!(
+            icatalog(&["collection", p, "add", "--id", "1", "--asset", "7"])
+                .status
+                .success()
+        );
+    }
+    for args in [
+        vec!["collection", p, "show", "--id", "1"],
+        vec!["list", p, "--collection", "1"],
+        vec!["find", p, "Photo", "--collection", "1"],
+    ] {
+        let out = icatalog(&args);
+        assert!(out.status.success(), "{}", s(&out.stderr));
+        assert!(s(&out.stdout).contains("Photo.jpg"));
+    }
+    assert!(
+        icatalog(&["collection", p, "remove", "--id", "1", "--asset", "7"])
+            .status
+            .success()
+    );
+    assert!(!s(&icatalog(&["collection", p, "show", "--id", "1"]).stdout).contains("Photo.jpg"));
+    for args in [
+        vec!["collection", p],
+        vec!["collection", p, "list", "extra"],
+        vec!["collection", p, "add", "--id", "1", "--asset", "999"],
+    ] {
+        assert!(!icatalog(&args).status.success());
+    }
+    let _ = std::fs::remove_file(path);
+}

@@ -17,7 +17,7 @@ mod ui_tests;
 mod worker;
 
 use eframe::egui;
-use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Folder, Source};
+use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Collection, Folder, Source};
 use icatalog_engine::{dispatch_guarded, Context, Params};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -79,6 +79,7 @@ enum FolderSelection {
     Folder(i64),
     /// All assets from every source on one device (e.g. "This Mac").
     Device(String),
+    Collection(i64),
 }
 
 /// Mutable tree state shared by the recursive folder-tree builder.
@@ -103,6 +104,9 @@ struct App {
     assets: Vec<Asset>,
     folders: Vec<Folder>,
     sources: Vec<Source>,
+    collections: Vec<Collection>,
+    create_collection: Option<CreateCollectionDialog>,
+    asset_collections: HashSet<i64>,
     folder_sel: FolderSelection,
     expanded: HashSet<i64>,
     collapsed_devices: HashSet<String>,
@@ -125,6 +129,19 @@ struct App {
     worker: Option<worker::Worker>,
     attempted_thumbnails: HashSet<i64>,
     visible_thumbnails: HashSet<i64>,
+}
+
+#[derive(Default)]
+struct CreateCollectionDialog {
+    name: String,
+    error: Option<String>,
+    pending: bool,
+    focus_name: bool,
+}
+
+struct DraggedAsset {
+    id: i64,
+    name: String,
 }
 
 /// Build the native macOS menu bar. Returns `None` on other platforms or if
@@ -209,6 +226,9 @@ impl App {
             assets: Vec::new(),
             folders: Vec::new(),
             sources: Vec::new(),
+            collections: Vec::new(),
+            create_collection: None,
+            asset_collections: HashSet::new(),
             folder_sel: FolderSelection::All,
             expanded: HashSet::new(),
             collapsed_devices: HashSet::new(),
@@ -242,6 +262,7 @@ impl App {
     fn try_refresh(&mut self) -> icatalog_engine::Result<()> {
         let folders = self.ctx.catalog().all_folders()?;
         let sources = self.ctx.catalog().all_sources()?;
+        let collections = self.ctx.catalog().all_collections()?;
         let source_ids = match &self.folder_sel {
             FolderSelection::Device(device) => Some(
                 sources
@@ -253,6 +274,10 @@ impl App {
             _ => None,
         };
         let q = AssetQuery {
+            collection_id: match &self.folder_sel {
+                FolderSelection::Collection(id) => Some(*id),
+                _ => None,
+            },
             folder_id: match &self.folder_sel {
                 FolderSelection::Folder(fid) => Some(*fid),
                 _ => None,
@@ -272,6 +297,7 @@ impl App {
         let assets = self.ctx.catalog().query_assets(&q)?;
         self.folders = folders;
         self.sources = sources;
+        self.collections = collections;
         self.assets = assets;
         if let Some(id) = self.selected {
             if !self.assets.iter().any(|a| a.id == id) {
@@ -313,7 +339,21 @@ impl App {
             return;
         };
         self.worker = None;
-        self.set_menu_enabled(true);
+        if let Some(dialog) = self
+            .create_collection
+            .as_mut()
+            .filter(|dialog| dialog.pending)
+        {
+            match &result {
+                Ok(_) => self.create_collection = None,
+                Err(error) => {
+                    dialog.pending = false;
+                    dialog.error = Some(error.to_string());
+                    dialog.focus_name = true;
+                }
+            }
+        }
+        self.set_menu_enabled(self.create_collection.is_none());
         self.status = match result {
             Ok(outcome) => outcome.render(),
             Err(error) => error.to_string(),
@@ -330,6 +370,7 @@ impl App {
             self.detail_for = None;
             self.annotation = None;
             self.keywords.clear();
+            self.asset_collections.clear();
             self.meta = None;
             return;
         };
@@ -344,18 +385,21 @@ impl App {
                 self.ctx.catalog().annotation(id)?,
                 self.ctx.catalog().asset_keywords(id)?,
                 self.ctx.catalog().asset_meta(id)?,
+                self.ctx.catalog().asset_collection_ids(id)?,
             ))
         })();
         self.detail_for = Some(id);
         match result {
-            Ok((annotation, keywords, meta)) => {
+            Ok((annotation, keywords, meta, collections)) => {
                 self.annotation = annotation;
                 self.keywords = keywords.into_iter().map(|k| k.name).collect();
                 self.meta = meta;
+                self.asset_collections = collections.into_iter().collect();
             }
             Err(error) => {
                 self.annotation = None;
                 self.keywords.clear();
+                self.asset_collections.clear();
                 self.meta = None;
                 self.status = format!("Cannot load asset details: {error}");
             }
@@ -363,8 +407,188 @@ impl App {
         self.keyword_input.clear();
     }
 
-    fn list(&self, ui: &mut egui::Ui) -> Option<i64> {
-        let mut clicked = None;
+    fn collections_panel(&mut self, ui: &mut egui::Ui) -> Option<Params> {
+        let mut command = None;
+        ui.separator();
+        ui.label("Collections");
+        if ui
+            .add_enabled(
+                self.worker.is_none() && self.create_collection.is_none(),
+                egui::Button::new("New Collection…"),
+            )
+            .clicked()
+        {
+            self.create_collection = Some(CreateCollectionDialog {
+                focus_name: true,
+                ..Default::default()
+            });
+            self.set_menu_enabled(false);
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("collection_list")
+            .auto_shrink([false, true])
+            .max_height(180.0)
+            .show(ui, |ui| {
+                for collection in &self.collections {
+                    ui.push_id(collection.id, |ui| {
+                        let selected =
+                            self.folder_sel == FolderSelection::Collection(collection.id);
+                        let row = ui
+                            .add_sized(
+                                [ui.available_width(), ui.spacing().interact_size.y],
+                                egui::Button::selectable(
+                                    selected,
+                                    (&collection.name, egui::Atom::grow()),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(format!(
+                                "{} (Collection {})",
+                                collection.name, collection.id
+                            ));
+                        if row.clicked() {
+                            self.folder_sel = if selected {
+                                FolderSelection::All
+                            } else {
+                                FolderSelection::Collection(collection.id)
+                            };
+                            self.dirty = true;
+                        }
+                        if self.worker.is_none() && self.create_collection.is_none() {
+                            if row.dnd_hover_payload::<DraggedAsset>().is_some() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
+                                ui.painter().rect_stroke(
+                                    row.rect.expand(2.0),
+                                    3.0,
+                                    ui.visuals().selection.stroke,
+                                    egui::StrokeKind::Outside,
+                                );
+                            }
+                            if let Some(asset) = row.dnd_release_payload::<DraggedAsset>() {
+                                command = Some(collection_params("add", collection.id, asset.id));
+                            }
+                        }
+                    });
+                }
+            });
+        command
+    }
+
+    fn create_collection_modal(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.create_collection else {
+            return;
+        };
+        let mut submit = false;
+        let mut cancel = false;
+        let response = egui::Modal::new(egui::Id::new("create_collection")).show(ctx, |ui| {
+            ui.set_width(300.0);
+            ui.heading("New Collection");
+            ui.add_enabled_ui(!dialog.pending, |ui| {
+                let label = ui.label("Name");
+                let name = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut dialog.name)
+                            .desired_width(f32::INFINITY)
+                            .char_limit(1024),
+                    )
+                    .labelled_by(label.id);
+                if dialog.focus_name {
+                    name.request_focus();
+                    dialog.focus_name = false;
+                }
+                let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if let Some(error) = &dialog.error {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                }
+                ui.horizontal(|ui| {
+                    cancel = ui.button("Cancel").clicked();
+                    let valid = !dialog.name.trim().is_empty();
+                    submit = ui.add_enabled(valid, egui::Button::new("Create")).clicked()
+                        || (valid && enter);
+                });
+            });
+            if dialog.pending {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Creating collection…");
+                });
+            }
+        });
+        if !dialog.pending && (cancel || response.should_close()) {
+            self.create_collection = None;
+            self.set_menu_enabled(self.worker.is_none());
+        } else if submit && !dialog.pending {
+            let mut params = Params::new();
+            params
+                .set("action", "create")
+                .set("name", dialog.name.trim());
+            self.run_command("collection", &params);
+            if let Some(dialog) = &mut self.create_collection {
+                dialog.pending = self.worker.is_some();
+                if !dialog.pending {
+                    dialog.error = Some(self.status.clone());
+                }
+            }
+        }
+    }
+
+    fn asset_interactions(
+        &mut self,
+        response: &egui::Response,
+        id: i64,
+        name: &str,
+    ) -> Option<Params> {
+        let can_edit = self.worker.is_none() && self.create_collection.is_none();
+        if response.clicked()
+            || response.secondary_clicked()
+            || response.drag_started_by(egui::PointerButton::Primary)
+        {
+            self.selected = Some(id);
+        }
+        if can_edit && response.drag_started_by(egui::PointerButton::Primary) {
+            response.dnd_set_drag_payload(DraggedAsset {
+                id,
+                name: name.into(),
+            });
+        }
+        if response.secondary_clicked() || response.context_menu_opened() {
+            self.ensure_detail();
+        }
+        let mut command = None;
+        response.context_menu(|ui| {
+            ui.label("Collections");
+            if self.collections.is_empty() {
+                ui.label("Create a collection in the sidebar first.");
+            }
+            ui.add_enabled_ui(can_edit, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        for collection in &self.collections {
+                            let member = self.asset_collections.contains(&collection.id);
+                            let action = if member { "remove" } else { "add" };
+                            let label = format!(
+                                "{} {}",
+                                if member { "Remove from" } else { "Add to" },
+                                collection.name
+                            );
+                            if ui
+                                .button(label)
+                                .on_hover_text(format!("Collection {}", collection.id))
+                                .clicked()
+                            {
+                                command = Some(collection_params(action, collection.id, id));
+                                ui.close();
+                            }
+                        }
+                    });
+            });
+        });
+        command
+    }
+
+    fn list(&mut self, ui: &mut egui::Ui) -> Option<Params> {
+        let mut command = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(
@@ -374,17 +598,19 @@ impl App {
                 |ui, rows| {
                     for index in rows {
                         if let Some(asset) = self.assets.get(index) {
-                            if ui
-                                .selectable_label(self.selected == Some(asset.id), &asset.name)
-                                .clicked()
-                            {
-                                clicked = Some(asset.id);
+                            let (id, name) = (asset.id, asset.name.clone());
+                            let response = ui.add(
+                                egui::Button::selectable(self.selected == Some(id), &name)
+                                    .sense(egui::Sense::click_and_drag()),
+                            );
+                            if let Some(params) = self.asset_interactions(&response, id, &name) {
+                                command = Some(params);
                             }
                         }
                     }
                 },
             );
-        clicked
+        command
     }
 
     fn ensure_texture(&mut self, ctx: &egui::Context, id: i64) {
@@ -412,8 +638,8 @@ impl App {
         Some(ctx.load_texture(format!("thumb-{id}"), color, egui::TextureOptions::LINEAR))
     }
 
-    fn grid(&mut self, ui: &mut egui::Ui) -> Option<i64> {
-        let mut clicked = None;
+    fn grid(&mut self, ui: &mut egui::Ui) -> Option<Params> {
+        let mut command = None;
         let tile = 160.0;
         let height = 180.0;
         let cols =
@@ -437,7 +663,7 @@ impl App {
                             self.ensure_texture(ui.ctx(), id);
                             let (rect, response) = ui.allocate_exact_size(
                                 egui::vec2(tile, height),
-                                egui::Sense::click(),
+                                egui::Sense::click_and_drag(),
                             );
                             response.widget_info(|| {
                                 egui::WidgetInfo::selected(
@@ -454,15 +680,15 @@ impl App {
                                 &name,
                                 self.selected == Some(id),
                             );
-                            if response.clicked() {
-                                clicked = Some(id);
+                            if let Some(params) = self.asset_interactions(&response, id, &name) {
+                                command = Some(params);
                             }
                             response.on_hover_cursor(egui::CursorIcon::PointingHand);
                         }
                     });
                 }
             });
-        clicked
+        command
     }
 
     // removed unused folder_tree; tree is built inline in left panel
@@ -728,6 +954,15 @@ fn edit_params(id: i64, key: &str, value: &str) -> Params {
     p
 }
 
+fn collection_params(action: &str, collection: i64, asset: i64) -> Params {
+    let mut params = Params::new();
+    params
+        .set("action", action)
+        .set("id", collection.to_string())
+        .set("asset", asset.to_string());
+    params
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
@@ -746,12 +981,17 @@ impl eframe::App for App {
             self.dirty = false;
         }
         let ctx = ui.ctx().clone();
+        if self.worker.is_some() || self.create_collection.is_some() {
+            egui::DragAndDrop::clear_payload(&ctx);
+        }
+        self.ensure_detail();
 
         let mut action = None;
+        let mut collection_command = None;
         // Native macOS menu clicks arrive through the handler installed in
         // `install_native_menu`; drain them before drawing.
         while let Ok(id) = self.menu_events.try_recv() {
-            if self.worker.is_some() {
+            if self.worker.is_some() || self.create_collection.is_some() {
                 continue;
             }
             match id.as_str() {
@@ -771,7 +1011,10 @@ impl eframe::App for App {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
                         if ui
-                            .add_enabled(self.worker.is_none(), egui::Button::new("Import…"))
+                            .add_enabled(
+                                self.worker.is_none() && self.create_collection.is_none(),
+                                egui::Button::new("Import…"),
+                            )
                             .clicked()
                         {
                             ui.close();
@@ -780,7 +1023,10 @@ impl eframe::App for App {
                             }
                         }
                         if ui
-                            .add_enabled(self.worker.is_none(), egui::Button::new("Update"))
+                            .add_enabled(
+                                self.worker.is_none() && self.create_collection.is_none(),
+                                egui::Button::new("Update"),
+                            )
                             .clicked()
                         {
                             ui.close();
@@ -928,6 +1174,7 @@ impl eframe::App for App {
                     self.folder_sel = sel;
                     self.dirty = true;
                 }
+                collection_command = self.collections_panel(ui);
                 ui.separator();
                 ui.label(format!("{} assets", self.assets.len()));
             });
@@ -1019,11 +1266,11 @@ impl eframe::App for App {
                 });
             });
             ui.separator();
-            if let Some(id) = match self.view_mode {
+            if let Some(params) = match self.view_mode {
                 ViewMode::Grid => self.grid(ui),
                 ViewMode::List => self.list(ui),
             } {
-                self.selected = Some(id);
+                collection_command = Some(params);
             }
         });
         self.textures
@@ -1032,6 +1279,24 @@ impl eframe::App for App {
             .retain(|id| self.visible_thumbnails.contains(id));
         if let Some(params) = edit {
             self.run_command("edit", &params);
+        }
+        if let Some(params) = collection_command {
+            self.run_command("collection", &params);
+        }
+        self.create_collection_modal(&ctx);
+        if let Some(asset) = egui::DragAndDrop::payload::<DraggedAsset>(&ctx) {
+            if let Some(pointer) = ctx.pointer_hover_pos() {
+                egui::Area::new(egui::Id::new("dragged_asset"))
+                    .order(egui::Order::Tooltip)
+                    .interactable(false)
+                    .fixed_pos(pointer + egui::vec2(12.0, 12.0))
+                    .show(&ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_max_width(240.0);
+                            ui.add(egui::Label::new(&asset.name).truncate());
+                        });
+                    });
+            }
         }
     }
 }

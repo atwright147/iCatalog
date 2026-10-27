@@ -11,7 +11,7 @@ pub struct Invocation {
 
 /// Parse the tokens after the command name. `args[0]` is the catalogue path;
 /// `--name value` sets a parameter; extra positionals are rejected except for
-/// `find`, whose first positional is the required `query`.
+/// `find` (query) and `collection` (action), which require one positional.
 pub fn parse(command: &str, args: &[String]) -> std::result::Result<Invocation, String> {
     let Some(catalogue) = args.first() else {
         return Err("missing <catalogue> path".to_owned());
@@ -37,15 +37,16 @@ pub fn parse(command: &str, args: &[String]) -> std::result::Result<Invocation, 
             positionals.push(tok);
         }
     }
-    if command == "find" {
+    if command == "find" || command == "collection" {
+        let key = if command == "find" { "query" } else { "action" };
         let mut it = positionals.into_iter();
         let Some(query) = it.next() else {
-            return Err("find requires a <query> argument".to_owned());
+            return Err(format!("{command} requires a <{key}> argument"));
         };
         if let Some(extra) = it.next() {
             return Err(format!("unexpected argument '{extra}'"));
         }
-        params.set("query", query);
+        params.set(key, query);
     } else if let Some(p) = positionals.first() {
         return Err(format!("unexpected argument '{p}'"));
     }

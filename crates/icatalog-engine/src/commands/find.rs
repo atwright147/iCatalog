@@ -43,6 +43,12 @@ impl Command for Find {
                 positional: false,
                 doc: "maximum number of assets to list",
             },
+            ParamSpec {
+                name: "collection",
+                required: false,
+                positional: false,
+                doc: "restrict to members of this collection id",
+            },
         ]
     }
     fn enabled(&self, ctx: &Context) -> bool {
@@ -55,6 +61,7 @@ impl Command for Find {
         let label = params.get_i64("label")?;
         let limit = params.get_i64("limit")?;
         let q = AssetQuery {
+            collection_id: super::collection::filter_id(ctx, params)?,
             text_like: Some(query),
             keyword,
             min_rating,
