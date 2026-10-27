@@ -123,6 +123,8 @@ Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI
 
 Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
 
+Thumbnails use the asset's EXIF orientation, including mirrored values (D31). Import/update store oriented pixels; desktop display applies stored metadata to older, unapplied thumbnails without modifying the catalogue or requiring the original media.
+
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task

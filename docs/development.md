@@ -100,6 +100,8 @@ In the grid or list, Ctrl/⌘-click toggles assets, Shift-click selects a range,
 
 ## 5. Debugging tricks
 
+Thumbnail orientation (D31): import/update apply the asset's EXIF orientation, including mirror transforms, to stored JPEGs. Existing thumbnails with `orientation_applied = false` are oriented from `asset_meta.orientation` when displayed in the grid or details panel; originals can be offline and no re-import is required. Already oriented thumbnails are never transformed twice. Missing/invalid orientation leaves pixels unchanged. Asset dimensions remain the source dimensions. A changed file that loses EXIF clears stale extracted metadata during update, preserving user annotations.
+
 - **Debug builds and breakpoints (Decided):** `cargo build`/`cargo run` use the dev profile (symbols, `debug_assertions`, no optimisation), so an ordinary debugger attaches with no extra flags. There is no in-process inspector like a browser's devtools; you drive a debugger instead.
 - **VS Code (recommended):** install the CodeLLDB extension (`vadimcn.vscode-lldb`, recommended in `.vscode/extensions.json`). `.vscode/launch.json` (committed) provides: *Debug icatalog-ui (GUI)*, *Debug icatalog CLI (edit)*, *Debug engine tests*, *Debug edit integration tests* and *Attach to icatalog-ui*. Pick one, set a breakpoint (e.g. in `crates/icatalog-engine/src/commands/edit.rs`) and press F5. Edit the `args` in the config to point at your catalogue. `dbg!(x)` and `eprintln!` work as console-style output and appear in the Debug Console.
 - **Terminal:** `rust-lldb target/debug/icatalog-ui -- catalogue.sqlite`, then `breakpoint set --file edit.rs --line <n>` (or by symbol), `run`, `bt`, `frame variable`. `rust-gdb` is the same for gdb users.

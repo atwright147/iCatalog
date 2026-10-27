@@ -19,13 +19,13 @@ use std::fmt;
 use std::io::{BufRead, Cursor, Seek};
 
 use exif::{In, Tag, Value};
-use image::{ImageFormat, ImageReader, Limits};
+use image::{metadata::Orientation, DynamicImage, ImageFormat, ImageReader, Limits};
 use sha2::{Digest, Sha256};
 
 /// Canonical grid thumbnail long edge, in pixels.
 pub const GRID_LONG_EDGE: u32 = 256;
 /// Thumbnail generator version.
-pub const GENERATOR_VERSION: i64 = 1;
+pub const GENERATOR_VERSION: i64 = 2;
 
 const MAX_DIM: u32 = 1_000_000;
 
@@ -258,20 +258,30 @@ pub fn read_exif<R: BufRead + Seek>(mut src: R) -> Result<ExifData> {
 
 /// Decode `bytes` and produce a JPEG grid thumbnail with the given long edge.
 pub fn thumbnail_jpeg(bytes: &[u8], long_edge: u32) -> Result<Thumbnail> {
+    thumbnail_jpeg_with_orientation(bytes, long_edge, None)
+}
+
+fn exif_orientation(value: Option<i64>) -> Option<Orientation> {
+    value
+        .and_then(|v| u8::try_from(v).ok())
+        .and_then(Orientation::from_exif)
+}
+
+/// Generate a JPEG thumbnail with the asset's EXIF orientation (1–8) applied.
+/// Missing or invalid orientation leaves pixels unchanged. Geometry describes
+/// the resulting pixels; source dimensions and metadata remain unchanged.
+pub fn thumbnail_jpeg_with_orientation(
+    bytes: &[u8],
+    long_edge: u32,
+    orientation: Option<i64>,
+) -> Result<Thumbnail> {
     let long_edge = if long_edge == 0 {
         GRID_LONG_EDGE
     } else {
         long_edge
     };
-    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(50_000);
-    limits.max_image_height = Some(50_000);
-    limits.max_alloc = Some(256 * 1024 * 1024);
-    reader.limits(limits);
-    let img = reader.decode()?;
+    let img = decode_image(bytes)?;
     let (w, h) = (img.width(), img.height());
-    check_dims(w, h)?;
     let long = w.max(h);
     let target = long_edge.min(long);
     let scale = |d: u32| -> u32 {
@@ -281,19 +291,47 @@ pub fn thumbnail_jpeg(bytes: &[u8], long_edge: u32) -> Result<Thumbnail> {
     let (tw, th) = (scale(w), scale(h));
     let rgb = image::DynamicImage::ImageRgb8(img.to_rgb8());
     let small = image::imageops::resize(&rgb, tw, th, image::imageops::FilterType::Triangle);
+    // Transform the small pixels rather than allocating a rotated full-size image.
+    let mut small = DynamicImage::ImageRgba8(small);
+    let orientation = exif_orientation(orientation);
+    if let Some(orientation) = orientation {
+        small.apply_orientation(orientation);
+    }
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80).encode_image(&small)?;
     Ok(Thumbnail {
         format: "jpeg".to_owned(),
-        width: i64::from(tw),
-        height: i64::from(th),
-        orientation_applied: false,
+        width: i64::from(small.width()),
+        height: i64::from(small.height()),
+        orientation_applied: orientation.is_some(),
         bytes: out,
     })
 }
 
 /// Decode `bytes` to RGBA8 for display, bounded by [`Limits`].
 pub fn decode_rgba(bytes: &[u8]) -> Result<DecodedImage> {
+    decode_rgba_with_orientation(bytes, None)
+}
+
+/// Decode display pixels, applying an unapplied asset EXIF orientation (1–8).
+/// Pass `None` when the stored thumbnail already has orientation applied.
+pub fn decode_rgba_with_orientation(
+    bytes: &[u8],
+    orientation: Option<i64>,
+) -> Result<DecodedImage> {
+    let mut img = decode_image(bytes)?;
+    if let Some(orientation) = exif_orientation(orientation) {
+        img.apply_orientation(orientation);
+    }
+    let rgba = img.to_rgba8();
+    Ok(DecodedImage {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba: rgba.into_raw(),
+    })
+}
+
+fn decode_image(bytes: &[u8]) -> Result<DynamicImage> {
     let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(50_000);
@@ -303,12 +341,7 @@ pub fn decode_rgba(bytes: &[u8]) -> Result<DecodedImage> {
     let img = reader.decode()?;
     let (w, h) = (img.width(), img.height());
     check_dims(w, h)?;
-    let rgba = img.to_rgba8();
-    Ok(DecodedImage {
-        width: w,
-        height: h,
-        rgba: rgba.into_raw(),
-    })
+    Ok(img)
 }
 
 /// SHA-256 of `bytes` as `sha256:<lowercase hex>`.
@@ -394,6 +427,95 @@ mod tests {
         assert_eq!((d.width, d.height), (8, 4));
         assert_eq!(d.rgba.len(), 8 * 4 * 4);
         assert!(decode_rgba(b"not an image").is_err());
+    }
+
+    /// Six distinct grey blocks: A B C / D E F. Large blocks survive JPEG loss.
+    fn orientation_fixture() -> Vec<u8> {
+        let img = image::RgbImage::from_fn(96, 64, |x, y| {
+            image::Rgb([20 + ((y / 32) * 3 + x / 32) as u8 * 40; 3])
+        });
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), 96, 64, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn all_exif_orientations_transform_display_and_thumbnail_pixels() {
+        let bytes = orientation_fixture();
+        // Expected block order in display coordinates, independent of image's
+        // transform implementation. Orientations 5–8 swap the axes.
+        for (orientation, order) in [
+            (1, [0, 1, 2, 3, 4, 5]),
+            (2, [2, 1, 0, 5, 4, 3]),
+            (3, [5, 4, 3, 2, 1, 0]),
+            (4, [3, 4, 5, 0, 1, 2]),
+            (5, [0, 3, 1, 4, 2, 5]),
+            (6, [3, 0, 4, 1, 5, 2]),
+            (7, [5, 2, 4, 1, 3, 0]),
+            (8, [2, 5, 1, 4, 0, 3]),
+        ] {
+            let (cols, rows) = if orientation < 5 { (3, 2) } else { (2, 3) };
+            let display = decode_rgba_with_orientation(&bytes, Some(orientation)).unwrap();
+            assert_eq!((display.width, display.height), (cols * 32, rows * 32));
+            let thumb = thumbnail_jpeg_with_orientation(&bytes, 48, Some(orientation)).unwrap();
+            assert!(thumb.orientation_applied);
+            assert_eq!(
+                (thumb.width, thumb.height),
+                (i64::from(cols * 16), i64::from(rows * 16))
+            );
+            // Encoded geometry must match the stored dimensions, and decoding
+            // already oriented bytes must not apply a second transformation.
+            let decoded = decode_rgba(&thumb.bytes).unwrap();
+            assert_eq!(
+                (i64::from(decoded.width), i64::from(decoded.height)),
+                (thumb.width, thumb.height)
+            );
+            for (index, block) in order.into_iter().enumerate() {
+                let index = index as u32;
+                let expected = 20 + block * 40;
+                for (pixels, edge, tolerance) in [(&display, 32, 0), (&decoded, 16, 5)] {
+                    let x = (index % cols) * edge + edge / 2;
+                    let y = (index / cols) * edge + edge / 2;
+                    let offset = ((y * pixels.width + x) * 4) as usize;
+                    assert!(
+                        (i32::from(pixels.rgba[offset]) - expected).abs() <= tolerance,
+                        "orientation {orientation}, block {index}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missing_and_hostile_orientations_leave_pixels_unchanged() {
+        let bytes = orientation_fixture();
+        let display = decode_rgba(&bytes).unwrap();
+        let thumb = thumbnail_jpeg(&bytes, 48).unwrap();
+        for orientation in [
+            None,
+            Some(i64::MIN),
+            Some(-1),
+            Some(0),
+            Some(9),
+            Some(262),
+            Some(i64::MAX),
+        ] {
+            assert_eq!(
+                decode_rgba_with_orientation(&bytes, orientation).unwrap(),
+                display
+            );
+            assert_eq!(
+                thumbnail_jpeg_with_orientation(&bytes, 48, orientation).unwrap(),
+                thumb
+            );
+        }
+        assert!(!thumb.orientation_applied);
+        assert!(thumbnail_jpeg_with_orientation(b"junk", 256, Some(6)).is_err());
+        assert!(decode_rgba_with_orientation(b"junk", Some(6)).is_err());
+        let small = thumbnail_jpeg_with_orientation(&png(8, 4), 0, Some(6)).unwrap();
+        assert_eq!((small.width, small.height), (4, 8));
     }
 
     #[test]

@@ -297,6 +297,18 @@ Rows reserve the count's measured width before truncating the name, keeping a ga
 
 Status: implemented.
 
+## D31. Apply asset orientation to thumbnails (2026-10-27)
+
+Thumbnail transforms live in `icatalog-media` and use the existing `image` dependency. All eight EXIF orientation values are supported, including mirror transforms. Invalid or absent values leave pixels unchanged. `thumbnail_jpeg_with_orientation` resizes first and transforms the small image before encoding; generator version 2 records oriented geometry and sets `orientation_applied` for valid values, including identity. Source files, asset dimensions and the stored EXIF orientation retain their original values.
+
+The existing import/update commands pass the orientation from the metadata they store, including the selected RAW container/preview metadata. On changed files, absent or unreadable EXIF clears stale extracted metadata so a previous orientation cannot be applied to a replacement thumbnail; user annotations are preserved. Unchanged files retain their existing thumbnails.
+
+Desktop texture loading uses `decode_rgba_with_orientation` with stored asset orientation only when `orientation_applied` is false. This makes older catalogues display correctly without source media, a rescan, a database rewrite or a schema migration. Already oriented thumbnails bypass the fallback. Grid and details reuse the same texture. No new command, dependency, Taskfile task or sync protocol is needed.
+
+Synthetic tests verify pixel positions for all eight transforms, encoded geometry and resize bounds, hostile orientation values, JPEG import/update/reopen and lost/malformed EXIF, RAW metadata selection, and old/new thumbnail display in the real UI without double rotation or catalogue writes.
+
+Status: implemented.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

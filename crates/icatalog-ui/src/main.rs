@@ -803,7 +803,16 @@ impl App {
             .thumbnail(id, i64::from(icatalog_media::GRID_LONG_EDGE))
             .ok()
             .flatten()?;
-        let img = icatalog_media::decode_rgba(&t.bytes).ok()?;
+        let orientation = if t.orientation_applied {
+            None
+        } else {
+            self.ctx
+                .catalog()
+                .asset_meta(id)
+                .ok()?
+                .and_then(|m| m.orientation)
+        };
+        let img = icatalog_media::decode_rgba_with_orientation(&t.bytes, orientation).ok()?;
         let color = egui::ColorImage::from_rgba_unmultiplied(
             [img.width as usize, img.height as usize],
             &img.rgba,

@@ -151,30 +151,39 @@ fn write_derived(
     mtime: i64,
 ) -> Result<u64> {
     let mut errors = 0;
-    match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
-        Ok(d) => {
-            if d != Default::default() {
-                ctx.catalog().upsert_asset_meta(&AssetMeta {
-                    asset_id,
-                    captured_local: d.captured_local,
-                    tz_offset_min: d.tz_offset_min,
-                    make: d.make,
-                    model: d.model,
-                    lens: d.lens,
-                    focal_length_mm: d.focal_length_mm,
-                    f_number: d.f_number,
-                    exposure_s: d.exposure_s,
-                    iso: d.iso,
-                    gps_lat: d.gps_lat,
-                    gps_lon: d.gps_lon,
-                    orientation: d.orientation,
-                    duration_ms: None,
-                })?;
-            }
+    let d = match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
+        Ok(d) => d,
+        Err(_) => {
+            errors += 1;
+            Default::default()
         }
-        Err(_) => errors += 1,
+    };
+    let orientation = d.orientation;
+    // A changed file can lose its EXIF. Clear stale metadata so the display
+    // fallback cannot rotate the new thumbnail using an old orientation.
+    if d != Default::default() || ctx.catalog().asset_meta(asset_id)?.is_some() {
+        ctx.catalog().upsert_asset_meta(&AssetMeta {
+            asset_id,
+            captured_local: d.captured_local,
+            tz_offset_min: d.tz_offset_min,
+            make: d.make,
+            model: d.model,
+            lens: d.lens,
+            focal_length_mm: d.focal_length_mm,
+            f_number: d.f_number,
+            exposure_s: d.exposure_s,
+            iso: d.iso,
+            gps_lat: d.gps_lat,
+            gps_lon: d.gps_lon,
+            orientation: d.orientation,
+            duration_ms: None,
+        })?;
     }
-    match icatalog_media::thumbnail_jpeg(image_bytes, icatalog_media::GRID_LONG_EDGE) {
+    match icatalog_media::thumbnail_jpeg_with_orientation(
+        image_bytes,
+        icatalog_media::GRID_LONG_EDGE,
+        orientation,
+    ) {
         Ok(t) => ctx.catalog().insert_thumbnail(&CatalogThumbnail {
             asset_id,
             size_class: i64::from(icatalog_media::GRID_LONG_EDGE),

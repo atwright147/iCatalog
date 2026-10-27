@@ -83,6 +83,61 @@ fn settle(h: &mut Harness<'_, App>) {
     h.run();
 }
 
+#[test]
+fn stored_thumbnail_orientation_supports_old_catalogues_without_double_rotation() {
+    for (orientation, applied, expected) in [
+        (Some(6), false, [32, 64]),
+        (Some(8), false, [32, 64]),
+        (Some(3), false, [64, 32]),
+        (None, false, [64, 32]),
+        (Some(262), false, [64, 32]),
+        (Some(6), true, [32, 64]),
+    ] {
+        let fixture = Fixture::new();
+        let ctx = open_catalogue(&fixture.path()).unwrap();
+        if let Some(orientation) = orientation {
+            ctx.catalog()
+                .connection()
+                .execute(
+                    "INSERT INTO asset_meta(asset_id,orientation) VALUES (1,?1)",
+                    [orientation],
+                )
+                .unwrap();
+        }
+        if applied {
+            let t = icatalog_media::thumbnail_jpeg_with_orientation(
+                &bmp([40, 50, 220]),
+                256,
+                orientation,
+            )
+            .unwrap();
+            let mut stored = ctx.catalog().thumbnail(1, 256).unwrap().unwrap();
+            stored.bytes = t.bytes;
+            stored.width = t.width;
+            stored.height = t.height;
+            stored.orientation_applied = t.orientation_applied;
+            stored.generator_version = icatalog_media::GENERATOR_VERSION;
+            ctx.catalog().insert_thumbnail(&stored).unwrap();
+        }
+        let before = ctx.catalog().thumbnail(1, 256).unwrap().unwrap();
+        // Fixture media paths do not exist: fallback only needs SQLite data.
+        let mut h = fixture.harness([1100.0, 800.0]);
+        assert_eq!(h.state().textures.get(&1).unwrap().size(), expected);
+        h.get(By::new().label("List")).click();
+        h.run();
+        h.get(
+            By::new()
+                .label("Red.bmp")
+                .role(egui::accesskit::Role::Button),
+        )
+        .click();
+        h.run();
+        assert_eq!(h.state().selection.primary, Some(1));
+        assert_eq!(h.state().textures.get(&1).unwrap().size(), expected);
+        assert_eq!(ctx.catalog().thumbnail(1, 256).unwrap().unwrap(), before);
+    }
+}
+
 fn drag_to(h: &mut Harness<'_, App>, name: &str, target: egui::Pos2) {
     let source = h
         .get(By::new().label(name).role(egui::accesskit::Role::Button))
