@@ -352,6 +352,11 @@ fn interaction_rectangle_selection_tracks_scroll_in_content_coordinates() {
     let end = egui::pos2(red.left() + 2.0, blue.bottom() - 2.0);
     begin_rectangle(&mut h, start, end, egui::Modifiers::NONE);
     assert_eq!(h.state().selection.ordered(&h.state().assets), vec![1, 2]);
+    assert!(
+        h.ctx.dragged_id().is_none(),
+        "rectangle selection must not leave an asset drag active: {:?}",
+        h.ctx.dragged_id()
+    );
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         phase: egui::TouchPhase::Move,
@@ -539,6 +544,169 @@ fn interaction_drag_assets_to_collections_in_grid_and_list() {
             Some(1)
         );
     }
+}
+
+#[test]
+fn collection_count_space_keeps_long_names_separate_from_counts() {
+    for width in [160.0, 220.0] {
+        for selected in [false, true] {
+            for count in [0, 12_345] {
+                let name = "A very long collection name that must truncate beside the count";
+                let mut h = Harness::builder().with_size([width, 80.0]).build_ui_state(
+                    |ui, rects| {
+                        let row = collection_row(ui, name, count, selected);
+                        *rects = Some((
+                            row.rect(egui::Id::new("collection_name")).unwrap(),
+                            row.rect(egui::Id::new("collection_count")).unwrap(),
+                            row.response.rect,
+                        ));
+                    },
+                    None::<(egui::Rect, egui::Rect, egui::Rect)>,
+                );
+                h.run();
+                let (name_rect, count_rect, row_rect) = h.state().unwrap();
+                assert!(name_rect.right() < count_rect.left());
+                assert!(row_rect.contains_rect(count_rect));
+                assert!(row_rect.width() <= width);
+                assert!(count_rect.width() > 0.0);
+                // The count is in the same row without altering its accessible name.
+                assert_eq!(h.get_by_label(name).rect(), row_rect);
+            }
+        }
+    }
+}
+
+#[test]
+fn interaction_collection_membership_cache_survives_redraws_and_skips_busy_reads() {
+    let fixture = Fixture::new();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    let album = ctx.catalog().insert_collection("Album").unwrap();
+    ctx.catalog().add_to_collection(album, 1).unwrap();
+    let mut h = fixture.harness([1100.0, 720.0]);
+    h.get(
+        By::new()
+            .label("Red.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click();
+    settle(&mut h);
+    h.get(
+        By::new()
+            .label("Blue.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click_modifiers(egui::Modifiers {
+        ctrl: true,
+        ..Default::default()
+    });
+    settle(&mut h);
+    open_asset_menu(&mut h, "Red.bmp");
+    open_collection_submenu(&mut h);
+    assert_eq!(
+        h.state()
+            .selection_collection_members
+            .get(&album)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    ctx.catalog()
+        .connection()
+        .execute_batch("BEGIN EXCLUSIVE")
+        .unwrap();
+    h.run_steps(3);
+    assert!(h.state().selection_membership_loaded);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    open_asset_menu(&mut h, "Blue.bmp");
+    open_collection_submenu(&mut h);
+    assert!(h.state().selection_membership_loaded);
+
+    let params = collection_params("add", album, &[2]);
+    h.state_mut().run_command("collection", &params);
+    h.run_steps(3);
+    assert!(h.state().worker.is_some());
+    assert!(!h.state().selection_membership_loaded);
+    assert!(h
+        .get_by_label("Collections ⏵")
+        .accesskit_node()
+        .is_disabled());
+    ctx.catalog().connection().execute_batch("COMMIT").unwrap();
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    open_asset_menu(&mut h, "Red.bmp");
+    open_collection_submenu(&mut h);
+    assert_eq!(
+        h.state()
+            .selection_collection_members
+            .get(&album)
+            .unwrap()
+            .len(),
+        2
+    );
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    h.get(
+        By::new()
+            .label("Green.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click();
+    settle(&mut h);
+    open_asset_menu(&mut h, "Green.bmp");
+    open_collection_submenu(&mut h);
+    assert!(h.state().selection_membership_loaded);
+    assert!(!h.state().selection_collection_members.contains_key(&album));
+}
+
+#[test]
+fn interaction_collection_membership_read_error_retries_when_menu_reopens() {
+    let fixture = Fixture::new();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    let album = ctx.catalog().insert_collection("Album").unwrap();
+    ctx.catalog().add_to_collection(album, 1).unwrap();
+    let mut h = fixture.harness([1100.0, 720.0]);
+    h.get(
+        By::new()
+            .label("Red.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click();
+    settle(&mut h);
+    ctx.catalog()
+        .connection()
+        .execute_batch("ALTER TABLE collection_asset RENAME TO unavailable_memberships")
+        .unwrap();
+    open_asset_menu(&mut h, "Red.bmp");
+    assert!(!h.state().selection_membership_loaded);
+    assert!(h
+        .state()
+        .status
+        .contains("Cannot load collection membership"));
+    ctx.catalog()
+        .connection()
+        .execute_batch("ALTER TABLE unavailable_memberships RENAME TO collection_asset")
+        .unwrap();
+    h.run_steps(3);
+    assert!(
+        !h.state().selection_membership_loaded,
+        "an open menu must not retry reads every frame"
+    );
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    open_asset_menu(&mut h, "Red.bmp");
+    open_collection_submenu(&mut h);
+    assert!(h.state().selection_membership_loaded);
+    assert_eq!(
+        h.state()
+            .selection_collection_members
+            .get(&album)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -1284,6 +1452,22 @@ fn visual_snapshots() {
     assets.snapshot("catalogue-assets-rectangle");
     results.extend(assets.take_snapshot_results());
     release_at(&mut assets, end);
+
+    let long_name = "A very long collection name that must leave room for its count";
+    let long = ctx.catalog().insert_collection(long_name).unwrap();
+    for asset in [1, 2, 3] {
+        ctx.catalog().add_to_collection(long, asset).unwrap();
+    }
+    ctx.catalog()
+        .insert_collection("An empty collection with another long name")
+        .unwrap();
+    let mut counts = fixture.harness([800.0, 600.0]);
+    counts.get_by_label(long_name).click();
+    settle(&mut counts);
+    counts.event(egui::Event::PointerGone);
+    counts.run();
+    counts.snapshot("catalogue-collection-counts");
+    results.extend(counts.take_snapshot_results());
 }
 
 #[test]

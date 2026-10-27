@@ -299,6 +299,35 @@ fn collection_round_trip_and_constraint() {
 }
 
 #[test]
+fn selected_collection_memberships_are_bounded_deduplicated_and_filtered() {
+    let c = Catalog::open_in_memory().unwrap();
+    c.connection().execute_batch(
+        "WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<1100)
+         INSERT INTO asset(id,uid,path,name) SELECT id,'synthetic-'||id,'/synthetic/'||id,'Asset '||id FROM n;"
+    ).unwrap();
+    let album = c.insert_collection("Album").unwrap();
+    let other = c.insert_collection("Other").unwrap();
+    for id in [1, 501, 1100] {
+        c.add_to_collection(album, id).unwrap();
+    }
+    for id in [1, 999] {
+        c.add_to_collection(other, id).unwrap();
+    }
+    assert!(c.collection_memberships(&[]).unwrap().is_empty());
+    assert_eq!(
+        c.collection_memberships(&[501, 1, 1]).unwrap(),
+        vec![(1, album), (1, other), (501, album)]
+    );
+    assert!(c.collection_memberships(&[-1, 0, 9999]).unwrap().is_empty());
+    let maximum: Vec<i64> = (1..=32_000).collect();
+    assert_eq!(c.collection_memberships(&maximum).unwrap().len(), 5);
+    assert!(matches!(
+        c.collection_memberships(&vec![1; 32_001]),
+        Err(CatalogError::InvalidQuery(_))
+    ));
+}
+
+#[test]
 fn keyword_and_annotation_round_trip() {
     let c = Catalog::open_in_memory().unwrap();
     let a = c.insert_asset(&asset("u", "p")).unwrap();

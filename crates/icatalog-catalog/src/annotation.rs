@@ -38,6 +38,34 @@ impl Catalog {
         )
     }
 
+    /// Collection memberships for selected assets as `(asset_id, collection_id)`
+    /// pairs. Duplicate input ids are ignored; at most 32,000 ids are supported.
+    pub fn collection_memberships(&self, asset_ids: &[i64]) -> Result<Vec<(i64, i64)>> {
+        if asset_ids.len() > 32_000 {
+            return Err(CatalogError::InvalidQuery(
+                "select at most 32000 assets at once",
+            ));
+        }
+        if asset_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<_> = asset_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let marks = vec!["?"; ids.len()].join(",");
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT asset_id, collection_id FROM collection_asset
+             WHERE asset_id IN ({marks}) ORDER BY asset_id, collection_id"
+        ))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(&ids), |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn insert_collection(&self, name: &str) -> Result<i64> {
         self.conn
             .execute("INSERT INTO collection (name) VALUES (?1)", params![name])?;

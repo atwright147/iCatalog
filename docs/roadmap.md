@@ -22,7 +22,7 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 
 D23 hardening is implemented: atomic engine command dispatch, reported UI refresh/startup errors, background import/update/edit/collection, visible-row rendering and bounded thumbnail caching. Regression coverage includes partial writes, panic/commit rollback and 10,000-row viewport bounds; `task scale` adds opt-in generated-image and sync workloads. Remaining scale work includes asset-query paging, asynchronous visible-thumbnail decoding, per-file progress/cancellation and representative RAW-library benchmarks.
 
-D24 UI checks exist: real-widget interaction/persistence tests in the workspace gate, nine opt-in GPU screenshot comparisons (including populated/multiple collections, creation modal, context menu and drop target, D25-D28), and a separately invoked native macOS menu/picker-cancellation/quit smoke test. Local validation passed. PR and manual self-hosted workflows are configured but not yet run on GitHub. Broader native interaction/platform coverage remains open.
+D24 UI checks exist: real-widget interaction/persistence tests in the workspace gate, opt-in GPU screenshot comparisons (including populated/multiple collections, creation modal, context menu, drop target and long-name collection counts, D25-D30), and a separately invoked native macOS menu/picker-cancellation/quit smoke test. Regression coverage includes membership-cache invalidation and busy/read-error handling, count/name spacing and rectangle selection while scrolling. Local validation passed. PR and manual self-hosted workflows are configured but not yet run on GitHub. Broader native interaction/platform coverage remains open.
 
 ## 4. Next
 

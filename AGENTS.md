@@ -121,6 +121,8 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 
 Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Shift-click ranges and Ctrl/⌘-click toggles select multiple collections for a combined asset view (D28). Smart Collections remain PLANNED.
 
+Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
+
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task

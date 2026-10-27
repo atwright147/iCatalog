@@ -283,6 +283,8 @@ The asset context menu contains a **Collections** submenu with one checkbox per 
 
 Clicking an unchecked collection adds all selected assets. Clicking a checked collection removes all selected assets. Clicking an indeterminate collection adds only the missing assets, making the selection fully checked. Changes use the existing atomic `collection` command's batched `assets` parameter and background worker. No schema or dependency change.
 
+Membership reads use one bounded catalogue query and are cached by the selected asset ids until a catalogue refresh or command invalidates them. Open-menu redraws reuse the cache, and a running worker blocks membership reads. Read errors disable the actions; explicitly reopening the menu retries a failed read.
+
 Tests cover all three membership states and actions in grid and list views, right-click targeting, disabled/busy states and failed writes. The context-menu visual baseline shows the nested menu and mixed state.
 
 Status: implemented.
@@ -290,6 +292,8 @@ Status: implemented.
 ## D30. Collection asset counts in the sidebar (2026-10-27)
 
 Each manual Collection row in the left panel shows its number of member assets at the trailing edge. Counts cover the whole catalogue rather than the current view, and empty collections show zero. The count is display-only and does not change the row's accessible name or the context submenu. A grouped catalogue query supplies counts and the normal UI refresh keeps them current after membership changes. No schema change or dependency is needed.
+
+Rows reserve the count's measured width before truncating the name, keeping a gap even for long names. Both use the same selectable-button font and resolved text color for normal, hovered and selected states. Layout regression tests cover narrow rows, long names and multiple-digit counts; a visual baseline covers selected and empty long-name collections.
 
 Status: implemented.
 

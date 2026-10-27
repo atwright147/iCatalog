@@ -110,6 +110,7 @@ struct App {
     create_collection: Option<CreateCollectionDialog>,
     asset_collections: HashSet<i64>,
     selection_collection_members: HashMap<i64, HashSet<i64>>,
+    selection_membership_for: Option<HashSet<i64>>,
     selection_membership_loaded: bool,
     folder_sel: FolderSelection,
     collection_anchor: Option<i64>,
@@ -237,6 +238,7 @@ impl App {
             create_collection: None,
             asset_collections: HashSet::new(),
             selection_collection_members: HashMap::new(),
+            selection_membership_for: None,
             selection_membership_loaded: false,
             folder_sel: FolderSelection::All,
             collection_anchor: None,
@@ -318,6 +320,8 @@ impl App {
         self.collection_counts = collection_counts;
         self.assets = assets;
         self.selection.retain(&self.assets);
+        self.selection_membership_for = None;
+        self.selection_membership_loaded = false;
         self.marquee = None;
         // keep cached textures only for assets that are still in view
         let ids: HashSet<i64> = self.assets.iter().map(|a| a.id).collect();
@@ -332,6 +336,8 @@ impl App {
         match worker::Worker::start(self.path.clone(), id.to_string(), params.clone()) {
             Ok(worker) => {
                 self.worker = Some(worker);
+                self.selection_membership_for = None;
+                self.selection_membership_loaded = false;
                 self.set_menu_enabled(false);
                 self.status = format!("Running {id}…");
             }
@@ -426,27 +432,34 @@ impl App {
         self.keyword_input.clear();
     }
 
-    fn refresh_selection_collection_counts(&mut self) {
+    fn ensure_selection_collection_membership(&mut self, retry_failed: bool) {
+        if self.worker.is_some()
+            || self.create_collection.is_some()
+            || (self.selection_membership_for.as_ref() == Some(&self.selection.ids)
+                && (self.selection_membership_loaded || !retry_failed))
+        {
+            return;
+        }
+        // Cache failed attempts until the menu is explicitly reopened, so a
+        // read error does not retry a blocked database on every frame.
+        self.selection_membership_for = Some(self.selection.ids.clone());
         self.selection_membership_loaded = false;
+        self.selection_collection_members.clear();
         let ids = self.selection.ordered(&self.assets);
-        let mut members: HashMap<i64, HashSet<i64>> = HashMap::new();
-        for asset_id in ids {
-            match self.ctx.catalog().asset_collection_ids(asset_id) {
-                Ok(collection_ids) => {
-                    for collection_id in collection_ids {
-                        members.entry(collection_id).or_default().insert(asset_id);
-                    }
+        match self.ctx.catalog().collection_memberships(&ids) {
+            Ok(memberships) => {
+                for (asset_id, collection_id) in memberships {
+                    self.selection_collection_members
+                        .entry(collection_id)
+                        .or_default()
+                        .insert(asset_id);
                 }
-                Err(error) => {
-                    self.selection_collection_members.clear();
-                    self.selection_membership_loaded = false;
-                    self.status = format!("Cannot load collection membership: {error}");
-                    return;
-                }
+                self.selection_membership_loaded = true;
+            }
+            Err(error) => {
+                self.status = format!("Cannot load collection membership: {error}");
             }
         }
-        self.selection_collection_members = members;
-        self.selection_membership_loaded = true;
     }
 
     fn select_collection(&mut self, id: i64, modifiers: egui::Modifiers) {
@@ -544,37 +557,12 @@ impl App {
                             .get(&collection.id)
                             .copied()
                             .unwrap_or(0);
-                        let row = ui
-                            .add_sized(
-                                [ui.available_width(), ui.spacing().interact_size.y],
-                                egui::Button::selectable(
-                                    selected,
-                                    (&collection.name, egui::Atom::grow()),
-                                )
-                                .truncate(),
-                            )
+                        let row = collection_row(ui, &collection.name, count, selected)
+                            .response
                             .on_hover_text(format!(
                                 "{} (Collection {})",
                                 collection.name, collection.id
                             ));
-                        let mut classes = egui::widget_style::Classes::default();
-                        if selected {
-                            egui::widget_style::HasClasses::add_class(
-                                &mut classes,
-                                egui::widget_style::SELECTED_CLASS,
-                            );
-                        }
-                        let text_style = ui
-                            .style()
-                            .button_style(&classes, row.widget_state())
-                            .text_style;
-                        ui.painter().text(
-                            row.rect.right_center() - egui::vec2(8.0, 0.0),
-                            egui::Align2::RIGHT_CENTER,
-                            count.to_string(),
-                            text_style.font_id,
-                            text_style.color,
-                        );
                         if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
@@ -693,7 +681,7 @@ impl App {
         }
         if response.secondary_clicked() || response.context_menu_opened() {
             self.ensure_detail();
-            self.refresh_selection_collection_counts();
+            self.ensure_selection_collection_membership(response.secondary_clicked());
         }
         let mut command = None;
         response.context_menu(|ui| {
@@ -932,6 +920,10 @@ impl App {
                     base: self.selection.clone(),
                     modifiers,
                 });
+                // egui can assign a nearby row as the potential drag target
+                // for a press in a gap. That ghost asset drag blocks wheel
+                // scrolling even though rectangle selection owns the gesture.
+                ui.ctx().stop_dragging();
             }
         }
         if self.marquee.is_some() && ui.input_mut(|i| i.consume_key(i.modifiers, egui::Key::Escape))
@@ -1171,6 +1163,52 @@ fn disclosure_arrow(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let icon_response = response.clone().with_new_rect(icon_rect);
     egui::collapsing_header::paint_default_icon(ui, if open { 1.0 } else { 0.0 }, &icon_response);
     response
+}
+
+/// A single clickable row, with fixed count space and a shrinking name.
+fn collection_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    count: i64,
+    selected: bool,
+) -> egui::AtomLayoutResponse {
+    let mut classes = egui::widget_style::Classes::default();
+    if selected {
+        egui::widget_style::HasClasses::add_class(&mut classes, egui::widget_style::SELECTED_CLASS);
+    }
+    // Resolve the same previous-pass state that Button uses for its name.
+    let state = ui
+        .ctx()
+        .read_response(ui.next_auto_id())
+        .map(|response| response.widget_state())
+        .unwrap_or_default();
+    let text_style = ui.style().button_style(&classes, state).text_style;
+    let count_text =
+        ui.painter()
+            .layout_no_wrap(count.to_string(), text_style.font_id, text_style.color);
+    let count_id = egui::Id::new("collection_count");
+    let name = egui::Atom {
+        id: Some(egui::Id::new("collection_name")),
+        ..egui::Atom::from(name)
+    };
+    let row = egui::Button::selectable(
+        selected,
+        (
+            name,
+            egui::Atom::grow(),
+            egui::Atom::custom(count_id, count_text.size()),
+        ),
+    )
+    .min_size(egui::vec2(
+        ui.available_width(),
+        ui.spacing().interact_size.y,
+    ))
+    .truncate()
+    .atom_ui(ui);
+    if let Some(rect) = row.rect(count_id) {
+        ui.painter().galley(rect.min, count_text, text_style.color);
+    }
+    row
 }
 
 /// Paint one grid tile: a square thumbnail box with the filename below it.
