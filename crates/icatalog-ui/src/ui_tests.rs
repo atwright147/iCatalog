@@ -51,19 +51,75 @@ impl Fixture {
         self.dir.path().join("fixture.sqlite")
     }
     fn harness(&self, size: [f32; 2]) -> Harness<'static, App> {
+        self.harness_with_display(size, 1.0, egui::Theme::Dark)
+    }
+    fn harness_with_display(
+        &self,
+        size: [f32; 2],
+        pixels_per_point: f32,
+        theme: egui::Theme,
+    ) -> Harness<'static, App> {
         let path = self.path();
         Harness::builder()
             .with_size(size)
-            .with_pixels_per_point(1.0)
-            .with_theme(egui::Theme::Dark)
+            .with_pixels_per_point(pixels_per_point)
+            .with_theme(theme)
             .with_options(
                 SnapshotOptions::default()
                     .output_path(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots")),
             )
-            .build_eframe(move |_| {
+            .build_eframe(move |cc| {
+                typography::configure(&cc.egui_ctx);
                 let (_, receiver) = std::sync::mpsc::channel();
                 App::with_menu(open_catalogue(&path).unwrap(), path, None, receiver)
             })
+    }
+}
+
+#[test]
+fn readable_text_fits_rows_at_native_display_scales_in_both_themes() {
+    let fixture = Fixture::new();
+    seed_list_metadata(&fixture);
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        for scale in [1.0, 1.5, 2.0] {
+            let mut h = fixture.harness_with_display([1100.0, 720.0], scale, theme);
+            h.get_by_label("List").click();
+            settle(&mut h);
+            assert_eq!(h.ctx.pixels_per_point(), scale);
+            let row = asset_rect(&h, "Red.bmp");
+            let mut previous_bottom = row.top();
+            for label in [
+                "Red.bmp",
+                "Rating: ★★★★☆",
+                "Captured: 2000-02-28 14:30:00",
+                "Modified: 2000-02-29 00:00:00 UTC",
+                "Size: 1.5 MiB",
+            ] {
+                let rect = h
+                    .get(By::new().label(label).role(egui::accesskit::Role::Label))
+                    .rect();
+                assert!(rect.height() >= 14.0, "{theme:?} {scale}: {label}");
+                assert!(rect.top() >= previous_bottom, "{label} overlaps");
+                assert!(row.contains_rect(rect), "{label} clips outside row");
+                previous_bottom = rect.bottom();
+            }
+            assert!(asset_rect(&h, "Blue.bmp").top() > row.bottom());
+            h.get(
+                By::new()
+                    .label("Red.bmp")
+                    .role(egui::accesskit::Role::Button),
+            )
+            .click();
+            settle(&mut h);
+            assert_eq!(h.state().selection.ordered(&h.state().assets), vec![1]);
+            h.get_by_label("Grid").click();
+            settle(&mut h);
+            let tile = asset_rect(&h, "Red.bmp");
+            assert!(
+                tile.height() - tile.width()
+                    >= h.ctx.style_of(theme).text_styles[&egui::TextStyle::Body].size
+            );
+        }
     }
 }
 
@@ -1629,6 +1685,18 @@ fn visual_snapshots() {
     rich_narrow.run();
     rich_narrow.snapshot("catalogue-list-narrow");
     results.extend(rich_narrow.take_snapshot_results());
+    for (name, scale, theme) in [
+        ("catalogue-list-light", 1.0, egui::Theme::Light),
+        ("catalogue-list-retina", 2.0, egui::Theme::Dark),
+    ] {
+        let mut display = rich_fixture.harness_with_display([1100.0, 720.0], scale, theme);
+        display.get_by_label("List").click();
+        settle(&mut display);
+        display.event(egui::Event::PointerGone);
+        display.run();
+        display.snapshot(name);
+        results.extend(display.take_snapshot_results());
+    }
 }
 
 #[test]

@@ -2,8 +2,8 @@
 use eframe::egui;
 use icatalog_catalog::{Annotation, Asset, AssetMeta, Catalog};
 
-pub const HEIGHT: f32 = 122.0;
-pub const MIN_WIDTH: f32 = 760.0;
+pub const HEIGHT: f32 = 136.0;
+pub const MIN_WIDTH: f32 = 840.0;
 
 pub struct Metadata {
     annotation: Option<Annotation>,
@@ -84,13 +84,13 @@ pub fn draw(
             thumb.center(),
             egui::Align2::CENTER_CENTER,
             "No thumbnail",
-            egui::FontId::proportional(11.0),
+            egui::TextStyle::Small.resolve(ui.style()),
             ui.visuals().weak_text_color(),
         );
     }
     let x = thumb.right() + 16.0;
     let available = (inner.right() - x - 32.0).max(1.0);
-    let widths = [available * 0.38, available * 0.34, available * 0.28];
+    let widths = [available * 0.42, available * 0.32, available * 0.26];
     let meta = metadata.and_then(|m| m.meta.as_ref());
     let rating = metadata
         .and_then(|m| m.annotation.as_ref())
@@ -181,12 +181,10 @@ pub fn draw(
             ui.set_clip_rect(column.intersect(ui.clip_rect()));
             ui.spacing_mut().item_spacing.y = 3.0;
             for (i, line) in lines.iter().enumerate() {
-                let text = egui::RichText::new(line).size(12.0).color(if selected {
+                let text = egui::RichText::new(line).size(14.0).color(if selected {
                     ui.visuals().selection.stroke.color
-                } else if i == 0 {
-                    ui.visuals().text_color()
                 } else {
-                    ui.visuals().text_color().gamma_multiply(0.8)
+                    ui.visuals().text_color()
                 });
                 ui.add(
                     egui::Label::new(if i == 0 { text.strong() } else { text })

@@ -319,6 +319,16 @@ Tests cover populated/missing metadata, layout, edit refresh, source colour/prof
 
 Status: implemented.
 
+## D33. Readable desktop typography (2026-10-27)
+
+The desktop used default small, subdued text plus hard-coded 11 pt grid captions and 12 pt dimmed List metadata. Use one UI-only typography configuration for both themes: 15 pt body/buttons/captions, 14 pt metadata/monospace, 13 pt small text and 20 pt headings. Normal, secondary and selected text use tested contrast of at least 4.5:1 against their relevant backgrounds; disabled controls retain egui's disabled treatment. List metadata no longer receives an extra dimming multiplier. Grid captions reserve their resolved line height; List rows use 136 logical points and a minimum content width of 840 points, with more width assigned to dates.
+
+Keep egui's bundled fonts and theme-specific atlas gamma. Enable font hinting and disable subpixel binning (fractional glyph variants), which egui documents as a possible source of blur. Leave physical display scaling to eframe; never force 1 pixel per point on Retina displays. No new assets, dependencies, engine commands, schema or Taskfile tasks are needed for this presentation change.
+
+Tests cover contrast, non-overlapping metadata/caption bounds and selection in dark/light themes at 1×/1.5×/2×. Existing interaction and screenshot checks remain the gate, supplemented with light and Retina List baselines. Native monitor transitions and Windows/Linux appearance remain manual validation work.
+
+Status: implemented.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

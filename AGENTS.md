@@ -127,6 +127,8 @@ Thumbnails use the asset's EXIF orientation, including mirrored values (D31). Im
 
 List view uses thumbnail rows with filename/rating/dates/filesize, document/camera/lens/focal length, and dimensions/colour/profile columns (D32). It uses the browsing width with an optional Details inspector and horizontal scrolling in narrow windows. Import/update capture supported source colour/ICC descriptions; Update backfills older catalogue entries. Missing metadata stays explicit.
 
+Desktop typography uses 15 pt interface/caption text, 14 pt List metadata and 13 pt small text, with stronger contrast in both themes (D33). Font hinting stays enabled and fractional glyph variants are disabled; eframe's native monitor scale is preserved. Headless layout checks cover 1×/1.5×/2× scales; visual baselines also cover light and Retina List views.
+
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task

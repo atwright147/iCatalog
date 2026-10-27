@@ -68,6 +68,8 @@ UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless test
 
 List view (D32) renders a thumbnail and three metadata columns per asset: filename/rating/captured and modified dates/filesize; document type/camera/lens/focal length; dimensions/colour model/ICC description. It uses the browsing width by default; its Details toggle opens the existing inspector. Narrow windows and an open inspector use horizontal scrolling. Metadata reads are cached only for visible/selected rows and invalidated after refresh; errors are surfaced without repeating failed reads every frame. List display works from stored catalogue data, including offline media.
 
+Desktop typography (D33) is configured once for both egui themes in the UI-only `typography` module. Interface/caption text is 15 pt, List metadata 14 pt, small text 13 pt and headings 20 pt. Text and selection colours have tested contrast; metadata is no longer dimmed. Font hinting is enabled and fractional glyph variants are disabled, while theme-specific atlas gamma and eframe's native monitor scaling are preserved. No font assets, dependencies or engine commands are added.
+
 ## 6. `ivc` seam and clean-room boundary
 
 `ivc` lives in `ivc-file-research/` by design (D6) and is consumed through a **path dependency**; it stays standalone. Existing API (EXISTS): `parse(&[u8]) -> Result<Catalog>`; `Catalog { header, items, chunks, trailer }`; `Item` with `path`, `name`, `format` (4cc), `file_size`, `width`, `height`, `color_space`, `pict`, `jpeg: Option<&[u8]>`, `tail_blocks`, `iptc: Vec<IptcRecord>`; `Chunk { kind, offset, payload }` including the `FSM!` folder tree. Format spec: `ivc-file-research/docs/ivc-format.md`. Strings are likely Mac Roman (an open RE item); currently decoded lossy.

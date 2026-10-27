@@ -14,6 +14,7 @@
 
 mod list_row;
 mod selection;
+mod typography;
 #[cfg(test)]
 mod ui_tests;
 mod worker;
@@ -219,6 +220,7 @@ fn install_native_menu(
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, ctx: Context, path: PathBuf) -> Self {
+        typography::configure(&cc.egui_ctx);
         let (menu_tx, menu_events) = std::sync::mpsc::channel();
         let menu = install_native_menu(&cc.egui_ctx, menu_tx);
         Self::with_menu(ctx, path, menu, menu_events)
@@ -847,7 +849,7 @@ impl App {
     fn grid(&mut self, ui: &mut egui::Ui) -> Option<Params> {
         let mut command = None;
         let tile = 160.0;
-        let height = 180.0;
+        let height = tile + ui.text_style_height(&egui::TextStyle::Body) + 6.0;
         let cols =
             ((ui.available_width() / (tile + ui.spacing().item_spacing.x)).floor() as usize).max(1);
         let row_count = self.assets.len().div_ceil(cols);
@@ -1271,7 +1273,7 @@ fn draw_tile(
                 img_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "(no thumb)",
-                egui::FontId::proportional(11.0),
+                egui::TextStyle::Small.resolve(ui.style()),
                 ui.visuals().weak_text_color(),
             );
         }
@@ -1287,7 +1289,7 @@ fn draw_tile(
         text_rect.left_top(),
         egui::Align2::LEFT_TOP,
         name,
-        egui::FontId::proportional(11.0),
+        egui::TextStyle::Body.resolve(ui.style()),
         ui.visuals().text_color(),
     );
     if selected {

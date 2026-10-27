@@ -26,6 +26,8 @@ D24 UI checks exist: real-widget interaction/persistence tests in the workspace 
 
 List rows (D32) show thumbnails plus filename/rating/captured and modified dates/filesize; document/camera/lens/focal length; dimensions/colour/ICC profile. List uses the browsing width, an optional Details inspector, and horizontal scrolling in narrow windows. Import/update capture supported source colour information, and Update fills older entries without regenerating unchanged thumbnails. RAW source colour remains unavailable rather than inferred from its preview. Tests cover layout, missing metadata, edit refresh, profile removal/backfill/reopen and narrow/list visual baselines.
 
+Desktop legibility (D33) uses larger interface/caption text and List metadata, stronger normal/secondary/selection contrast in both themes, hinted glyphs without fractional variants, and roomier rows. Native display scaling is preserved. Layout checks cover both themes at 1×/1.5×/2×; light and Retina List screenshots supplement existing baselines.
+
 ## 4. Next
 
 - **Smart Collections (D21)** — manual Collections are implemented (D25) on the existing `collection`/`collection_asset` tables with engine/CLI/UI create, browse and membership editing. Next: stored `AssetQuery`-shaped rules over format, capture date, lens and other metadata, with a command surface and UI. Smart rules are not started.
