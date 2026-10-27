@@ -114,9 +114,9 @@ pub fn write_state(local: &Path, fingerprint: &str) {
 /// Verify that `path` is a valid iCatalog catalogue with the expected id.
 pub fn verify_catalogue(path: &Path, expect_id: &str) -> Result<()> {
     let catalog = icatalog_catalog::Catalog::open(path)?;
-    let row = catalog
-        .catalogue()?
-        .ok_or_else(|| SyncError::Integrity("not an iCatalog catalogue".into()))?;
+    let row = catalog.catalogue()?.ok_or_else(|| {
+        SyncError::Integrity(format!("not an {} catalogue", icatalog_catalog::APP_NAME))
+    })?;
     if row.id != expect_id {
         return Err(SyncError::Integrity(format!(
             "catalogue id '{}' does not match '{}'",

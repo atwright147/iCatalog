@@ -20,7 +20,9 @@ mod ui_tests;
 mod worker;
 
 use eframe::egui;
-use icatalog_catalog::{Annotation, Asset, AssetMeta, AssetQuery, Collection, Folder, Source};
+use icatalog_catalog::{
+    Annotation, Asset, AssetMeta, AssetQuery, Collection, Folder, Source, APP_NAME,
+};
 use icatalog_engine::{dispatch_guarded, Context, Params};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -50,7 +52,7 @@ fn run() -> eframe::Result<()> {
     let ctx = open_catalogue(&path).map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "iCatalog",
+        APP_NAME,
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, ctx, path)))),
     )
@@ -167,7 +169,7 @@ fn install_native_menu(
         use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 
         let menu = Menu::new();
-        let app_menu = Submenu::new("iCatalog", true);
+        let app_menu = Submenu::new(APP_NAME, true);
         let file_menu = Submenu::new("File", true);
         let import = MenuItem::with_id("file.import", "Import…", true, None::<Accelerator>);
         let update = MenuItem::with_id("file.update", "Update", true, None::<Accelerator>);
@@ -189,20 +191,20 @@ fn install_native_menu(
             repaint.request_repaint();
         }));
         menu.init_for_nsapp();
-        // Ensure the app menu shows "iCatalog" (eframe/muda may derive it from
-        // the process/bundle name in some environments).
+        // AppKit can replace the top-level item's title with the executable
+        // name during installation. Set both it and the submenu title afterward.
         #[cfg(target_os = "macos")]
         {
             use objc2_app_kit::NSApplication;
             use objc2_foundation::{MainThreadMarker, NSString};
             let mtm = MainThreadMarker::new()?;
             let app = NSApplication::sharedApplication(mtm);
-            if let Some(app_menu) = app
-                .mainMenu()
-                .and_then(|menu| menu.itemAtIndex(0))
-                .and_then(|item| item.submenu())
-            {
-                app_menu.setTitle(&NSString::from_str("iCatalog"));
+            if let Some(item) = app.mainMenu().and_then(|menu| menu.itemAtIndex(0)) {
+                let title = NSString::from_str(APP_NAME);
+                item.setTitle(&title);
+                if let Some(app_menu) = item.submenu() {
+                    app_menu.setTitle(&title);
+                }
             }
         }
         Some(NativeMenu {

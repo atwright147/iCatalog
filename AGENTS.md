@@ -4,6 +4,8 @@ iCatalog is an open-source, native, Rust-only rebuild of the discontinued iView 
 
 **Architecture origin:** these guides were adapted from PhotoCraft's AGENTS.md (`https://raw.githubusercontent.com/storytold/photocraft/main/AGENTS.md`, repo `github.com/storytold/photocraft`). PhotoCraft also references a shared `../craftrules` standards repo, which is **not present on this machine**. Decision history: `docs/decisions.md`.
 
+Use `icatalog_catalog::APP_NAME` for the user-facing product name in Rust code (window/menu titles and messages). Documentation and Cargo package descriptions spell it **iCatalog**; machine names remain lowercase.
+
 **Conventions:** this repo has two parts: the app (this guide; `docs/`, future `crates/`) and the clean-room format study in `ivc-file-research/` (guide: `ivc-file-research/AGENTS.md`; spec, 16 sample oracles and the `ivc` parser crate). This is the single root guide and stands alone. All paths are repo-root-relative (e.g. `crates/`). Format knowledge lives in the nested guide `ivc-file-research/AGENTS.md`. The repo is under git with a root `.gitignore` (covers `target/`, `log/`, `*.sqlite`, plus `ivc-file-research/samples/.gitignore`).
 
 Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). The browser build uses the same command engine and model as desktop: every client keeps a local SQLite copy and syncs over the same HTTP(S) API (section 5). The browser storage strategy (e.g. OPFS) is an open design item (see `docs/architecture.md`). Nothing wasm-related is built yet.

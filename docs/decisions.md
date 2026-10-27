@@ -218,6 +218,7 @@ Decision:
 - On **macOS only**, build an `NSMenu` with an app menu (Quit) and a **File** menu containing **Import…** and **Update**, install it via `menu.init_for_nsapp()`, and forward clicks through `muda::MenuEvent` to the UI thread with `egui::Context::request_repaint()`. Menu item ids are `file.import` / `file.update`.
 - Keep the existing in-app egui `MenuBar` as a fallback when the native menu cannot be installed or on non-macOS platforms.
 - The actions remain engine commands (`import`/`update`) dispatched the same way as before; only the menu host changes.
+- After installation, set both the top-level application menu item's title and its submenu title to **iCatalog**, using `icatalog_catalog::APP_NAME` shared with the window title and runtime messages. AppKit may replace the item title with `icatalog-ui`; changing only the submenu title leaves that executable name visible. The native smoke test checks the visible application menu name against the same constant.
 
 Status: Accepted (macOS native menu installed; other platforms fall back to in-app menu).
 

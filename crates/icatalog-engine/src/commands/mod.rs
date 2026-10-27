@@ -11,6 +11,7 @@ mod status;
 mod update;
 
 use crate::{Command, Context, EngineError, Result};
+use icatalog_catalog::APP_NAME;
 
 pub(crate) static ALL: &[&dyn Command] = &[
     &init::Init,
@@ -27,7 +28,7 @@ pub(crate) static ALL: &[&dyn Command] = &[
 /// Return the catalogue row, or an error if the file is not initialised.
 fn require_catalogue(ctx: &Context) -> Result<icatalog_catalog::CatalogueRow> {
     ctx.catalog().catalogue()?.ok_or_else(|| {
-        EngineError::Unsupported("not an iCatalog catalogue (run `init` first)".into())
+        EngineError::Unsupported(format!("not an {APP_NAME} catalogue (run `init` first)"))
     })
 }
 

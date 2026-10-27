@@ -3,6 +3,7 @@
 #![cfg(target_os = "macos")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod support;
+use icatalog_catalog::APP_NAME;
 use icatalog_engine::{dispatch_guarded, Context, Params};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -93,19 +94,23 @@ fn native_menu_dialog_update_and_quit() {
     let pid = app.0.id();
     automate(
         pid,
-        r#"
+        &format!(
+            r#"
         repeat 200 times
             if exists window 1 then exit repeat
             delay 0.05
         end repeat
-        if not (exists window 1) then error "No iCatalog window"
+        if not (exists window 1) then error "No {APP_NAME} window"
+        set appMenuName to name of menu bar item 2 of menu bar 1
+        if appMenuName is not "{APP_NAME}" then error "Expected {APP_NAME} app menu, got: " & appMenuName
         click menu item "Update" of menu "File" of menu bar item "File" of menu bar 1
-    "#,
+    "#
+        ),
     );
     wait_for("native Update to import the second generated image", || {
         assert!(
             app.0.try_wait().unwrap().is_none(),
-            "iCatalog exited; see target/ui-smoke/native-stderr.log"
+            "{APP_NAME} exited; see target/ui-smoke/native-stderr.log"
         );
         context
             .catalog()
@@ -135,7 +140,7 @@ fn native_menu_dialog_update_and_quit() {
         keystroke "q" using command down
     "#,
     );
-    wait_for("Command-Q to close iCatalog", || {
+    wait_for(&format!("Command-Q to close {APP_NAME}"), || {
         app.0.try_wait().unwrap().is_some()
     });
     assert!(app.0.wait().unwrap().success());

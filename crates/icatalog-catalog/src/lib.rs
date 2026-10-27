@@ -26,6 +26,9 @@ pub use model::{
 };
 pub use query::{AssetQuery, CatalogStats};
 
+/// Shared user-facing product name; executable, crate and file names stay lowercase.
+pub const APP_NAME: &str = "iCatalog";
+
 const MIGRATIONS: &[&str] = &[
     include_str!("v1.sql"),
     include_str!("v2.sql"),
@@ -53,7 +56,7 @@ impl fmt::Display for CatalogError {
             CatalogError::Sqlite(e) => write!(f, "sqlite error: {e}"),
             CatalogError::NewerSchema { found, supported } => write!(
                 f,
-                "catalogue schema version {found} is newer than supported version {supported}; update iCatalog"
+                "catalogue schema version {found} is newer than supported version {supported}; update {APP_NAME}"
             ),
             CatalogError::InvalidVersion(v) => write!(f, "invalid schema version {v}"),
             CatalogError::InvalidQuery(message) => write!(f, "invalid query: {message}"),

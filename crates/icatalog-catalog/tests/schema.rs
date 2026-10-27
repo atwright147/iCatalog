@@ -500,13 +500,23 @@ fn invalid_and_newer_versions_refused() {
             )
             .unwrap();
     }
+    let Err(error) = Catalog::open(&p) else {
+        panic!("a newer schema must be refused");
+    };
     assert!(matches!(
-        Catalog::open(&p),
-        Err(CatalogError::NewerSchema {
+        error,
+        CatalogError::NewerSchema {
             found: 6,
             supported: 5
-        })
+        }
     ));
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "catalogue schema version 6 is newer than supported version 5; update {}",
+            icatalog_catalog::APP_NAME
+        )
+    );
     let _ = std::fs::remove_file(&p);
 }
 

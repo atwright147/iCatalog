@@ -10,6 +10,8 @@ Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decid
 
 Status column: EXISTS means present in the repo today; PLANNED means not created.
 
+The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate is the lowest existing app layer shared by the UI, engine and sync code that display it, so window/menu titles and runtime messages use the same constant without another dependency. Executable, crate and file names remain lowercase; documentation and Cargo descriptions use the product spelling directly.
+
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
