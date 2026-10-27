@@ -17,6 +17,9 @@ pub struct AssetQuery {
     pub keyword: Option<String>,
     /// Restrict to members of one manual collection.
     pub collection_id: Option<i64>,
+    /// Match members of any listed collection, without duplicate assets.
+    /// An empty list matches nothing; at most 32,000 ids are supported.
+    pub collection_ids: Option<Vec<i64>>,
     /// Minimum rating, inclusive.
     pub min_rating: Option<i64>,
     /// Exact label.
@@ -84,6 +87,24 @@ impl Catalog {
                 " AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.asset_id = asset.id AND ca.collection_id = ?)",
             );
             args.push(Value::Integer(id));
+        }
+        if let Some(ids) = &q.collection_ids {
+            if ids.len() > 32_000 {
+                return Err(crate::CatalogError::InvalidQuery(
+                    "select at most 32000 collections at once",
+                ));
+            }
+            if ids.is_empty() {
+                sql.push_str(" AND 0");
+            } else {
+                let marks = std::iter::repeat_n("?", ids.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                sql.push_str(&format!(
+                    " AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.asset_id = asset.id AND ca.collection_id IN ({marks}))"
+                ));
+                args.extend(ids.iter().copied().map(Value::Integer));
+            }
         }
         if let Some(r) = q.min_rating {
             sql.push_str(
@@ -335,6 +356,48 @@ mod tests {
         assert!(c.collection_assets(album).unwrap().is_empty());
         assert!(c.collection_assets(other).unwrap().is_empty());
         assert_eq!(c.all_collections().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn multiple_collection_filter_unions_without_duplicates_and_composes() {
+        let (c, i) = setup();
+        let a = c.insert_collection("A").unwrap();
+        let b = c.insert_collection("B").unwrap();
+        for (collection, asset) in [(a, i[0]), (a, i[1]), (b, i[1]), (b, i[2])] {
+            c.add_to_collection(collection, asset).unwrap();
+        }
+        let mut q = AssetQuery {
+            collection_ids: Some(vec![a, b, a]),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), i);
+        q.limit = Some(1);
+        q.offset = Some(1);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1]]);
+        q.limit = None;
+        q.offset = None;
+        q.text_like = Some("three".into());
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[2]]);
+        q.text_like = None;
+        c.set_annotation(&ann(i[1], 5, 2)).unwrap();
+        q.min_rating = Some(4);
+        q.label = Some(2);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1]]);
+        q.min_rating = None;
+        q.label = None;
+        q.collection_id = Some(a);
+        q.collection_ids = Some(vec![b]);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1]]);
+        q.collection_id = None;
+        q.collection_ids = Some(vec![]);
+        assert!(c.query_assets(&q).unwrap().is_empty());
+        q.collection_ids = Some(vec![i64::MIN, i64::MAX]);
+        assert!(c.query_assets(&q).unwrap().is_empty());
+        q.collection_ids = Some(vec![a; 32_001]);
+        assert!(matches!(
+            c.query_assets(&q),
+            Err(crate::CatalogError::InvalidQuery(_))
+        ));
     }
 
     #[test]

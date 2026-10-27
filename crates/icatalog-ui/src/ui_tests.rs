@@ -198,7 +198,7 @@ fn interaction_collection_rows_fill_width_and_accept_clicks_and_drops_at_right_e
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);
-    assert_eq!(h.state().folder_sel, FolderSelection::Collection(1));
+    assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![1]));
     assert_eq!(
         h.state()
             .assets
@@ -236,7 +236,7 @@ fn interaction_selected_collection_toggles_off_and_preserves_search() {
         settle(&mut h);
         assert_eq!(
             h.state().folder_sel,
-            FolderSelection::Collection(favourites)
+            FolderSelection::Collections(vec![favourites])
         );
         assert_eq!(h.state().assets[0].id, 1);
         h.get_by_label("Search name or path").click();
@@ -257,6 +257,125 @@ fn interaction_selected_collection_toggles_off_and_preserves_search() {
             vec![1]
         );
         assert_eq!(ctx.catalog().collection_assets(album).unwrap(), vec![2]);
+    }
+}
+
+#[test]
+fn interaction_collections_shift_ranges_ctrl_command_toggles_and_search() {
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    let ctrl = egui::Modifiers {
+        ctrl: true,
+        ..Default::default()
+    };
+    let command = egui::Modifiers {
+        mac_cmd: true,
+        command: true,
+        ..Default::default()
+    };
+    let ctrl_shift = egui::Modifiers {
+        ctrl: true,
+        shift: true,
+        ..Default::default()
+    };
+    for mode in ["Grid", "List"] {
+        let fixture = Fixture::new();
+        let ctx = open_catalogue(&fixture.path()).unwrap();
+        // Insertion order differs from displayed name order.
+        let delta = ctx.catalog().insert_collection("Delta").unwrap();
+        let bravo = ctx.catalog().insert_collection("Bravo").unwrap();
+        let alpha = ctx.catalog().insert_collection("Alpha").unwrap();
+        let charlie = ctx.catalog().insert_collection("Charlie").unwrap();
+        for (collection, asset) in [(alpha, 1), (bravo, 2), (charlie, 1), (charlie, 3)] {
+            ctx.catalog().add_to_collection(collection, asset).unwrap();
+        }
+        let mut h = fixture.harness([1100.0, 720.0]);
+        h.get_by_label(mode).click();
+        settle(&mut h);
+        let assert_view = |h: &Harness<'_, App>, collections: &[i64], assets: &[i64]| {
+            assert_eq!(
+                h.state().folder_sel,
+                if collections.is_empty() {
+                    FolderSelection::All
+                } else {
+                    FolderSelection::Collections(collections.to_vec())
+                }
+            );
+            assert_eq!(
+                h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+                assets
+            );
+        };
+        h.get_by_label("Bravo").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[bravo], &[2]);
+        h.get_by_label("Alpha").click();
+        settle(&mut h);
+        h.get_by_label("Charlie").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo, charlie], &[1, 2, 3]);
+        h.get_by_label("Bravo").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo], &[1, 2]);
+        h.get_by_label("Delta").click_modifiers(ctrl);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo, delta], &[1, 2]);
+        h.get_by_label("Bravo").click_modifiers(ctrl);
+        settle(&mut h);
+        assert_view(&h, &[alpha, delta], &[1]);
+        h.get_by_label("Charlie").click_modifiers(command);
+        settle(&mut h);
+        assert_view(&h, &[alpha, charlie, delta], &[1, 3]);
+        h.get_by_label("Bravo").click_modifiers(ctrl_shift);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo, charlie, delta], &[1, 2, 3]);
+        h.get_by_label("Search name or path").click();
+        h.get_by_label("Search name or path").type_text("Blue");
+        h.key_press(egui::Key::Enter);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo, charlie, delta], &[2]);
+        h.get_by_label("Bravo").click_modifiers(ctrl);
+        settle(&mut h);
+        assert_view(&h, &[alpha, charlie, delta], &[]);
+        assert_eq!(h.state().search, "Blue");
+        h.get_by_label("x").click();
+        settle(&mut h);
+        h.get_by_label("Bravo").click();
+        settle(&mut h);
+        assert_view(&h, &[bravo], &[2]);
+        h.get_by_label("Bravo").click();
+        settle(&mut h);
+        assert_view(&h, &[], &[1, 2, 3]);
+        h.get_by_label("Delta").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[delta], &[]);
+        h.get_by_label("Delta").click_modifiers(ctrl);
+        settle(&mut h);
+        assert_view(&h, &[], &[1, 2, 3]);
+        // Folder browsing resets the previous collection range anchor.
+        h.get_by_label("Alpha").click();
+        settle(&mut h);
+        h.get_by_label("Photos").click();
+        settle(&mut h);
+        h.get_by_label("Charlie").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[charlie], &[1, 3]);
+        h.get_by_label("Alpha").click_modifiers(shift);
+        settle(&mut h);
+        assert_view(&h, &[alpha, bravo, charlie], &[1, 2, 3]);
+        let target = h.get_by_label("Alpha").rect().center();
+        drag_to(&mut h, "Blue.bmp", target);
+        release_at(&mut h, target);
+        assert_view(&h, &[alpha, bravo, charlie], &[1, 2, 3]);
+        assert_eq!(ctx.catalog().collection_assets(alpha).unwrap(), vec![1, 2]);
+        assert_eq!(ctx.catalog().collection_assets(bravo).unwrap(), vec![2]);
+        assert_eq!(
+            ctx.catalog().collection_assets(charlie).unwrap(),
+            vec![1, 3]
+        );
+        assert!(ctx.catalog().collection_assets(delta).unwrap().is_empty());
     }
 }
 
@@ -299,6 +418,11 @@ fn interaction_context_menu_targets_clicked_asset_and_removes_from_active_collec
         settle(&mut h);
         h.get_by_label("Favourites").click();
         settle(&mut h);
+        h.get_by_label("Album").click_modifiers(egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        });
+        settle(&mut h);
         h.get(
             By::new()
                 .label("Blue.bmp")
@@ -307,6 +431,16 @@ fn interaction_context_menu_targets_clicked_asset_and_removes_from_active_collec
         .click_secondary();
         settle(&mut h);
         h.get_by_label("Remove from Favourites").click();
+        settle(&mut h);
+        assert_eq!(
+            h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert_eq!(h.state().selected, Some(2));
+        h.get_by_label("Album").click_modifiers(egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        });
         settle(&mut h);
         assert!(h.state().assets.is_empty());
         assert!(h.state().selected.is_none());
@@ -736,6 +870,23 @@ fn visual_snapshots() {
     results.extend(collections.take_snapshot_results());
     collections.key_press(egui::Key::Escape);
     release_at(&mut collections, target);
+    let portfolio = ctx.catalog().insert_collection("Portfolio").unwrap();
+    ctx.catalog().add_to_collection(portfolio, 1).unwrap();
+    ctx.catalog().add_to_collection(portfolio, 3).unwrap();
+    let mut multiple = fixture.harness([1100.0, 720.0]);
+    multiple.get_by_label("Favourites").click();
+    settle(&mut multiple);
+    multiple
+        .get_by_label("Portfolio")
+        .click_modifiers(egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        });
+    settle(&mut multiple);
+    multiple.event(egui::Event::PointerGone);
+    multiple.run();
+    multiple.snapshot("catalogue-collections-multiple");
+    results.extend(multiple.take_snapshot_results());
 }
 
 #[test]

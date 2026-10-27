@@ -79,7 +79,7 @@ enum FolderSelection {
     Folder(i64),
     /// All assets from every source on one device (e.g. "This Mac").
     Device(String),
-    Collection(i64),
+    Collections(Vec<i64>),
 }
 
 /// Mutable tree state shared by the recursive folder-tree builder.
@@ -108,6 +108,7 @@ struct App {
     create_collection: Option<CreateCollectionDialog>,
     asset_collections: HashSet<i64>,
     folder_sel: FolderSelection,
+    collection_anchor: Option<i64>,
     expanded: HashSet<i64>,
     collapsed_devices: HashSet<String>,
     view_mode: ViewMode,
@@ -230,6 +231,7 @@ impl App {
             create_collection: None,
             asset_collections: HashSet::new(),
             folder_sel: FolderSelection::All,
+            collection_anchor: None,
             expanded: HashSet::new(),
             collapsed_devices: HashSet::new(),
             view_mode: ViewMode::Grid,
@@ -274,8 +276,8 @@ impl App {
             _ => None,
         };
         let q = AssetQuery {
-            collection_id: match &self.folder_sel {
-                FolderSelection::Collection(id) => Some(*id),
+            collection_ids: match &self.folder_sel {
+                FolderSelection::Collections(ids) => Some(ids.clone()),
                 _ => None,
             },
             folder_id: match &self.folder_sel {
@@ -407,8 +409,73 @@ impl App {
         self.keyword_input.clear();
     }
 
+    fn select_collection(&mut self, id: i64, modifiers: egui::Modifiers) {
+        let current = match &self.folder_sel {
+            FolderSelection::Collections(ids) => ids.clone(),
+            _ => Vec::new(),
+        };
+        let current_set: HashSet<i64> = current.iter().copied().collect();
+        let toggle = modifiers.ctrl || modifiers.command;
+        let selected = if modifiers.shift {
+            let anchor = self.collection_anchor.unwrap_or(id);
+            let start = self.collections.iter().position(|c| c.id == anchor);
+            let end = self.collections.iter().position(|c| c.id == id);
+            let range = match (start, end) {
+                (Some(a), Some(b)) => self.collections.get(a.min(b)..=a.max(b)).unwrap_or(&[]),
+                _ => &[],
+            };
+            let ids: Vec<i64> = range.iter().map(|c| c.id).collect();
+            let ids = if ids.is_empty() { vec![id] } else { ids };
+            if self.collection_anchor.is_none() || start.is_none() {
+                self.collection_anchor = Some(id);
+            }
+            if toggle {
+                let range_set: HashSet<i64> = ids.iter().copied().collect();
+                self.collections
+                    .iter()
+                    .filter(|c| current_set.contains(&c.id) || range_set.contains(&c.id))
+                    .map(|c| c.id)
+                    .collect()
+            } else {
+                ids
+            }
+        } else if toggle {
+            self.collection_anchor = Some(id);
+            self.collections
+                .iter()
+                .filter(|c| {
+                    if c.id == id {
+                        !current_set.contains(&id)
+                    } else {
+                        current_set.contains(&c.id)
+                    }
+                })
+                .map(|c| c.id)
+                .collect()
+        } else {
+            self.collection_anchor = Some(id);
+            if current == [id] {
+                Vec::new()
+            } else {
+                vec![id]
+            }
+        };
+        self.folder_sel = if selected.is_empty() {
+            self.collection_anchor = None;
+            FolderSelection::All
+        } else {
+            FolderSelection::Collections(selected)
+        };
+        self.dirty = true;
+    }
+
     fn collections_panel(&mut self, ui: &mut egui::Ui) -> Option<Params> {
         let mut command = None;
+        let mut clicked = None;
+        let selected_ids: HashSet<i64> = match &self.folder_sel {
+            FolderSelection::Collections(ids) => ids.iter().copied().collect(),
+            _ => HashSet::new(),
+        };
         ui.separator();
         ui.label("Collections");
         if ui
@@ -431,8 +498,7 @@ impl App {
             .show(ui, |ui| {
                 for collection in &self.collections {
                     ui.push_id(collection.id, |ui| {
-                        let selected =
-                            self.folder_sel == FolderSelection::Collection(collection.id);
+                        let selected = selected_ids.contains(&collection.id);
                         let row = ui
                             .add_sized(
                                 [ui.available_width(), ui.spacing().interact_size.y],
@@ -447,12 +513,7 @@ impl App {
                                 collection.name, collection.id
                             ));
                         if row.clicked() {
-                            self.folder_sel = if selected {
-                                FolderSelection::All
-                            } else {
-                                FolderSelection::Collection(collection.id)
-                            };
-                            self.dirty = true;
+                            clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
                         if self.worker.is_none() && self.create_collection.is_none() {
                             if row.dnd_hover_payload::<DraggedAsset>().is_some() {
@@ -471,6 +532,9 @@ impl App {
                     });
                 }
             });
+        if let Some((id, modifiers)) = clicked {
+            self.select_collection(id, modifiers);
+        }
         command
     }
 
@@ -1172,6 +1236,7 @@ impl eframe::App for App {
                 build_tree(ui, &self.folders, None, &mut tree, 0, &devices);
                 if sel != self.folder_sel {
                     self.folder_sel = sel;
+                    self.collection_anchor = None;
                     self.dirty = true;
                 }
                 collection_command = self.collections_panel(ui);

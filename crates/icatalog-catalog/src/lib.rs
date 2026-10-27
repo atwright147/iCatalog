@@ -43,6 +43,8 @@ pub enum CatalogError {
     NewerSchema { found: i64, supported: i64 },
     /// A recorded version is not a valid value.
     InvalidVersion(i64),
+    /// A query exceeds a supported input bound.
+    InvalidQuery(&'static str),
 }
 
 impl fmt::Display for CatalogError {
@@ -54,6 +56,7 @@ impl fmt::Display for CatalogError {
                 "catalogue schema version {found} is newer than supported version {supported}; update iCatalog"
             ),
             CatalogError::InvalidVersion(v) => write!(f, "invalid schema version {v}"),
+            CatalogError::InvalidQuery(message) => write!(f, "invalid query: {message}"),
         }
     }
 }

@@ -119,7 +119,7 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 3. Sync service and client.
 4. egui browser (desktop shell EXISTS in `icatalog-ui`, D15; wasm later).
 
-Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Smart Collections remain PLANNED.
+Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Shift-click ranges and Ctrl/⌘-click toggles select multiple collections for a combined asset view (D28). Smart Collections remain PLANNED.
 
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 

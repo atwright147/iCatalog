@@ -247,7 +247,7 @@ Collection ids are authoritative; display names may repeat, matching the existin
 
 The desktop sidebar creates collections through a modal (D26) and selects collections; membership uses drag-and-drop and asset context-menu actions (D27). Search applies within the selected collection. All writes use the same background worker and engine command as other edits; controls disable while busy and failed writes are reported. Removing a selected asset from the active collection refreshes the view and clears that selection. Tests cover persistence/reopen, overlapping membership, idempotency, invalid inputs, filter composition, failed writes and real-widget interactions.
 
-Status: implemented. Smart Collections, rename/delete, bulk selection and collection-specific conflict merging remain future work. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
+Status: implemented. Smart Collections, rename/delete, multiple-asset selection and collection-specific conflict merging remain future work. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
 
 ## D26. Create Collection modal (2026-10-26)
 
@@ -259,11 +259,21 @@ Status: implemented.
 
 ## D27. Collection drag-and-drop and asset context menus (2026-10-26)
 
-Grid tiles and list rows support dragging one asset onto a sidebar collection. The drag selects the source asset and carries a typed asset-id/name payload; the target highlights with a copy cursor and release dispatches `collection action=add`. Membership is added without moving folders or removing other memberships. Escape or release outside a collection cancels without writing. A filename follows the pointer as drag feedback. Collection rows and their selection/drop highlights span the sidebar's available width; names stay left-aligned and truncate. Clicking an already selected collection clears the collection filter and returns to All while preserving search text. Each collection is a single row without per-row membership buttons; add/remove uses drag-and-drop and the asset context menu (updated 2026-10-27).
+Grid tiles and list rows support dragging one asset onto a sidebar collection. The drag selects the source asset and carries a typed asset-id/name payload; the target highlights with a copy cursor and release dispatches `collection action=add`. Membership is added without moving folders or removing other memberships. Escape or release outside a collection cancels without writing. A filename follows the pointer as drag feedback. Collection rows and their selection/drop highlights span the sidebar's available width; names stay left-aligned and truncate. Clicking the sole selected collection clears the collection filter and returns to All while preserving search text; D28 adds modifier-based selection of several collections. Each collection is a single row without per-row membership buttons; add/remove uses drag-and-drop and the asset context menu (updated 2026-10-27).
 
 Right-clicking a grid/list asset selects it and opens a Collections menu. Each collection offers Add to or Remove from according to that asset's membership. Actions identify the right-clicked asset, including when a different asset was previously selected; removing from the active collection refreshes the view and selection. An empty catalogue offers a hint to create a collection first. The menu scrolls when needed.
 
 Both gestures dispatch the existing D25 engine command on the same atomic background worker. Membership actions disable while busy or while the creation modal is open; a new worker/modal clears any active drag payload. Command failures surface in the status bar. Tests drive real pointer events in both views, repeated drops, invalid/cancelled drops, right-click targeting, active-collection removal, blocked writes and failed drops. Visual baselines cover the context menu and hovered drop target. No schema, dependency or CLI change; multiple-asset selection remains future work.
+
+Status: implemented.
+
+## D28. Select multiple collections (2026-10-27)
+
+The collection sidebar supports Shift-click ranges and Ctrl-click individual toggles, with ⌘-click supported on macOS. Shift uses the most recent plain/Ctrl/⌘ click as its anchor and selects the inclusive range in displayed name/id order; repeated Shift-click can extend or shrink it. Ctrl/⌘+Shift-click adds a range to the existing selection. With no valid anchor, Shift selects the clicked collection. A plain click focuses one collection, including from a multiple selection; clicking the sole selected collection again or toggling off the last collection returns to All. Folder/device/All browsing clears the collection range anchor. Search text is preserved.
+
+Selection is pure shell state. The catalogue query adds `AssetQuery::collection_ids`, matching membership in any selected collection with EXISTS so shared assets appear once, with normal filtering and paging. An empty list matches nothing and no list leaves the query unrestricted. The existing single-id filter and CLI remain unchanged; multiple query fields are ANDed. Lists larger than 32,000 ids return an actionable InvalidQuery error to bound SQL/parameter allocation. No schema migration or dependency is needed.
+
+Dropping still adds to the one target collection. Context-menu removal affects only the named collection; an asset remains visible when it belongs to another selected collection. Tests cover duplicate-free/filterable/paged query results and hostile/excessive ids, real grid/list modifier gestures, range shrink/extension, anchor reset, search, empty collections, targeted drops and overlapping membership removal. A ninth visual baseline shows multiple selected collections. Multiple-asset selection remains future work.
 
 Status: implemented.
 
