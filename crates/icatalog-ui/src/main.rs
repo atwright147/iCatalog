@@ -12,6 +12,7 @@
     clippy::unreachable
 )]
 
+mod selection;
 #[cfg(test)]
 mod ui_tests;
 mod worker;
@@ -107,12 +108,15 @@ struct App {
     collections: Vec<Collection>,
     create_collection: Option<CreateCollectionDialog>,
     asset_collections: HashSet<i64>,
+    selection_collection_members: HashMap<i64, HashSet<i64>>,
+    selection_membership_loaded: bool,
     folder_sel: FolderSelection,
     collection_anchor: Option<i64>,
     expanded: HashSet<i64>,
     collapsed_devices: HashSet<String>,
     view_mode: ViewMode,
-    selected: Option<i64>,
+    selection: selection::AssetSelection,
+    marquee: Option<selection::Marquee>,
     textures: HashMap<i64, egui::TextureHandle>,
     annotation: Option<Annotation>,
     keywords: Vec<String>,
@@ -141,7 +145,7 @@ struct CreateCollectionDialog {
 }
 
 struct DraggedAsset {
-    id: i64,
+    ids: Vec<i64>,
     name: String,
 }
 
@@ -230,12 +234,15 @@ impl App {
             collections: Vec::new(),
             create_collection: None,
             asset_collections: HashSet::new(),
+            selection_collection_members: HashMap::new(),
+            selection_membership_loaded: false,
             folder_sel: FolderSelection::All,
             collection_anchor: None,
             expanded: HashSet::new(),
             collapsed_devices: HashSet::new(),
             view_mode: ViewMode::Grid,
-            selected: None,
+            selection: selection::AssetSelection::default(),
+            marquee: None,
             textures: HashMap::new(),
             annotation: None,
             keywords: Vec::new(),
@@ -301,11 +308,8 @@ impl App {
         self.sources = sources;
         self.collections = collections;
         self.assets = assets;
-        if let Some(id) = self.selected {
-            if !self.assets.iter().any(|a| a.id == id) {
-                self.selected = None;
-            }
-        }
+        self.selection.retain(&self.assets);
+        self.marquee = None;
         // keep cached textures only for assets that are still in view
         let ids: HashSet<i64> = self.assets.iter().map(|a| a.id).collect();
         self.textures.retain(|k, _| ids.contains(k));
@@ -368,7 +372,11 @@ impl App {
 
     /// Load the selected asset's annotation, keywords and metadata once per selection.
     fn ensure_detail(&mut self) {
-        let Some(id) = self.selected else {
+        if self.selection.ids.len() > 1 {
+            self.detail_for = None;
+            return;
+        }
+        let Some(id) = self.selection.primary else {
             self.detail_for = None;
             self.annotation = None;
             self.keywords.clear();
@@ -407,6 +415,29 @@ impl App {
             }
         }
         self.keyword_input.clear();
+    }
+
+    fn refresh_selection_collection_counts(&mut self) {
+        self.selection_membership_loaded = false;
+        let ids = self.selection.ordered(&self.assets);
+        let mut members: HashMap<i64, HashSet<i64>> = HashMap::new();
+        for asset_id in ids {
+            match self.ctx.catalog().asset_collection_ids(asset_id) {
+                Ok(collection_ids) => {
+                    for collection_id in collection_ids {
+                        members.entry(collection_id).or_default().insert(asset_id);
+                    }
+                }
+                Err(error) => {
+                    self.selection_collection_members.clear();
+                    self.selection_membership_loaded = false;
+                    self.status = format!("Cannot load collection membership: {error}");
+                    return;
+                }
+            }
+        }
+        self.selection_collection_members = members;
+        self.selection_membership_loaded = true;
     }
 
     fn select_collection(&mut self, id: i64, modifiers: egui::Modifiers) {
@@ -526,7 +557,7 @@ impl App {
                                 );
                             }
                             if let Some(asset) = row.dnd_release_payload::<DraggedAsset>() {
-                                command = Some(collection_params("add", collection.id, asset.id));
+                                command = Some(collection_params("add", collection.id, &asset.ids));
                             }
                         }
                     });
@@ -603,49 +634,88 @@ impl App {
         name: &str,
     ) -> Option<Params> {
         let can_edit = self.worker.is_none() && self.create_collection.is_none();
-        if response.clicked()
-            || response.secondary_clicked()
-            || response.drag_started_by(egui::PointerButton::Primary)
-        {
-            self.selected = Some(id);
+        // egui may pick the nearest widget when a press lands in a narrow gap.
+        // An asset drag must start inside its cell; gaps belong to rectangle selection.
+        let asset_drag = self.marquee.is_none()
+            && response.drag_started_by(egui::PointerButton::Primary)
+            && response.ctx.input(|i| {
+                i.pointer
+                    .press_origin()
+                    .is_some_and(|p| response.rect.contains(p))
+            });
+        if response.clicked() {
+            self.selection
+                .click(id, &self.assets, response.ctx.input(|i| i.modifiers));
+        } else if response.secondary_clicked() || asset_drag {
+            self.selection.focus(id);
         }
-        if can_edit && response.drag_started_by(egui::PointerButton::Primary) {
+        if can_edit && asset_drag {
             response.dnd_set_drag_payload(DraggedAsset {
-                id,
-                name: name.into(),
+                ids: self.selection.ordered(&self.assets),
+                name: if self.selection.ids.len() == 1 {
+                    name.into()
+                } else {
+                    format!("{} assets", self.selection.ids.len())
+                },
             });
         }
         if response.secondary_clicked() || response.context_menu_opened() {
             self.ensure_detail();
+            self.refresh_selection_collection_counts();
         }
         let mut command = None;
         response.context_menu(|ui| {
-            ui.label("Collections");
-            if self.collections.is_empty() {
-                ui.label("Create a collection in the sidebar first.");
-            }
-            ui.add_enabled_ui(can_edit, |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(240.0)
-                    .show(ui, |ui| {
-                        for collection in &self.collections {
-                            let member = self.asset_collections.contains(&collection.id);
-                            let action = if member { "remove" } else { "add" };
-                            let label = format!(
-                                "{} {}",
-                                if member { "Remove from" } else { "Add to" },
-                                collection.name
-                            );
-                            if ui
-                                .button(label)
-                                .on_hover_text(format!("Collection {}", collection.id))
-                                .clicked()
-                            {
-                                command = Some(collection_params(action, collection.id, id));
-                                ui.close();
+            let ids = self.selection.ordered(&self.assets);
+            ui.add_enabled_ui(can_edit && self.selection_membership_loaded, |ui| {
+                ui.menu_button("Collections", |ui| {
+                    if ids.len() > 1 {
+                        ui.label(format!("{} assets selected", ids.len()));
+                    }
+                    if self.collections.is_empty() {
+                        ui.label("Create a collection in the sidebar first.");
+                    }
+                    egui::ScrollArea::vertical()
+                        .max_height(240.0)
+                        .show(ui, |ui| {
+                            for collection in &self.collections {
+                                let member_count = self
+                                    .selection_collection_members
+                                    .get(&collection.id)
+                                    .map_or(0, HashSet::len);
+                                let checked = !ids.is_empty() && member_count == ids.len();
+                                let indeterminate = member_count > 0 && member_count < ids.len();
+                                let mut value = checked;
+                                if ui
+                                    .add(
+                                        egui::Checkbox::new(&mut value, &collection.name)
+                                            .indeterminate(indeterminate),
+                                    )
+                                    .on_hover_text(format!("Collection {}", collection.id))
+                                    .clicked()
+                                {
+                                    let (action, target_ids) = if checked {
+                                        ("remove", ids.clone())
+                                    } else if indeterminate {
+                                        let members =
+                                            self.selection_collection_members.get(&collection.id);
+                                        let missing: Vec<i64> = ids
+                                            .iter()
+                                            .copied()
+                                            .filter(|id| {
+                                                !members.is_some_and(|members| members.contains(id))
+                                            })
+                                            .collect();
+                                        ("add", missing)
+                                    } else {
+                                        ("add", ids.clone())
+                                    };
+                                    command =
+                                        Some(collection_params(action, collection.id, &target_ids));
+                                    ui.close();
+                                }
                             }
-                        }
-                    });
+                        });
+                });
             });
         });
         command
@@ -653,27 +723,46 @@ impl App {
 
     fn list(&mut self, ui: &mut egui::Ui) -> Option<Params> {
         let mut command = None;
-        egui::ScrollArea::vertical()
+        let height = ui.spacing().interact_size.y;
+        let spacing = ui.spacing().item_spacing;
+        let mut origin = None;
+        let mut cell = egui::vec2(1.0, height);
+        let mut rects = Vec::new();
+        let output = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .show_rows(
-                ui,
-                ui.spacing().interact_size.y,
-                self.assets.len(),
-                |ui, rows| {
-                    for index in rows {
-                        if let Some(asset) = self.assets.get(index) {
-                            let (id, name) = (asset.id, asset.name.clone());
-                            let response = ui.add(
-                                egui::Button::selectable(self.selected == Some(id), &name)
-                                    .sense(egui::Sense::click_and_drag()),
-                            );
-                            if let Some(params) = self.asset_interactions(&response, id, &name) {
-                                command = Some(params);
-                            }
+            .show_rows(ui, height, self.assets.len(), |ui, rows| {
+                for index in rows {
+                    if let Some(asset) = self.assets.get(index) {
+                        let (id, name) = (asset.id, asset.name.clone());
+                        let response = ui.add_sized(
+                            [(ui.available_width() - 32.0).max(1.0), height],
+                            egui::Button::selectable(self.selection.ids.contains(&id), &name)
+                                .truncate()
+                                .sense(egui::Sense::click_and_drag()),
+                        );
+                        rects.push(response.rect);
+                        cell = response.rect.size();
+                        origin.get_or_insert(
+                            response.rect.min
+                                - egui::vec2(0.0, index as f32 * (height + spacing.y)),
+                        );
+                        if let Some(params) = self.asset_interactions(&response, id, &name) {
+                            command = Some(params);
                         }
                     }
-                },
-            );
+                }
+            });
+        self.handle_marquee(
+            ui,
+            &output,
+            selection::AssetLayout {
+                origin: origin.unwrap_or(output.inner_rect.min - output.state.offset),
+                columns: 1,
+                cell,
+                spacing,
+            },
+            &rects,
+        );
         command
     }
 
@@ -709,7 +798,10 @@ impl App {
         let cols =
             ((ui.available_width() / (tile + ui.spacing().item_spacing.x)).floor() as usize).max(1);
         let row_count = self.assets.len().div_ceil(cols);
-        egui::ScrollArea::vertical()
+        let spacing = ui.spacing().item_spacing;
+        let mut origin = None;
+        let mut rects = Vec::new();
+        let output = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(ui, height, row_count, |ui, rows| {
                 for row in rows {
@@ -729,11 +821,19 @@ impl App {
                                 egui::vec2(tile, height),
                                 egui::Sense::click_and_drag(),
                             );
+                            rects.push(rect);
+                            origin.get_or_insert(
+                                rect.min
+                                    - egui::vec2(
+                                        (index % cols) as f32 * (tile + spacing.x),
+                                        row as f32 * (height + spacing.y),
+                                    ),
+                            );
                             response.widget_info(|| {
                                 egui::WidgetInfo::selected(
                                     egui::WidgetType::SelectableLabel,
                                     ui.is_enabled(),
-                                    self.selected == Some(id),
+                                    self.selection.ids.contains(&id),
                                     &name,
                                 )
                             });
@@ -742,7 +842,7 @@ impl App {
                                 rect,
                                 self.textures.get(&id),
                                 &name,
-                                self.selected == Some(id),
+                                self.selection.ids.contains(&id),
                             );
                             if let Some(params) = self.asset_interactions(&response, id, &name) {
                                 command = Some(params);
@@ -752,13 +852,100 @@ impl App {
                     });
                 }
             });
+        self.handle_marquee(
+            ui,
+            &output,
+            selection::AssetLayout {
+                origin: origin.unwrap_or(output.inner_rect.min - output.state.offset),
+                columns: cols,
+                cell: egui::vec2(tile, height),
+                spacing,
+            },
+            &rects,
+        );
         command
     }
 
-    // removed unused folder_tree; tree is built inline in left panel
+    fn handle_marquee(
+        &mut self,
+        ui: &mut egui::Ui,
+        output: &egui::scroll_area::ScrollAreaOutput<()>,
+        mut layout: selection::AssetLayout,
+        cells: &[egui::Rect],
+    ) {
+        if self.worker.is_some() || self.create_collection.is_some() {
+            return;
+        }
+        let (pressed, down, released, pointer, modifiers) = ui.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.primary_released(),
+                i.pointer.interact_pos(),
+                i.modifiers,
+            )
+        });
+        let mut viewport = output.inner_rect;
+        let content_origin = viewport.min - output.state.offset;
+        if output.content_size.y > viewport.height() {
+            // Floating scrollbars overlap inner_rect. Keep their drag surface
+            // separate from rectangle selection, including while expanded.
+            viewport.max.x = (viewport.max.x - ui.spacing().scroll.bar_width).max(viewport.min.x);
+        }
+        layout.origin -= content_origin.to_vec2();
+        if pressed && !egui::Popup::is_any_open(ui.ctx()) && ui.rect_contains_pointer(viewport) {
+            if let Some(pointer) = pointer.filter(|p| !cells.iter().any(|r| r.contains(*p))) {
+                self.marquee = Some(selection::Marquee {
+                    start: pointer - content_origin.to_vec2(),
+                    base: self.selection.clone(),
+                    modifiers,
+                });
+            }
+        }
+        if self.marquee.is_some() && ui.input_mut(|i| i.consume_key(i.modifiers, egui::Key::Escape))
+        {
+            if let Some(marquee) = self.marquee.take() {
+                self.selection = marquee.base;
+            }
+            return;
+        }
+        if let Some(marquee) = &self.marquee {
+            if let Some(pointer) = pointer {
+                let current = viewport.clamp(pointer) - content_origin.to_vec2();
+                let rect = egui::Rect::from_two_pos(marquee.start, current);
+                let hits = layout.hits(rect, &self.assets);
+                self.selection
+                    .rectangle(&marquee.base, hits, marquee.modifiers, &self.assets);
+                if marquee.start.distance(current) > 3.0 {
+                    let screen = rect.translate(content_origin.to_vec2()).intersect(viewport);
+                    ui.painter().rect_filled(
+                        screen,
+                        0.0,
+                        ui.visuals().selection.bg_fill.gamma_multiply(0.25),
+                    );
+                    ui.painter().rect_stroke(
+                        screen,
+                        0.0,
+                        ui.visuals().selection.stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+        if released || !down {
+            self.marquee = None;
+        }
+    }
 
     fn details_panel(&mut self, ui: &mut egui::Ui) -> Option<Params> {
-        let Some(id) = self.selected else {
+        if self.selection.ids.len() > 1 {
+            ui.heading(format!("{} assets selected", self.selection.ids.len()));
+            ui.label(
+                "Drag the selection onto a collection, or right-click for collection actions.",
+            );
+            return None;
+        }
+        let Some(id) = self.selection.primary else {
             ui.centered_and_justified(|ui| ui.label("Select an asset"));
             return None;
         };
@@ -1018,12 +1205,25 @@ fn edit_params(id: i64, key: &str, value: &str) -> Params {
     p
 }
 
-fn collection_params(action: &str, collection: i64, asset: i64) -> Params {
+fn collection_params(action: &str, collection: i64, assets: &[i64]) -> Params {
     let mut params = Params::new();
     params
         .set("action", action)
-        .set("id", collection.to_string())
-        .set("asset", asset.to_string());
+        .set("id", collection.to_string());
+    if assets.len() == 1 {
+        if let Some(asset) = assets.first() {
+            params.set("asset", asset.to_string());
+        }
+    } else {
+        params.set(
+            "assets",
+            assets
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+    }
     params
 }
 
@@ -1047,6 +1247,9 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         if self.worker.is_some() || self.create_collection.is_some() {
             egui::DragAndDrop::clear_payload(&ctx);
+            if let Some(marquee) = self.marquee.take() {
+                self.selection = marquee.base;
+            }
         }
         self.ensure_detail();
 
@@ -1277,7 +1480,7 @@ impl eframe::App for App {
             }
         }
 
-        if let Some(id) = self.selected {
+        if let Some(id) = self.selection.primary {
             self.ensure_texture(&ctx, id);
         }
         self.ensure_detail();

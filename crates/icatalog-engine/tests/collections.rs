@@ -161,3 +161,87 @@ fn invalid_operations_report_errors_and_leave_membership_unchanged() {
     assert!(ctx.catalog().collection_assets(1).unwrap().is_empty());
     assert!(ctx.catalog().connection().is_autocommit());
 }
+
+#[test]
+fn batch_membership_validates_every_id_and_rolls_back_failed_adds_and_removes() {
+    let mut ctx = Context::open(":memory:").unwrap();
+    init(&mut ctx);
+    run(&mut ctx, &[("action", "create"), ("name", "Album")]);
+    for assets in [
+        "",
+        "1,",
+        "0,1",
+        "1,-1",
+        "1,NaN",
+        "1,9223372036854775808",
+        "1,999",
+    ] {
+        assert!(dispatch(
+            &mut ctx,
+            "collection",
+            &params(&[("action", "add"), ("id", "1"), ("assets", assets)])
+        )
+        .is_err());
+        assert!(ctx.catalog().collection_assets(1).unwrap().is_empty());
+    }
+    for extra in [
+        params(&[
+            ("action", "add"),
+            ("id", "1"),
+            ("asset", "1"),
+            ("assets", "2"),
+        ]),
+        params(&[
+            ("action", "add"),
+            ("id", "1"),
+            ("assets", &"1,".repeat(32_001)),
+        ]),
+        params(&[
+            ("action", "add"),
+            ("id", "1"),
+            ("assets", &"9".repeat(704_001)),
+        ]),
+    ] {
+        assert!(dispatch(&mut ctx, "collection", &extra).is_err());
+    }
+    ctx.catalog().connection().execute_batch("CREATE TRIGGER reject_second BEFORE INSERT ON collection_asset WHEN NEW.asset_id=2 BEGIN SELECT RAISE(ABORT, 'second member failed'); END;").unwrap();
+    assert!(dispatch(
+        &mut ctx,
+        "collection",
+        &params(&[("action", "add"), ("id", "1"), ("assets", "1,2")])
+    )
+    .is_err());
+    assert!(ctx.catalog().collection_assets(1).unwrap().is_empty());
+    ctx.catalog()
+        .connection()
+        .execute_batch("DROP TRIGGER reject_second")
+        .unwrap();
+    for _ in 0..2 {
+        run(
+            &mut ctx,
+            &[("action", "add"), ("id", "1"), ("assets", "1, 2,1")],
+        );
+    }
+    assert_eq!(ctx.catalog().collection_assets(1).unwrap(), vec![1, 2]);
+    ctx.catalog().connection().execute_batch("CREATE TRIGGER reject_second BEFORE DELETE ON collection_asset WHEN OLD.asset_id=2 BEGIN SELECT RAISE(ABORT, 'second removal failed'); END;").unwrap();
+    assert!(dispatch(
+        &mut ctx,
+        "collection",
+        &params(&[("action", "remove"), ("id", "1"), ("assets", "1,2")])
+    )
+    .is_err());
+    assert_eq!(ctx.catalog().collection_assets(1).unwrap(), vec![1, 2]);
+    ctx.catalog()
+        .connection()
+        .execute_batch("DROP TRIGGER reject_second")
+        .unwrap();
+    for _ in 0..2 {
+        run(
+            &mut ctx,
+            &[("action", "remove"), ("id", "1"), ("assets", "1,2")],
+        );
+    }
+    assert!(ctx.catalog().collection_assets(1).unwrap().is_empty());
+    assert_eq!(ctx.catalog().stats().unwrap().assets, 2);
+    assert!(ctx.catalog().connection().is_autocommit());
+}

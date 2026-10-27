@@ -39,6 +39,12 @@ impl Command for Collection {
                 positional: false,
                 doc: "asset id for add/remove (see list); repeated operations are harmless",
             },
+            ParamSpec {
+                name: "assets",
+                required: false,
+                positional: false,
+                doc: "comma-separated asset ids for atomic add/remove; use asset or assets, not both (up to 32000 ids)",
+            },
         ]
     }
 
@@ -53,14 +59,14 @@ impl Command for Collection {
             "list" => &[],
             "create" => &["name"],
             "show" => &["id"],
-            "add" | "remove" => &["id", "asset"],
+            "add" | "remove" => &["id", "asset", "assets"],
             _ => {
                 return Err(EngineError::BadParam(
                     "collection action must be list, create, show, add or remove".into(),
                 ))
             }
         };
-        for key in ["name", "id", "asset"] {
+        for key in ["name", "id", "asset", "assets"] {
             if params.get(key).is_some() && !allowed.contains(&key) {
                 return Err(EngineError::BadParam(format!(
                     "--{key} is not used by collection {action}"
@@ -92,25 +98,74 @@ impl Command for Collection {
             }
             "add" | "remove" => {
                 let id = require_id(ctx, params, "id")?;
-                let asset = positive_id(params, "asset")?;
-                if ctx.catalog().asset(asset)?.is_none() {
-                    return Err(EngineError::BadParam(format!("no such asset: {asset}")));
+                let assets = asset_ids(params)?;
+                for asset in &assets {
+                    if ctx.catalog().asset(*asset)?.is_none() {
+                        return Err(EngineError::BadParam(format!("no such asset: {asset}")));
+                    }
                 }
-                if action == "add" {
-                    ctx.catalog().add_to_collection(id, asset)?;
-                    Ok(Outcome::text(format!(
-                        "asset {asset} is in collection {id}"
-                    )))
-                } else {
-                    ctx.catalog().remove_from_collection(id, asset)?;
-                    Ok(Outcome::text(format!(
-                        "asset {asset} is not in collection {id}"
-                    )))
+                for asset in &assets {
+                    if action == "add" {
+                        ctx.catalog().add_to_collection(id, *asset)?;
+                    } else {
+                        ctx.catalog().remove_from_collection(id, *asset)?;
+                    }
                 }
+                let state = if action == "add" { "in" } else { "not in" };
+                if assets.len() == 1 {
+                    if let Some(asset) = assets.first() {
+                        return Ok(Outcome::text(format!(
+                            "asset {asset} is {state} collection {id}"
+                        )));
+                    }
+                }
+                Ok(Outcome::text(format!(
+                    "{} assets are {state} collection {id}",
+                    assets.len()
+                )))
             }
             _ => Err(EngineError::BadParam("invalid collection action".into())),
         }
     }
+}
+
+fn asset_ids(params: &Params) -> Result<Vec<i64>> {
+    let Some(raw) = params.get("assets") else {
+        return Ok(vec![positive_id(params, "asset")?]);
+    };
+    if params.get("asset").is_some() {
+        return Err(EngineError::BadParam(
+            "use either asset or assets, not both".into(),
+        ));
+    }
+    if raw.len() > 704_000 {
+        return Err(EngineError::BadParam(
+            "assets is too long (maximum 32000 ids)".into(),
+        ));
+    }
+    let mut ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (index, value) in raw.split(',').enumerate() {
+        if index >= 32_000 {
+            return Err(EngineError::BadParam(
+                "select at most 32000 assets at once".into(),
+            ));
+        }
+        let id = value
+            .trim()
+            .parse::<i64>()
+            .ok()
+            .filter(|id| *id > 0)
+            .ok_or_else(|| {
+                EngineError::BadParam(
+                    "assets must be a comma-separated list of positive integer ids".into(),
+                )
+            })?;
+        if seen.insert(id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
 }
 
 fn collection_table(collections: Vec<icatalog_catalog::Collection>) -> Outcome {

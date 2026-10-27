@@ -87,7 +87,7 @@ fn collection_cli_round_trip_and_argument_errors() {
     assert!(icatalog(&["init", p]).status.success());
     let ctx = icatalog_engine::Context::open(&path).unwrap();
     ctx.catalog().connection().execute_batch(
-        "INSERT INTO asset(id,uid,path,name) VALUES (7,'synthetic','/synthetic/Photo.jpg','Photo.jpg');"
+        "INSERT INTO asset(id,uid,path,name) VALUES (7,'synthetic','/synthetic/Photo.jpg','Photo.jpg'), (8,'other','/synthetic/Other.jpg','Other.jpg');"
     ).unwrap();
     drop(ctx);
     let created = icatalog(&["collection", p, "create", "--name", "Holiday favourites"]);
@@ -116,6 +116,19 @@ fn collection_cli_round_trip_and_argument_errors() {
             .success()
     );
     assert!(!s(&icatalog(&["collection", p, "show", "--id", "1"]).stdout).contains("Photo.jpg"));
+    assert!(
+        icatalog(&["collection", p, "add", "--id", "1", "--assets", "7,8"])
+            .status
+            .success()
+    );
+    let members = icatalog(&["collection", p, "show", "--id", "1"]);
+    assert!(s(&members.stdout).contains("Photo.jpg") && s(&members.stdout).contains("Other.jpg"));
+    assert!(
+        icatalog(&["collection", p, "remove", "--id", "1", "--assets", "7,8"])
+            .status
+            .success()
+    );
+    assert!(!s(&icatalog(&["collection", p, "show", "--id", "1"]).stdout).contains(".jpg"));
     for args in [
         vec!["collection", p],
         vec!["collection", p, "list", "extra"],

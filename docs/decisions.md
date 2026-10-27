@@ -261,9 +261,9 @@ Status: implemented.
 
 Grid tiles and list rows support dragging one asset onto a sidebar collection. The drag selects the source asset and carries a typed asset-id/name payload; the target highlights with a copy cursor and release dispatches `collection action=add`. Membership is added without moving folders or removing other memberships. Escape or release outside a collection cancels without writing. A filename follows the pointer as drag feedback. Collection rows and their selection/drop highlights span the sidebar's available width; names stay left-aligned and truncate. Clicking the sole selected collection clears the collection filter and returns to All while preserving search text; D28 adds modifier-based selection of several collections. Each collection is a single row without per-row membership buttons; add/remove uses drag-and-drop and the asset context menu (updated 2026-10-27).
 
-Right-clicking a grid/list asset selects it and opens a Collections menu. Each collection offers Add to or Remove from according to that asset's membership. Actions identify the right-clicked asset, including when a different asset was previously selected; removing from the active collection refreshes the view and selection. An empty catalogue offers a hint to create a collection first. The menu scrolls when needed.
+Right-clicking a grid/list asset selects it and opens the Collections menu. Each collection offers Add to or Remove from according to membership (updated to tri-state checkboxes across the current selection in D29). Actions identify the right-clicked asset, including when a different asset was previously selected; removing from the active collection refreshes the view and selection. An empty catalogue offers a hint to create a collection first. The menu scrolls when needed.
 
-Both gestures dispatch the existing D25 engine command on the same atomic background worker. Membership actions disable while busy or while the creation modal is open; a new worker/modal clears any active drag payload. Command failures surface in the status bar. Tests drive real pointer events in both views, repeated drops, invalid/cancelled drops, right-click targeting, active-collection removal, blocked writes and failed drops. Visual baselines cover the context menu and hovered drop target. No schema, dependency or CLI change; multiple-asset selection remains future work.
+Both gestures dispatch the D25 engine command on the same atomic background worker. Membership actions disable while busy or while the creation modal is open; a new worker/modal clears any active drag payload. Command failures surface in the status bar. Tests drive real pointer events in both views, repeated drops, invalid/cancelled drops, right-click targeting, active-collection removal, blocked writes and failed drops. Visual baselines cover the context menu and hovered drop target. No schema or dependency change.
 
 Status: implemented.
 
@@ -273,7 +273,17 @@ The collection sidebar supports Shift-click ranges and Ctrl-click individual tog
 
 Selection is pure shell state. The catalogue query adds `AssetQuery::collection_ids`, matching membership in any selected collection with EXISTS so shared assets appear once, with normal filtering and paging. An empty list matches nothing and no list leaves the query unrestricted. The existing single-id filter and CLI remain unchanged; multiple query fields are ANDed. Lists larger than 32,000 ids return an actionable InvalidQuery error to bound SQL/parameter allocation. No schema migration or dependency is needed.
 
-Dropping still adds to the one target collection. Context-menu removal affects only the named collection; an asset remains visible when it belongs to another selected collection. Tests cover duplicate-free/filterable/paged query results and hostile/excessive ids, real grid/list modifier gestures, range shrink/extension, anchor reset, search, empty collections, targeted drops and overlapping membership removal. A ninth visual baseline shows multiple selected collections. Multiple-asset selection remains future work.
+Dropping still adds to the one target collection. Context-menu removal affects only the named collection; an asset remains visible when it belongs to another selected collection. Tests cover duplicate-free/filterable/paged query results and hostile/excessive ids, real grid/list modifier gestures, range shrink/extension, anchor reset, search, empty collections, targeted drops and overlapping membership removal. A ninth visual baseline shows multiple selected collections.
+
+Status: implemented.
+
+## D29. Collection membership checkboxes for asset selections (2026-10-27)
+
+The asset context menu contains a **Collections** submenu with one checkbox per manual collection. Its state summarizes membership across the current asset selection: checked when every selected asset is a member, unchecked when none are, and indeterminate when membership is mixed. Right-clicking an already selected asset preserves that selection; right-clicking an unselected asset makes it the sole target.
+
+Clicking an unchecked collection adds all selected assets. Clicking a checked collection removes all selected assets. Clicking an indeterminate collection adds only the missing assets, making the selection fully checked. Changes use the existing atomic `collection` command's batched `assets` parameter and background worker. No schema or dependency change.
+
+Tests cover all three membership states and actions in grid and list views, right-click targeting, disabled/busy states and failed writes. The context-menu visual baseline shows the nested menu and mixed state.
 
 Status: implemented.
 
