@@ -106,6 +106,7 @@ struct App {
     folders: Vec<Folder>,
     sources: Vec<Source>,
     collections: Vec<Collection>,
+    collection_counts: HashMap<i64, i64>,
     create_collection: Option<CreateCollectionDialog>,
     asset_collections: HashSet<i64>,
     selection_collection_members: HashMap<i64, HashSet<i64>>,
@@ -232,6 +233,7 @@ impl App {
             folders: Vec::new(),
             sources: Vec::new(),
             collections: Vec::new(),
+            collection_counts: HashMap::new(),
             create_collection: None,
             asset_collections: HashSet::new(),
             selection_collection_members: HashMap::new(),
@@ -272,6 +274,12 @@ impl App {
         let folders = self.ctx.catalog().all_folders()?;
         let sources = self.ctx.catalog().all_sources()?;
         let collections = self.ctx.catalog().all_collections()?;
+        let collection_counts = self
+            .ctx
+            .catalog()
+            .collection_asset_counts()?
+            .into_iter()
+            .collect();
         let source_ids = match &self.folder_sel {
             FolderSelection::Device(device) => Some(
                 sources
@@ -307,6 +315,7 @@ impl App {
         self.folders = folders;
         self.sources = sources;
         self.collections = collections;
+        self.collection_counts = collection_counts;
         self.assets = assets;
         self.selection.retain(&self.assets);
         self.marquee = None;
@@ -530,6 +539,11 @@ impl App {
                 for collection in &self.collections {
                     ui.push_id(collection.id, |ui| {
                         let selected = selected_ids.contains(&collection.id);
+                        let count = self
+                            .collection_counts
+                            .get(&collection.id)
+                            .copied()
+                            .unwrap_or(0);
                         let row = ui
                             .add_sized(
                                 [ui.available_width(), ui.spacing().interact_size.y],
@@ -543,6 +557,24 @@ impl App {
                                 "{} (Collection {})",
                                 collection.name, collection.id
                             ));
+                        let mut classes = egui::widget_style::Classes::default();
+                        if selected {
+                            egui::widget_style::HasClasses::add_class(
+                                &mut classes,
+                                egui::widget_style::SELECTED_CLASS,
+                            );
+                        }
+                        let text_style = ui
+                            .style()
+                            .button_style(&classes, row.widget_state())
+                            .text_style;
+                        ui.painter().text(
+                            row.rect.right_center() - egui::vec2(8.0, 0.0),
+                            egui::Align2::RIGHT_CENTER,
+                            count.to_string(),
+                            text_style.font_id,
+                            text_style.color,
+                        );
                         if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }

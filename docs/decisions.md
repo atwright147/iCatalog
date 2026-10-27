@@ -287,6 +287,12 @@ Tests cover all three membership states and actions in grid and list views, righ
 
 Status: implemented.
 
+## D30. Collection asset counts in the sidebar (2026-10-27)
+
+Each manual Collection row in the left panel shows its number of member assets at the trailing edge. Counts cover the whole catalogue rather than the current view, and empty collections show zero. The count is display-only and does not change the row's accessible name or the context submenu. A grouped catalogue query supplies counts and the normal UI refresh keeps them current after membership changes. No schema change or dependency is needed.
+
+Status: implemented.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

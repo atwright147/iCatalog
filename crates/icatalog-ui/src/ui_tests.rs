@@ -913,6 +913,7 @@ fn interaction_collections_create_add_search_remove_and_reopen() {
     settle(&mut h);
     assert!(h.state().create_collection.is_none());
     assert_eq!(h.state().collections.len(), 1);
+    assert_eq!(h.state().collection_counts.get(&1), Some(&0));
     h.get_by_label("Favourites").click();
     settle(&mut h);
     assert!(h.state().assets.is_empty());
@@ -931,6 +932,7 @@ fn interaction_collections_create_add_search_remove_and_reopen() {
     open_asset_menu(&mut h, "Red.bmp");
     click_collection_checkbox(&mut h, "Favourites");
     assert_eq!(h.state().selection.primary, Some(1));
+    assert_eq!(h.state().collection_counts.get(&1), Some(&1));
     h.get_by_label("Favourites").click();
     settle(&mut h);
     assert_eq!(
@@ -966,6 +968,7 @@ fn interaction_collections_create_add_search_remove_and_reopen() {
     assert!(h.state().assets.is_empty());
     assert!(h.state().selection.primary.is_none());
     assert!(reopened.catalog().collection_assets(1).unwrap().is_empty());
+    assert_eq!(h.state().collection_counts.get(&1), Some(&0));
     let mut h = fixture.harness([1100.0, 720.0]);
     h.get_by_label("Favourites").click();
     settle(&mut h);

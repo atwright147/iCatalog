@@ -17,6 +17,19 @@ impl Catalog {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
+    /// Number of assets in each collection, including empty collections.
+    pub fn collection_asset_counts(&self) -> Result<Vec<(i64, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, COUNT(ca.asset_id)
+             FROM collection c
+             LEFT JOIN collection_asset ca ON ca.collection_id = c.id
+             GROUP BY c.id
+             ORDER BY c.name, c.id",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     /// Collections containing an asset, ordered by collection id.
     pub fn asset_collection_ids(&self, asset_id: i64) -> Result<Vec<i64>> {
         self.id_list(
