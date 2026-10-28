@@ -240,7 +240,7 @@ Native coverage launches the production binary and uses macOS System Events thro
 
 Linux CI's first visual run found two failing pixels in each of `catalogue-narrow` and `catalogue-collection-counts`: the same clipped green-thumbnail locations had a red-channel difference of 2/255 between Mesa and Metal; all other channel differences were at most 1/255. The measured YIQ distance passes at 1.0. Use 1.0 only for these two snapshots on Linux, retaining 0.6 everywhere else and a zero failed-pixel allowance. The screenshots and difference images were inspected; no baselines were replaced or geometry changes accepted.
 
-Status: local headless interactions, current 17 visual baselines and native macOS smoke verified (later native Update timeout remains recorded in the devlog). Hosted workspace checks passed; the Linux snapshot-tolerance adjustment awaits a hosted run. Self-hosted execution remains unverified. No schema or command-engine changes.
+Status: local headless interactions, current 17 visual baselines and native macOS smoke verified (later native Update timeout remains recorded in the devlog). Hosted workspace and Linux visual checks passed with the measured tolerance adjustment (run 40751633405). Self-hosted execution remains unverified. No schema or command-engine changes.
 
 ## D25. Manual Collections across engine, CLI and desktop (2026-10-26)
 
@@ -342,7 +342,7 @@ Windows links the MSVC runtime statically. The macOS app is ad-hoc signed; Devel
 
 `task release:build`, `release:package` and `release:test` are the documented command surface. Regression tests verify tag matching, unsupported targets/missing binaries and executable contents of extracted desktop archives. Workflow smoke checks run the installed/extracted CLI against a synthetic catalogue and check Linux ELF dependencies; graphical desktop operation is not claimed. NAS musl/Docker packaging and wasm are unchanged planned work.
 
-Status: local workspace, visual, archive/version and Arch metadata regression checks passed. After the initial missing-Go failure, hosted recovery passed all four builds and Debian/Fedora installation. Arch exposed a spaced dependency; the metadata and recovery-tooling fixes await hosted verification. Final uploads remain unverified.
+Status: local workspace, visual, archive/version and Arch metadata regression checks passed. After correcting missing Go and Arch's spaced dependency, hosted recovery run 40751654218 passed all four builds, Debian/Fedora/Arch installations and final upload to v0.1.0. All six published asset digests were checked against SHA256SUMS; the checksum manifest's own digest also matches GitHub's recorded value.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
