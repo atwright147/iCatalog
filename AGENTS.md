@@ -97,7 +97,7 @@ Deployment on a NAS:
 
 - **Bare metal:** a static `icatalog` binary for `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl` for ARM NAS), built with `rusqlite`'s `bundled` feature so there is no system SQLite dependency; copy it and run `icatalog serve`, ideally under systemd.
 - **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
-- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases and can be manually dispatched without publishing. Hosted execution remains unverified until its first GitHub run; musl NAS builds and Docker remain PLANNED.
+- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag rebuilds that exact commit and uploads after checks pass. Go is explicitly installed before Task. The first hosted run passed Windows/Linux builds but failed macOS setup (missing Go); the fix and Linux install/upload stages await hosted verification. Musl NAS builds and Docker remain PLANNED.
 
 ## 5. Local copies + startup sync
 

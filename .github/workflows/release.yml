@@ -3,31 +3,46 @@ name: Release builds
 on:
   release:
     types: [published]
-  # Build the selected ref and keep artifacts, without publishing a release.
+  # Leave release_tag empty for an artifact-only build of the selected ref.
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to rebuild and upload (optional)
+        required: false
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   version:
     runs-on: ubuntu-22.04
     timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
       - name: Check binary versions and release tag
+        id: source
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+          if [[ -n "$RELEASE_TAG" ]]; then
             bash packaging/version.sh "$RELEASE_TAG"
+            gh release view "$RELEASE_TAG" --json tagName
           else
             bash packaging/version.sh
           fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
@@ -52,6 +67,8 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.source_sha }}
       - name: Install Linux build and packaging dependencies
         if: runner.os == 'Linux'
         run: |
@@ -67,7 +84,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
-      - name: Install Task
+      - name: Set up Go for Task
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.10'
+          cache: false
+      - name: Build and install Task
         shell: bash
         run: |
           go install github.com/go-task/task/v3/cmd/task@v3.53.1
@@ -112,7 +134,7 @@ jobs:
           retention-days: 14
 
   linux-install:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     strategy:
@@ -127,6 +149,8 @@ jobs:
             format: arch
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.source_sha }}
       - uses: actions/download-artifact@v4
         with:
           name: release-x86_64-unknown-linux-gnu
@@ -139,7 +163,7 @@ jobs:
           docker run --rm -v "$PWD:/work:ro" -w /work "$IMAGE" bash packaging/test-linux-install.sh "$FORMAT"
 
   publish:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: [build, linux-install]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
@@ -156,7 +180,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq 6
           sha256sum -- * > SHA256SUMS

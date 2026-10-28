@@ -27,7 +27,7 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 
 **Decided** layout: one Cargo workspace rooted at the repo top. The workspace members include `ivc` and the `crates/*` glob (check root `Cargo.toml`). The exact dependency edges above (e.g. whether `icatalog-catalog` depends on `ivc` or the engine does the mapping) are **Open**; the layer ordering is Decided.
 
-Release automation (D34) packages the existing L4 binaries without adding an app crate or changing the engine seam. `.github/workflows/release.yml` builds Windows x64/ARM64, macOS ARM64 and Linux x86-64, tests native Linux package installation, then attaches the six assets and SHA-256 checksums to the published release. Manual dispatch builds artifacts without uploading release assets. These hosted jobs are configured but have not yet run here; NAS musl/Docker and wasm remain separate planned work.
+Release automation (D34) packages the existing L4 binaries without adding an app crate or changing the engine seam. `.github/workflows/release.yml` builds Windows x64/ARM64, macOS ARM64 and Linux x86-64, tests native Linux package installation, then attaches the six assets and SHA-256 checksums to the published release. Manual dispatch keeps artifacts only unless an existing `release_tag` is supplied; recovery builds use that tag's exact commit with the dispatched workflow's fixed build setup. Every runner explicitly installs Go before compiling Task. The first hosted run passed Windows/Linux builds but failed macOS setup because Go was absent; fixed setup, Linux install checks and uploads await hosted verification. NAS musl/Docker and wasm remain separate planned work.
 
 ## 3. Layers
 
