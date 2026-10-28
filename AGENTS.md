@@ -133,6 +133,8 @@ Desktop typography uses 15 pt interface/caption text, 14 pt List metadata and 13
 
 Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, the two 800×600 snapshots with a clipped thumbnail (`catalogue-narrow`, `catalogue-collection-counts`) use a measured YIQ colour tolerance of 1.0 rather than 0.6 for Mesa/Metal rounding (D24). Other snapshots/platforms retain 0.6; baselines are not regenerated to hide CI differences. The adjusted comparisons passed hosted Linux CI.
 
+Native macOS smoke tests isolate the production binary in a temporary app bundle with a unique executable name and bundle identifier, guard the target PID, and wait for menu/picker readiness (D24). Diagnostics are `target/ui-smoke/native-stderr.log` and `native-automation.log`.
+
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task
