@@ -23,9 +23,11 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 | `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `eframe`/`egui`, `rfd`, `muda` (native macOS menu) | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`/`collection`); wasm PLANNED; sync buttons not wired yet | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
-| `packaging/` | n/a | n/a | Docker image + compose example | PLANNED |
+| `packaging/` | tooling | OS archivers, FPM for Linux | Desktop release archives/packages and Linux launcher (D34); Docker image + compose example remain planned | EXISTS (desktop); PLANNED (Docker) |
 
 **Decided** layout: one Cargo workspace rooted at the repo top. The workspace members include `ivc` and the `crates/*` glob (check root `Cargo.toml`). The exact dependency edges above (e.g. whether `icatalog-catalog` depends on `ivc` or the engine does the mapping) are **Open**; the layer ordering is Decided.
+
+Release automation (D34) packages the existing L4 binaries without adding an app crate or changing the engine seam. `.github/workflows/release.yml` builds Windows x64/ARM64, macOS ARM64 and Linux x86-64, tests native Linux package installation, then attaches the six assets and SHA-256 checksums to the published release. Manual dispatch builds artifacts without uploading release assets. These hosted jobs are configured but have not yet run here; NAS musl/Docker and wasm remain separate planned work.
 
 ## 3. Layers
 

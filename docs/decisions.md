@@ -330,6 +330,18 @@ Tests cover contrast, non-overlapping metadata/caption bounds and selection in d
 
 Status: implemented.
 
+## D34. Build and attach native desktop packages on release publication (2026-10-28)
+
+The owner requested release-triggered builds for Windows 64-bit, Windows ARM, macOS ARM only, and Debian/Fedora/Arch Linux. Interpret Windows ARM as ARM64 and Linux as x86-64. Package both existing interfaces: the `icatalog` CLI and `icatalog-ui` desktop app. macOS Intel/universal release builds are no longer targeted.
+
+Use GitHub Actions `release: published`, covering stable releases and prereleases published from drafts. A manual dispatch builds the selected ref and retains workflow artifacts without publishing. Validate the tag against matching CLI/UI Cargo versions, then use the pinned Rust toolchain and locked dependencies. Native runners build Windows x64/ARM64 ZIPs and a macOS ARM64 `.app` + CLI tarball. Ubuntu 22.04 builds the Linux binaries with a glibc 2.35 baseline; FPM 1.17.0 creates Debian, RPM and Arch packages with explicit runtime dependencies and a desktop launcher. No new application crate or engine command is needed.
+
+Windows links the MSVC runtime statically. The macOS app is ad-hoc signed; Developer ID signing/notarization and Windows publisher signing remain open. Only the final upload job gets repository write access. After all builds and clean Debian 12/Fedora 43/Arch package installation checks pass, it attaches all six assets and SHA-256 checksums to the existing release. Reruns replace same-named assets.
+
+`task release:build`, `release:package` and `release:test` are the documented command surface. Regression tests verify tag matching, unsupported targets/missing binaries and executable contents of extracted desktop archives. Workflow smoke checks run the installed/extracted CLI against a synthetic catalogue and check Linux ELF dependencies; graphical desktop operation is not claimed. NAS musl/Docker packaging and wasm are unchanged planned work.
+
+Status: implemented automation; local workspace gate, archive/version tests, optimized macOS ARM64 build and extracted package smoke checks passed. PowerShell ZIP creation/extraction was checked with executable fixtures for both Windows variants. Hosted cross-platform builds and Linux install checks await their first GitHub run.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

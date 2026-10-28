@@ -28,6 +28,8 @@ List rows (D32) show thumbnails plus filename/rating/captured and modified dates
 
 Desktop legibility (D33) uses larger interface/caption text and List metadata, stronger normal/secondary/selection contrast in both themes, hinted glyphs without fractional variants, and roomier rows. Native display scaling is preserved. Layout checks cover both themes at 1×/1.5×/2×; light and Retina List screenshots supplement existing baselines.
 
+Desktop release automation (D34) is configured for published releases: Windows x64/ARM64 ZIPs, macOS ARM64 `.app` + CLI archive, and Linux x86-64 Debian `.deb`, Fedora `.rpm` and Arch `.pkg.tar.zst`. All six assets plus checksums upload after builds and distribution installation checks succeed. Manual dispatch produces workflow artifacts only. Local archive/version regression tests exist; hosted builds, Windows execution and Linux installation checks await the first GitHub run. macOS Intel/universal releases are no longer targeted. Developer ID signing/notarization and Windows publisher signing remain open; NAS musl/Docker packaging remains planned.
+
 ## 4. Next
 
 - **Smart Collections (D21)** — manual Collections are implemented (D25) on the existing `collection`/`collection_asset` tables with engine/CLI/UI create, browse and membership editing. Next: stored `AssetQuery`-shaped rules over format, capture date, lens and other metadata, with a command surface and UI. Smart rules are not started.

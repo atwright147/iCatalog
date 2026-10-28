@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=iCatalog
+Comment=Browse and organise media catalogues
+Exec=icatalog-ui
+Terminal=false
+Categories=Graphics;Photography;
+StartupNotify=true

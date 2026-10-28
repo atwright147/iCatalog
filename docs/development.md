@@ -40,6 +40,8 @@ A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common command
 - `task sync`: test the `icatalog-sync` crate.
 - `task run -- <args>`: run the `icatalog` CLI, e.g. `task run -- init my.sqlite` or `task run -- collection my.sqlite list`.
 - `task gui -- <catalogue>`: run the `icatalog-ui` desktop shell, e.g. `task gui -- photos.sqlite`.
+- `task release:build -- --target <triple>`, `task release:package -- <triple>`: build the locked release CLI + desktop app and package them under `target/release-assets` (section 8).
+- `task release:test`: archive and release-tag regression tests, also included in the workspace gate.
 
 ## 3. Workspace layout
 
@@ -128,7 +130,42 @@ Before finishing a task (**Decided**):
 
 The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*.sqlite` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` (local, gitignored) records a terse entry per task.
 
-## 8. Open questions
+## 8. Release builds and packages (D34)
+
+`.github/workflows/release.yml` runs when a release is **published**, including prereleases published from drafts. Saving a draft does not build. This follows GitHub's [release event guidance](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release). The workflow builds the release's tagged commit, using `rust-toolchain.toml` and `Cargo.lock`. Manually dispatch **Release builds** on a selected ref to validate the matrix without uploading assets to a release.
+
+Before tagging, set the versions in both `crates/icatalog-cli/Cargo.toml` and `crates/icatalog-ui/Cargo.toml` to the release version and update `Cargo.lock`. Tags must be `vX.Y.Z` or `X.Y.Z`, optionally with a prerelease suffix (e.g. `v0.2.0-rc.1`); build metadata (`+...`) is not supported. Mismatches fail before compilation. Other crates can retain their own versions.
+
+| Platform | Rust target | Release asset |
+|---|---|---|
+| Windows 64-bit | `x86_64-pc-windows-msvc` | `icatalog-<version>-windows-x64.zip` |
+| Windows ARM64 | `aarch64-pc-windows-msvc` | `icatalog-<version>-windows-arm64.zip` |
+| macOS ARM64 | `aarch64-apple-darwin` | `icatalog-<version>-macos-arm64.tar.gz` |
+| Debian 12+ x86-64 | `x86_64-unknown-linux-gnu` | `icatalog-<version>-linux-amd64.deb` |
+| Fedora x86-64 | `x86_64-unknown-linux-gnu` | `icatalog-<version>-linux-x86_64.rpm` |
+| Arch x86-64 | `x86_64-unknown-linux-gnu` | `icatalog-<version>-linux-x86_64.pkg.tar.zst` |
+
+Both binaries are included. Windows ZIPs contain `icatalog.exe` and `icatalog-ui.exe`; the release build statically links the MSVC runtime. The macOS archive contains `iCatalog.app` and the standalone `icatalog` CLI; the app is ad-hoc signed for Apple Silicon execution, without Developer ID signing or notarization. Windows publisher signing is not configured. There is no macOS Intel or universal artifact.
+
+Linux builds on Ubuntu 22.04 (glibc 2.35 baseline). [FPM 1.17.0](https://fpm.readthedocs.io/en/v1.17.0/cli-reference.html) packages the same binaries in all three native formats, including runtime dependencies and an applications-menu launcher. Packages install `/usr/bin/icatalog`, `/usr/bin/icatalog-ui` and `/usr/share/applications/icatalog.desktop`. Debian/RPM prerelease versions use `~` in place of `-`; Arch uses `_`. Files retain the Cargo version in their names. Install with `sudo apt install ./<asset>.deb`, `sudo dnf install ./<asset>.rpm` or `sudo pacman -U ./<asset>.pkg.tar.zst`.
+
+The build matrix uses native [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): `windows-2022`, `windows-11-arm`, `macos-14` (ARM64), and `ubuntu-22.04`. Each job runs CLI/packaging tests. Extracted Windows/macOS archives must create and reopen a synthetic catalogue; the macOS executable must contain only ARM64. Disposable Debian 12, Fedora 43 and current Arch containers install the packages with dependency resolution, check ELF dependencies for both binaries, and create/reopen a catalogue with the installed CLI. These checks do not exercise a graphical desktop.
+
+Only after every build and Linux install test passes does the upload job get `contents: write`, generate `SHA256SUMS` and attach all six packages plus checksums to the existing release. Rerunning replaces same-named assets. Builds retain workflow artifacts for 14 days, including manual runs. Build jobs have read-only repository permissions and require no signing secrets.
+
+Local packaging uses the same tasks as the workflow:
+
+```sh
+task release:build -- --target aarch64-apple-darwin
+task release:package -- aarch64-apple-darwin
+task release:test
+```
+
+Use the matching target on Windows/Linux. Windows needs PowerShell (`pwsh`); set `$env:RUSTFLAGS='-C target-feature=+crt-static'` before the Windows build to match CI. Linux needs the existing UI development libraries plus Ruby/FPM 1.17.0, `rpm`, `bsdtar` (`libarchive-tools` on Ubuntu) and `zstd`; the workflow records the exact install commands. Packaging reads `target/<triple>/release` and writes `target/release-assets`. `ICATALOG_RELEASE_BINARY_DIR` and `ICATALOG_RELEASE_OUTPUT_DIR` override those directories for artifact tests or inspection. Packaging requires both executables, performs no downloads, and cleans its temporary staging directory.
+
+Status: the workspace gate, archive/version regression tests, optimized macOS ARM64 build and extracted-package signature/architecture/CLI checks passed locally. Both Windows ZIP variants were checked with executable fixtures under PowerShell. The hosted matrix, native Windows binaries and Linux package installations await the first GitHub run. NAS musl builds, Docker/compose and wasm remain planned.
+
+## 9. Open questions
 
 - Final CLI argument syntax.
 - Per-crate `clippy.toml` (allow panics in tests); check whether `ivc` already has the deny attributes before assuming.

@@ -21,6 +21,24 @@ tasks:
     cmds:
       - cargo build --workspace
 
+  release:build:
+    desc: Build the release CLI and desktop app (e.g. -- --target aarch64-apple-darwin)
+    cmds:
+      - cargo build --locked --release -p icatalog-cli -p icatalog-ui {{.CLI_ARGS}}
+
+  release:package:
+    desc: Package release binaries for the supplied Rust target into target/release-assets
+    cmds:
+      - cmd: bash packaging/package-unix.sh {{.CLI_ARGS}}
+        platforms: [darwin, linux]
+      - cmd: pwsh -NoProfile -File packaging/package-windows.ps1 -Target {{.CLI_ARGS}}
+        platforms: [windows]
+
+  release:test:
+    desc: Test release version validation and desktop archive contents
+    cmds:
+      - cargo test --locked -p icatalog-cli --test release_packaging
+
   test:
     desc: Run all workspace tests
     aliases: [t]

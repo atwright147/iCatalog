@@ -40,7 +40,7 @@ crates/
   icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
-packaging/          Docker image + compose example (PLANNED)
+packaging/          EXISTS: desktop release scripts/launcher (D34); Docker image + compose example PLANNED
 ```
 
 `ivc` (L0, EXISTS) lives in `ivc-file-research/crates/ivc` by design: standalone with no workspace deps; the app consumes it via a path dependency.
@@ -97,7 +97,7 @@ Deployment on a NAS:
 
 - **Bare metal:** a static `icatalog` binary for `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl` for ARM NAS), built with `rusqlite`'s `bundled` feature so there is no system SQLite dependency; copy it and run `icatalog serve`, ideally under systemd.
 - **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
-- Targets are stated honestly: nothing is built or tested for these yet; macOS (arm64/x86_64), Windows and Linux desktops are the client targets.
+- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases and can be manually dispatched without publishing. Hosted execution remains unverified until its first GitHub run; musl NAS builds and Docker remain PLANNED.
 
 ## 5. Local copies + startup sync
 
@@ -144,6 +144,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 - **Keep the docs true — same change, same commit.** Docs are part of the definition of done, not an afterthought. If a change alters what EXISTS vs PLANNED, the crate map, the schema, the CLI surface or a design decision, update the matching doc in the same change: `docs/roadmap.md` (milestone status), `docs/architecture.md` (crate map and layers), `docs/schema.md` (SQLite schema), `docs/decisions.md` (add a new D-numbered entry when you choose an approach), the root `Taskfile.yml` (see the next bullet) and this file. A reader must be able to trust that "EXISTS" means built and tested and "PLANNED" means not yet built; if code and docs disagree the doc is the bug — fix it before you finish, and never claim behaviour a doc still lists as PLANNED until a crate and its tests back it.
 - Append a terse entry to `log/devlog.md` (what landed, what's still open).
 - **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ui:test` runs headless UI checks (also included in workspace tests); `task ui:visual` compares reviewed screenshot baselines, `task ui:visual:update` explicitly regenerates them for review, and `task ui:smoke` runs native macOS checks with desktop permissions (D24). `task scale` is the opt-in 10,000-image workflow and large sync validation (requires a localhost listener). `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
+- `task release:build -- --target <triple>` builds the locked release CLI and desktop app; `task release:package -- <triple>` packages them under `target/release-assets`; `task release:test` runs the archive/version regression tests (also included in workspace tests). Linux packaging requires FPM 1.17.0, rpm, bsdtar and zstd; Windows packaging uses PowerShell. See `docs/development.md` for the release matrix and prerequisites.
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
 ## 8. Parallel agents
