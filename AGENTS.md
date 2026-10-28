@@ -97,7 +97,7 @@ Deployment on a NAS:
 
 - **Bare metal:** a static `icatalog` binary for `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl` for ARM NAS), built with `rusqlite`'s `bundled` feature so there is no system SQLite dependency; copy it and run `icatalog serve`, ideally under systemd.
 - **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
-- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag rebuilds that exact commit and uploads after checks pass. Go is explicitly installed before Task. The first hosted run passed Windows/Linux builds but failed macOS setup (missing Go); the fix and Linux install/upload stages await hosted verification. Musl NAS builds and Docker remain PLANNED.
+- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag builds that commit's app code with the dispatched workflow revision's `packaging/` and `Taskfile.yml`, then uploads after checks pass. Go is explicitly installed before Task. Hosted recovery passed all four platform builds and Debian/Fedora installation; Arch exposed a spaced dependency, now corrected and guarded by a metadata regression test. End-to-end upload remains unverified. Musl NAS builds and Docker remain PLANNED.
 
 ## 5. Local copies + startup sync
 
@@ -130,6 +130,8 @@ Thumbnails use the asset's EXIF orientation, including mirrored values (D31). Im
 List view uses thumbnail rows with filename/rating/dates/filesize, document/camera/lens/focal length, and dimensions/colour/profile columns (D32). It uses the browsing width with an optional Details inspector and horizontal scrolling in narrow windows. Import/update capture supported source colour/ICC descriptions; Update backfills older catalogue entries. Missing metadata stays explicit.
 
 Desktop typography uses 15 pt interface/caption text, 14 pt List metadata and 13 pt small text, with stronger contrast in both themes (D33). Font hinting stays enabled and fractional glyph variants are disabled; eframe's native monitor scale is preserved. Headless layout checks cover 1×/1.5×/2× scales; visual baselines also cover light and Retina List views.
+
+Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, the two 800×600 snapshots with a clipped thumbnail (`catalogue-narrow`, `catalogue-collection-counts`) use a measured YIQ colour tolerance of 1.0 rather than 0.6 for Mesa/Metal rounding (D24). Other snapshots/platforms retain 0.6; baselines are not regenerated to hide CI differences.
 
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 

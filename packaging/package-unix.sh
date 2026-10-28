@@ -65,9 +65,11 @@ else
     --depends libxkbcommon --depends libwayland-client --depends libX11 \
     --depends libglvnd-egl --depends vulkan-loader --depends xdg-desktop-portal \
     -p "$output_dir/icatalog-$version-linux-x86_64.rpm" usr
+  arch_package="$output_dir/icatalog-$version-linux-x86_64.pkg.tar.zst"
   fpm "${common[@]}" -v "${version//-/_}" -t pacman -a x86_64 --pacman-compression zstd \
-    --depends 'glibc >= 2.35' --depends gcc-libs --depends libxkbcommon \
+    --depends 'glibc>=2.35' --depends gcc-libs --depends libxkbcommon \
     --depends wayland --depends libx11 --depends libglvnd \
     --depends vulkan-icd-loader --depends xdg-desktop-portal \
-    -p "$output_dir/icatalog-$version-linux-x86_64.pkg.tar.zst" usr
+    -p "$arch_package" usr
+  bash packaging/check-arch-package.sh "$arch_package"
 fi

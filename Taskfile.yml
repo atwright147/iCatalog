@@ -35,7 +35,7 @@ tasks:
         platforms: [windows]
 
   release:test:
-    desc: Test release version validation and desktop archive contents
+    desc: Test release versions, desktop archives and Arch package metadata
     cmds:
       - cargo test --locked -p icatalog-cli --test release_packaging
 

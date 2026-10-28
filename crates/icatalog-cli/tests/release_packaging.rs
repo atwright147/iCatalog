@@ -64,6 +64,48 @@ fn unix_packaging_rejects_unsupported_targets_and_missing_binaries() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn arch_package_metadata_rejects_spaced_dependencies_and_missing_glibc() {
+    let scratch = tempfile::tempdir().unwrap();
+    let archive = scratch.path().join("package.tar.gz");
+    for (dependencies, valid) in [
+        ("depend = glibc>=2.35\ndepend = gcc-libs\n", true),
+        ("depend = glibc >= 2.35\ndepend = gcc-libs\n", false),
+        ("depend = glibc>=2.35\ndepend = libx11 >= 1\n", false),
+        ("depend = gcc-libs\n", false),
+    ] {
+        std::fs::write(
+            scratch.path().join(".PKGINFO"),
+            format!("pkgname = icatalog\narch = x86_64\n{dependencies}"),
+        )
+        .unwrap();
+        success(
+            Command::new("tar")
+                .arg("-czf")
+                .arg(&archive)
+                .arg("-C")
+                .arg(scratch.path())
+                .arg(".PKGINFO")
+                .env("COPYFILE_DISABLE", "1")
+                .output()
+                .unwrap(),
+        );
+        let output = Command::new("bash")
+            .current_dir(root())
+            .arg("packaging/check-arch-package.sh")
+            .arg(&archive)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            valid,
+            "{dependencies}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 #[cfg(any(target_os = "macos", windows))]
 #[test]
 fn desktop_archive_contains_both_executables_and_a_working_cli() {

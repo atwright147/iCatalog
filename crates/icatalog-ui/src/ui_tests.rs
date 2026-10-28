@@ -1504,6 +1504,13 @@ fn interaction_create_collection_modal_failure_retry_and_busy_controls() {
 fn visual_snapshots() {
     let fixture = Fixture::new();
     let mut h = fixture.harness([1100.0, 720.0]);
+    // Mesa and Metal differ by two red-channel levels at two pixels of the
+    // clipped green thumbnail. CI's measured YIQ distance is below 1.0.
+    // Keep a zero failed-pixel allowance and the normal tolerance elsewhere.
+    let clipped_thumbnail_options = h
+        .options()
+        .clone()
+        .threshold(egui_kittest::OsThreshold::new(0.6).linux(1.0));
     h.run();
     h.snapshot("catalogue-grid");
     h.get(
@@ -1523,7 +1530,7 @@ fn visual_snapshots() {
     h.snapshot("catalogue-list");
     let mut narrow = fixture.harness([800.0, 600.0]);
     narrow.run();
-    narrow.snapshot("catalogue-narrow");
+    narrow.snapshot_options("catalogue-narrow", &clipped_thumbnail_options);
     let mut results = h.take_snapshot_results();
     results.extend(narrow.take_snapshot_results());
     let ctx = open_catalogue(&fixture.path()).unwrap();
@@ -1666,7 +1673,7 @@ fn visual_snapshots() {
     settle(&mut counts);
     counts.event(egui::Event::PointerGone);
     counts.run();
-    counts.snapshot("catalogue-collection-counts");
+    counts.snapshot_options("catalogue-collection-counts", &clipped_thumbnail_options);
     results.extend(counts.take_snapshot_results());
 
     let rich_fixture = Fixture::new();
