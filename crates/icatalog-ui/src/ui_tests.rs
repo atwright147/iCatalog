@@ -9,6 +9,8 @@ use egui_kittest::{
 };
 use std::time::{Duration, Instant};
 use support::bmp;
+#[path = "smart_tests.rs"]
+mod smart_tests;
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -1561,6 +1563,17 @@ fn visual_snapshots() {
     collections.run();
     collections.snapshot("catalogue-create-collection");
     results.extend(collections.take_snapshot_results());
+    collections.get_by_label("Smart Collection").click();
+    settle(&mut collections);
+    collections.run_steps(10); // Let the taller modal finish moving to its centre.
+    collections.get_by_label("Format").click();
+    collections.run_steps(2);
+    collections.get_by_label("Format").type_text("JPEG");
+    collections.run_steps(2);
+    collections.event(egui::Event::PointerGone);
+    collections.run();
+    collections.snapshot("catalogue-create-smart");
+    results.extend(collections.take_snapshot_results());
     collections.get_by_label("Cancel").click();
     settle(&mut collections);
     collections
@@ -1704,6 +1717,39 @@ fn visual_snapshots() {
         display.snapshot(name);
         results.extend(display.take_snapshot_results());
     }
+    let smart_fixture = Fixture::new();
+    seed_list_metadata(&smart_fixture);
+    let smart_ctx = open_catalogue(&smart_fixture.path()).unwrap();
+    let id = smart_ctx
+        .catalog()
+        .insert_collection("Highly rated")
+        .unwrap();
+    smart_ctx
+        .catalog()
+        .set_smart_rules(
+            id,
+            &icatalog_catalog::SmartRules {
+                min_rating: Some(4),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mut smart = smart_fixture.harness([1100.0, 720.0]);
+    smart.get_by_label("Highly rated (Smart)").click();
+    settle(&mut smart);
+    smart.event(egui::Event::PointerGone);
+    smart.run();
+    smart.snapshot("catalogue-smart");
+    results.extend(smart.take_snapshot_results());
+    smart.get_by_label("Highly rated (Smart)").click_secondary();
+    settle(&mut smart);
+    smart.get_by_label("Edit Rules…").click();
+    settle(&mut smart);
+    smart.run_steps(10);
+    smart.event(egui::Event::PointerGone);
+    smart.run();
+    smart.snapshot("catalogue-smart-rules");
+    results.extend(smart.take_snapshot_results());
 }
 
 #[test]

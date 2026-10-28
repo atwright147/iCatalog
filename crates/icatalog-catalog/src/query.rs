@@ -15,7 +15,7 @@ pub struct AssetQuery {
     pub path_like: Option<String>,
     /// Exact keyword name; the asset must have this keyword.
     pub keyword: Option<String>,
-    /// Restrict to members of one manual collection.
+    /// Restrict to members of one manual or Smart Collection.
     pub collection_id: Option<i64>,
     /// Match members of any listed collection, without duplicate assets.
     /// An empty list matches nothing; at most 32,000 ids are supported.
@@ -83,9 +83,7 @@ impl Catalog {
             args.push(Value::Text(k.clone()));
         }
         if let Some(id) = q.collection_id {
-            sql.push_str(
-                " AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.asset_id = asset.id AND ca.collection_id = ?)",
-            );
+            sql.push_str(&format!(" AND EXISTS (SELECT 1 FROM collection c LEFT JOIN smart_collection sc ON sc.collection_id=c.id WHERE c.id=? AND {})", crate::smart::membership_sql()));
             args.push(Value::Integer(id));
         }
         if let Some(ids) = &q.collection_ids {
@@ -101,7 +99,7 @@ impl Catalog {
                     .collect::<Vec<_>>()
                     .join(",");
                 sql.push_str(&format!(
-                    " AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.asset_id = asset.id AND ca.collection_id IN ({marks}))"
+                    " AND EXISTS (SELECT 1 FROM collection c LEFT JOIN smart_collection sc ON sc.collection_id=c.id WHERE c.id IN ({marks}) AND {})", crate::smart::membership_sql()
                 ));
                 args.extend(ids.iter().copied().map(Value::Integer));
             }
@@ -519,6 +517,6 @@ mod tests {
         assert_eq!(s.keywords, 1);
         assert_eq!(s.thumbnails, 1);
         assert_eq!(s.generation, Some(0));
-        assert_eq!(s.schema_version, 5);
+        assert_eq!(s.schema_version, 6);
     }
 }

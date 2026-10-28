@@ -19,12 +19,14 @@ mod folder;
 mod metadata;
 mod model;
 mod query;
+mod smart;
 mod source;
 
 pub use model::{
     device_of, Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Source, Thumbnail,
 };
 pub use query::{AssetQuery, CatalogStats};
+pub use smart::SmartRules;
 
 /// Shared user-facing product name; executable, crate and file names stay lowercase.
 pub const APP_NAME: &str = "iCatalog";
@@ -35,6 +37,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("v3.sql"),
     include_str!("v4.sql"),
     include_str!("v5.sql"),
+    include_str!("v6.sql"),
 ];
 
 /// Errors from opening, migrating or querying a catalogue.

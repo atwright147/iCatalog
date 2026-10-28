@@ -90,7 +90,20 @@ task run -- list photos.sqlite --collection 1 --limit 20
 task run -- collection photos.sqlite remove --id 1 --asset 3
 ```
 
-Use the ids returned by create/list and the asset ids from `list`. Names are trimmed, limited to 1024 UTF-8 bytes and cannot contain control characters; names may repeat, so commands identify collections by id. Add/remove are idempotent. Membership does not move or delete assets, folders or media. Smart Collections remain planned.
+Use the ids returned by create/list and the asset ids from `list`. Names are trimmed, limited to 1024 UTF-8 bytes and cannot contain control characters; names may repeat, so commands identify collections by id. Add/remove are idempotent. Membership does not move or delete assets, folders or media. Smart Collections are implemented (D35); see below.
+
+Smart Collections evaluate stored rules against the current catalogue automatically:
+
+```sh
+task run -- collection my.sqlite create-smart --name "Highly rated JPEGs" --format JPEG --min-rating 4
+task run -- collection my.sqlite rules --id 2
+task run -- collection my.sqlite set-rules --id 2 --lens "50 mm" --captured-from 2024-01-01 --captured-to 2024-12-31
+task run -- list my.sqlite --collection 2
+```
+
+Use the returned id. `collection list` includes a `kind` column (`manual`/`smart`); `rules` displays the active rules. `set-rules` replaces the entire rule set, clearing omitted rules. Supported options are `--format` (exact), `--captured-from`/`--captured-to` (inclusive local dates in `YYYY-MM-DD` form), `--camera` (make/model contains), `--lens` (contains), `--min-rating` (0–5), `--label` (0–7), `--keyword` (exact, case-sensitive), and `--text` (filename/path contains). Text matching other than keywords ignores ASCII case; `%` and `_` are literal characters. At least one rule is required, and every supplied rule must match. Missing extracted metadata does not match a corresponding rule; absent annotations count as rating/label zero. Rule text is limited to 1024 UTF-8 bytes without control characters. There are no nested groups or OR rules in this version.
+
+In the desktop's **New Collection…** modal, select **Smart Collection** and fill the desired rule fields. A **(Smart)** suffix identifies smart rows. Right-click one and choose **Edit Rules…** to replace its rules; Cancel/Escape dismisses without changes. Rules use the normal background command worker with disabled pending controls and inline errors that preserve inputs for retry. Membership and counts update after import/update/annotation edits. Smart and manual collections can be selected together using the existing modifiers, and search further narrows the result. Smart rows accept no membership drops and are omitted from the asset membership-checkbox menu. Existing catalogues migrate to schema v6 automatically; older iCatalog versions refuse v6 catalogues.
 
 ## 4a. Driving the GUI
 

@@ -1,6 +1,6 @@
 # iCatalog SQLite schema
 
-Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2, v3, v4 and v5 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
+Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2, v3, v4, v5 and v6 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
 
 ## 1. Basis
 
@@ -12,14 +12,14 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 
 - Versioned, **forward-only**, each migration in a single transaction.
 - A `schema_migrations` table records applied versions; it is created in code (not in a migration file) before migrations run.
-- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21) and `v5.sql` (`source.device_id`/`device_label`, D21). `foreign_keys` is ON for every connection.
+- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21), `v5.sql` (`source.device_id`/`device_label`, D21), and `v6.sql` (`smart_collection` typed rules and membership guards, D35). `foreign_keys` is ON for every connection.
 - A catalogue with a newer schema version than the app knows is refused with an actionable error, never opened read-write.
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
 
 Engine command writes are grouped in a single deferred transaction (D23), with rollback on error, panic or failed commit. This does not change the schema version. Direct catalogue CRUD callers manage their own transaction boundaries.
 
-## 3. DDL (v1-v5, implemented; later columns are marked inline)
+## 3. DDL (v1-v6, implemented; later columns are marked inline)
 
 ```sql
 -- catalogue-level metadata (single row)
@@ -116,7 +116,7 @@ CREATE TABLE asset_meta (
   duration_ms    INTEGER       -- video
 );
 
--- Manual collections / albums (D25); Smart Collection rules are not built
+-- Manual and Smart Collections (D25/D35); smart rules are stored separately in v6
 CREATE TABLE collection (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL
@@ -126,6 +126,21 @@ CREATE TABLE collection_asset (
   asset_id      INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
   PRIMARY KEY (collection_id, asset_id)
 );
+
+-- v6: presence marks a Smart Collection; NULL fields add no restriction.
+CREATE TABLE smart_collection (
+  collection_id INTEGER PRIMARY KEY REFERENCES collection(id) ON DELETE CASCADE,
+  format TEXT, captured_from TEXT, captured_to TEXT,
+  camera TEXT, lens TEXT,
+  min_rating INTEGER CHECK (min_rating BETWEEN 0 AND 5),
+  label INTEGER CHECK (label BETWEEN 0 AND 7),
+  keyword TEXT, text TEXT,
+  CHECK (format IS NOT NULL OR captured_from IS NOT NULL OR captured_to IS NOT NULL
+         OR camera IS NOT NULL OR lens IS NOT NULL OR min_rating IS NOT NULL
+         OR label IS NOT NULL OR keyword IS NOT NULL OR text IS NOT NULL)
+);
+-- Triggers reject manual membership insert/update for smart collections and
+-- adding rules to collections that already hold manual members.
 
 -- v2: user annotations (D11)
 CREATE TABLE keyword (
@@ -169,7 +184,9 @@ Notes (**Proposed**, per D8):
 
 User-annotation tables (D11) and `find` indexes are done (migration v2). Still **Open**: where unknown chunks go.
 
-Manual Collections (D25) use the existing v1 tables without a migration. Collection ids identify albums; display names may repeat. Membership is many-to-many, adding/removing a member is idempotent, and removing membership preserves the asset and its source/folder. `AssetQuery::collection_id` composes with other filters and paging. `collection_ids` (D28) matches membership in any listed collection using EXISTS, so overlapping albums produce no duplicate assets before paging. An empty list matches nothing; an absent list adds no restriction. Both fields, when set, are ANDed, as with all other filters. To bound query allocations and SQLite parameters, the list accepts at most 32,000 ids; larger lists return an InvalidQuery error. This is a query API change without a migration. `all_collections` orders by name then id; `asset_collection_ids` returns membership for a selected asset. Smart Collection rule storage remains planned.
+Manual Collections (D25) use the existing v1 tables without a migration. Collection ids identify albums; display names may repeat. Membership is many-to-many, adding/removing a member is idempotent, and removing membership preserves the asset and its source/folder. `AssetQuery::collection_id` composes with other filters and paging. `collection_ids` (D28) matches membership in any listed collection using EXISTS, so overlapping albums produce no duplicate assets before paging. An empty list matches nothing; an absent list adds no restriction. Both fields, when set, are ANDed, as with all other filters. To bound query allocations and SQLite parameters, the list accepts at most 32,000 ids; larger lists return an InvalidQuery error. This is a query API change without a migration. `all_collections` orders by name then id; `asset_collection_ids` returns membership for a selected asset. Smart Collection rules are stored in v6 (D35); the same queries evaluate them live, including counts and mixed collection unions.
+
+`SmartRules` is a bounded, typed AND predicate, not stored SQL or a recursive query tree. A collection with no `smart_collection` row is manual. Rules support exact ASCII-case-insensitive format, inclusive local capture dates, camera make/model or lens substring, minimum rating, exact label, exact keyword and filename/path substring. Missing metadata cannot satisfy its rule; missing annotations have rating/label zero. Real calendar dates and ordered ranges are validated in Rust, with 1024-byte/control-character limits on rule text. `Collection.rules`, membership reads, counts and `AssetQuery` all use live SQL results; no membership is materialized. Smart create/rule-replacement uses the engine transaction, preserving the previous rules on failure. The v6 migration preserves existing asset identities/manual membership and updates the catalogue's schema version; D20 annotation revisions now require v7 or later.
 
 ## 4. Open items
 

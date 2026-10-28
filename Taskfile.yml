@@ -85,7 +85,7 @@ tasks:
       - cargo clean
 
   run:
-    desc: Run the icatalog CLI (e.g. `task run -- collection my.sqlite list`)
+    desc: Run the icatalog CLI (e.g. `task run -- collection my.sqlite create-smart --name JPEGs --format JPEG`)
     cmds:
       - cargo run -q -p icatalog-cli -- {{.CLI_ARGS}}
 

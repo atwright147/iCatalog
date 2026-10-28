@@ -3,7 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use crate::{Annotation, Catalog, CatalogError, Collection, Keyword, Result};
 
 impl Catalog {
-    /// Manual collections, ordered by name and then id (names need not be unique).
+    /// Manual and Smart Collections, ordered by name and then id.
     pub fn all_collections(&self) -> Result<Vec<Collection>> {
         let mut stmt = self
             .conn
@@ -12,30 +12,34 @@ impl Catalog {
             Ok(Collection {
                 id: r.get(0)?,
                 name: r.get(1)?,
+                rules: None,
             })
         })?;
-        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+        let mut collections = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        for collection in &mut collections {
+            collection.rules = self.smart_rules(collection.id)?;
+        }
+        Ok(collections)
     }
 
     /// Number of assets in each collection, including empty collections.
     pub fn collection_asset_counts(&self) -> Result<Vec<(i64, i64)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT c.id, COUNT(ca.asset_id)
-             FROM collection c
-             LEFT JOIN collection_asset ca ON ca.collection_id = c.id
-             GROUP BY c.id
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT c.id, CASE WHEN sc.collection_id IS NULL THEN
+             (SELECT COUNT(*) FROM collection_asset ca WHERE ca.collection_id=c.id)
+             ELSE (SELECT COUNT(*) FROM asset WHERE {}) END
+             FROM collection c LEFT JOIN smart_collection sc ON sc.collection_id=c.id
              ORDER BY c.name, c.id",
-        )?;
+            crate::smart::SMART_MATCH
+        ))?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     /// Collections containing an asset, ordered by collection id.
     pub fn asset_collection_ids(&self, asset_id: i64) -> Result<Vec<i64>> {
-        self.id_list(
-            "SELECT collection_id FROM collection_asset WHERE asset_id = ?1 ORDER BY collection_id",
-            asset_id,
-        )
+        self.id_list(&format!("SELECT c.id FROM collection c LEFT JOIN smart_collection sc ON sc.collection_id=c.id
+            JOIN asset ON asset.id=?1 WHERE {} ORDER BY c.id", crate::smart::membership_sql()), asset_id)
     }
 
     /// Collection memberships for selected assets as `(asset_id, collection_id)`
@@ -57,8 +61,10 @@ impl Catalog {
             .collect();
         let marks = vec!["?"; ids.len()].join(",");
         let mut statement = self.conn.prepare(&format!(
-            "SELECT asset_id, collection_id FROM collection_asset
-             WHERE asset_id IN ({marks}) ORDER BY asset_id, collection_id"
+            "SELECT asset.id, c.id FROM asset CROSS JOIN collection c
+             LEFT JOIN smart_collection sc ON sc.collection_id=c.id
+             WHERE asset.id IN ({marks}) AND {} ORDER BY asset.id, c.id",
+            crate::smart::membership_sql()
         ))?;
         let rows = statement.query_map(rusqlite::params_from_iter(&ids), |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -73,7 +79,7 @@ impl Catalog {
     }
 
     pub fn collection(&self, id: i64) -> Result<Option<Collection>> {
-        Ok(self
+        let mut collection = self
             .conn
             .query_row(
                 "SELECT id, name FROM collection WHERE id = ?1",
@@ -82,13 +88,19 @@ impl Catalog {
                     Ok(Collection {
                         id: r.get(0)?,
                         name: r.get(1)?,
+                        rules: None,
                     })
                 },
             )
-            .optional()?)
+            .optional()?;
+        if let Some(collection) = &mut collection {
+            collection.rules = self.smart_rules(collection.id)?;
+        }
+        Ok(collection)
     }
 
     pub fn add_to_collection(&self, collection_id: i64, asset_id: i64) -> Result<()> {
+        self.require_manual_collection(collection_id)?;
         self.conn.execute(
             "INSERT OR IGNORE INTO collection_asset (collection_id, asset_id) VALUES (?1, ?2)",
             params![collection_id, asset_id],
@@ -97,6 +109,7 @@ impl Catalog {
     }
 
     pub fn remove_from_collection(&self, collection_id: i64, asset_id: i64) -> Result<()> {
+        self.require_manual_collection(collection_id)?;
         self.conn.execute(
             "DELETE FROM collection_asset WHERE collection_id = ?1 AND asset_id = ?2",
             params![collection_id, asset_id],
@@ -106,9 +119,23 @@ impl Catalog {
 
     pub fn collection_assets(&self, collection_id: i64) -> Result<Vec<i64>> {
         self.id_list(
-            "SELECT asset_id FROM collection_asset WHERE collection_id = ?1 ORDER BY asset_id",
+            &format!(
+                "SELECT asset.id FROM asset CROSS JOIN collection c
+            LEFT JOIN smart_collection sc ON sc.collection_id=c.id
+            WHERE c.id=?1 AND {} ORDER BY asset.id",
+                crate::smart::membership_sql()
+            ),
             collection_id,
         )
+    }
+
+    fn require_manual_collection(&self, id: i64) -> Result<()> {
+        if self.smart_rules(id)?.is_some() {
+            return Err(CatalogError::InvalidQuery(
+                "Smart Collection membership is determined by its rules",
+            ));
+        }
+        Ok(())
     }
 
     pub fn generation(&self) -> Result<Option<i64>> {

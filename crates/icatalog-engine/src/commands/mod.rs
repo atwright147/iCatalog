@@ -7,6 +7,7 @@ mod init;
 mod list;
 mod open;
 mod scan;
+mod smart_collection;
 mod status;
 mod update;
 

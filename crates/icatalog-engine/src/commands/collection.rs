@@ -10,7 +10,7 @@ impl Command for Collection {
     }
 
     fn label(&self) -> &'static str {
-        "Create, browse and edit manual collections"
+        "Create and browse manual and Smart Collections"
     }
 
     fn params(&self) -> &'static [ParamSpec] {
@@ -19,7 +19,7 @@ impl Command for Collection {
                 name: "action",
                 required: true,
                 positional: true,
-                doc: "list | create | show | add | remove (after the catalogue path)",
+                doc: "list | create | create-smart | rules | set-rules | show | add | remove (after the catalogue path); set-rules replaces all rules",
             },
             ParamSpec {
                 name: "name",
@@ -40,6 +40,42 @@ impl Command for Collection {
                 doc: "asset id for add/remove (see list); repeated operations are harmless",
             },
             ParamSpec {
+                name: "format", required: false, positional: false,
+                doc: "Smart Collection: exact format, ignoring ASCII case (JPEG, NEF, …)",
+            },
+            ParamSpec {
+                name: "captured-from", required: false, positional: false,
+                doc: "Smart Collection: inclusive local capture date, YYYY-MM-DD",
+            },
+            ParamSpec {
+                name: "captured-to", required: false, positional: false,
+                doc: "Smart Collection: inclusive local capture end date, YYYY-MM-DD",
+            },
+            ParamSpec {
+                name: "camera", required: false, positional: false,
+                doc: "Smart Collection: camera make/model contains this text (ASCII case-insensitive)",
+            },
+            ParamSpec {
+                name: "lens", required: false, positional: false,
+                doc: "Smart Collection: lens contains this text (ASCII case-insensitive)",
+            },
+            ParamSpec {
+                name: "min-rating", required: false, positional: false,
+                doc: "Smart Collection: minimum rating 0-5 (absent annotations count as zero)",
+            },
+            ParamSpec {
+                name: "label", required: false, positional: false,
+                doc: "Smart Collection: exact label 0-7 (absent annotations count as zero)",
+            },
+            ParamSpec {
+                name: "keyword", required: false, positional: false,
+                doc: "Smart Collection: exact keyword name",
+            },
+            ParamSpec {
+                name: "text", required: false, positional: false,
+                doc: "Smart Collection: filename/path contains this text (ASCII case-insensitive); all rules must match",
+            },
+            ParamSpec {
                 name: "assets",
                 required: false,
                 positional: false,
@@ -58,15 +94,21 @@ impl Command for Collection {
         let allowed: &[&str] = match action {
             "list" => &[],
             "create" => &["name"],
+            "create-smart" => &["name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
+            "set-rules" => &["id", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
+            "rules" => &["id"],
             "show" => &["id"],
             "add" | "remove" => &["id", "asset", "assets"],
             _ => {
                 return Err(EngineError::BadParam(
-                    "collection action must be list, create, show, add or remove".into(),
+                    "collection action must be list, create, create-smart, rules, set-rules, show, add or remove".into(),
                 ))
             }
         };
-        for key in ["name", "id", "asset", "assets"] {
+        for key in ["name", "id", "asset", "assets"]
+            .into_iter()
+            .chain(super::smart_collection::RULE_KEYS.iter().copied())
+        {
             if params.get(key).is_some() && !allowed.contains(&key) {
                 return Err(EngineError::BadParam(format!(
                     "--{key} is not used by collection {action}"
@@ -74,19 +116,15 @@ impl Command for Collection {
             }
         }
         match action {
+            "create-smart" | "rules" | "set-rules" => super::smart_collection::run(ctx, params),
             "list" => Ok(collection_table(ctx.catalog().all_collections()?)),
             "create" => {
-                let name = params.require("name")?.trim();
-                if name.is_empty() || name.len() > 1024 || name.chars().any(char::is_control) {
-                    return Err(EngineError::BadParam(
-                        "collection name must be 1-1024 bytes and contain no control characters"
-                            .into(),
-                    ));
-                }
+                let name = name(params)?;
                 let id = ctx.catalog().insert_collection(name)?;
                 Ok(collection_table(vec![icatalog_catalog::Collection {
                     id,
                     name: name.into(),
+                    rules: None,
                 }]))
             }
             "show" => {
@@ -98,6 +136,11 @@ impl Command for Collection {
             }
             "add" | "remove" => {
                 let id = require_id(ctx, params, "id")?;
+                if ctx.catalog().smart_rules(id)?.is_some() {
+                    return Err(EngineError::BadParam(
+                        "Smart Collection membership is determined by its rules".into(),
+                    ));
+                }
                 let assets = asset_ids(params)?;
                 for asset in &assets {
                     if ctx.catalog().asset(*asset)?.is_none() {
@@ -170,10 +213,16 @@ fn asset_ids(params: &Params) -> Result<Vec<i64>> {
 
 fn collection_table(collections: Vec<icatalog_catalog::Collection>) -> Outcome {
     Outcome::table(
-        vec!["id".into(), "name".into()],
+        vec!["id".into(), "name".into(), "kind".into()],
         collections
             .into_iter()
-            .map(|c| vec![c.id.to_string(), c.name])
+            .map(|c| {
+                vec![
+                    c.id.to_string(),
+                    c.name,
+                    if c.rules.is_some() { "smart" } else { "manual" }.into(),
+                ]
+            })
             .collect(),
     )
 }
@@ -190,12 +239,22 @@ fn positive_id(params: &Params, key: &str) -> Result<i64> {
     Ok(id)
 }
 
-fn require_id(ctx: &Context, params: &Params, key: &str) -> Result<i64> {
+pub(super) fn require_id(ctx: &Context, params: &Params, key: &str) -> Result<i64> {
     let id = positive_id(params, key)?;
     if ctx.catalog().collection(id)?.is_none() {
         return Err(EngineError::BadParam(format!("no such collection: {id}")));
     }
     Ok(id)
+}
+
+pub(super) fn name(params: &Params) -> Result<&str> {
+    let name = params.require("name")?.trim();
+    if name.is_empty() || name.len() > 1024 || name.chars().any(char::is_control) {
+        return Err(EngineError::BadParam(
+            "collection name must be 1-1024 bytes and contain no control characters".into(),
+        ));
+    }
+    Ok(name)
 }
 
 pub(super) fn filter_id(ctx: &Context, params: &Params) -> Result<Option<i64>> {

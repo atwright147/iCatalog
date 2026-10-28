@@ -91,11 +91,23 @@ fn push_then_pull_round_trip() {
 
     let mut client = Context::open(&client_path).unwrap();
 
+    client.catalog().connection().execute_batch("INSERT INTO asset(id,uid,name,path,format) VALUES(1,'smart-sync','One.jpg','/synthetic/One.jpg','JPEG');").unwrap();
+    let mut rules = Params::new();
+    rules
+        .set("action", "create-smart")
+        .set("name", "JPEGs")
+        .set("format", "JPEG");
+    icatalog_engine::dispatch_guarded(&mut client, "collection", &rules).unwrap();
+
     // Level generations: local state is published to the NAS.
     let out = icatalog_sync::dispatch_guarded(&mut client, "sync", &sync_params(&url)).unwrap();
     assert!(out.render().contains("push"), "{}", out.render());
     assert_eq!(generation(&server_path), Some(1));
     assert_eq!(client.catalog().generation().unwrap(), Some(1));
+    let server_copy = Context::open(&server_path).unwrap();
+    assert_eq!(server_copy.catalog().collection_assets(1).unwrap(), vec![1]);
+    assert!(server_copy.catalog().smart_rules(1).unwrap().is_some());
+    drop(server_copy);
 
     // Another client pushes to the NAS: the server generation moves ahead.
     Context::open(&server_path)
@@ -110,6 +122,8 @@ fn push_then_pull_round_trip() {
     assert!(text.contains("pull"), "{text}");
     assert!(text.contains("backup"), "{text}");
     assert_eq!(client.catalog().generation().unwrap(), Some(2));
+    assert_eq!(client.catalog().collection_assets(1).unwrap(), vec![1]);
+    assert!(client.catalog().smart_rules(1).unwrap().is_some());
     assert!(!backup_files(&dir).is_empty());
 }
 

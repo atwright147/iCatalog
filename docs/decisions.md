@@ -183,7 +183,7 @@ Decision (owner, Oct 2026) — the target model:
 6. **Single-file portability is a constraint, not an accident.** The catalogue uses a rollback journal (no `PRAGMA journal_mode = WAL`), so there are no `-wal`/`-shm` sidecars to carry. If WAL is ever enabled, a checkpoint on close (or export via `VACUUM INTO`) must be added or "one file" silently becomes three.
 
 Proposed (recommended here; the owner has not accepted the mechanism):
-- **Conflict policy: per-item compare-and-swap.** A push carries `{uid, base_rev, rating, label, keywords}`; the server applies a value only where the asset's annotation revision still equals `base_rev`, and reports the rest as conflicts. This replaces the generation guard for annotations and keeps the "no silent last-writer-wins" guarantee per item. Needs a per-asset annotation revision (the next free migration, v6; v4 is D21 and v5 is device provenance). Open: whole-row versus per-field revision.
+- **Conflict policy: per-item compare-and-swap.** A push carries `{uid, base_rev, rating, label, keywords}`; the server applies a value only where the asset's annotation revision still equals `base_rev`, and reports the rest as conflicts. This replaces the generation guard for annotations and keeps the "no silent last-writer-wins" guarantee per item. Needs a per-asset annotation revision (the next free migration, v7; v4 is D21, v5 is device provenance and v6 is Smart Collections, D35). Open: whole-row versus per-field revision.
 - **A client with unpushed edits** runs push-then-pull in one `sync`, so a pull never clobbers unpushed work; conflicts are reported. Alternative: refuse to pull while edits are pending.
 - **A `previews --external|--embed` conversion command**, so a standalone catalogue can graduate to a replica and a server catalogue can be shipped as one portable file.
 - **Auth:** a shared token (or none on a trusted LAN) on the write endpoint; the blast radius is now annotations, not the whole catalogue.
@@ -202,12 +202,12 @@ Decision:
 3. `import` makes the import root the source root folder (named after the root) and mirrors the directory tree below it; each asset's `folder_id` points at the folder for its own directory. Re-importing the same root reuses the source and folders.
 4. `update` files newly found assets into the same tree and refreshes moved assets' `folder_id`.
 5. **Offline is not missing.** A source whose `last_mount_path` is absent (an ejected disc, an unplugged drive, a disconnected share) is skipped by `update`, reported as `offline`, and its assets are never marked `missing`.
-6. **Collections stay separate** from folders: `collection` + `collection_asset` is many-to-many and holds manual sets/albums (implemented in D25); Smart Collections will store rule definitions (an `AssetQuery`-shaped predicate over format, capture date, lens, etc.). Smart Collections are not built yet.
+6. **Collections stay separate** from folders: `collection` + `collection_asset` is many-to-many and holds manual sets/albums (implemented in D25); Smart Collections store rule definitions (an `AssetQuery`-shaped predicate over format, capture date, lens, etc.). Smart Collections are implemented in D35 (v6).
 7. **Device provenance (v5).** A source also records `device_id` (the volume or share root: `/` for the boot volume, `/Volumes/<name>`, `/mnt/<name>`, `/media/<name>`, a Windows drive prefix or UNC share) and `device_label` (`This Mac`, `NAS`, `DVD_01`, ...). Both are derived heuristically from `last_mount_path` with no filesystem call (`device_of`), refreshed by `ensure_source`/`touch_source`, and `Source::device()` falls back to the same derivation for pre-v5 rows. The UI groups source roots under one header per device, so an import from this Mac is visibly "This Mac" rather than an unqualified top-level folder. The header is an accordion: its arrow collapses the section, and clicking the device name selects every asset from every source on that device (`AssetQuery::source_ids`).
 
 Rejected: mirroring the filesystem for every catalogued path with no source concept (unstable across mounts, and it cannot tell an offline disc from deleted files); and reusing `folder` as a many-to-many grouping (that is what collections are for). Also rejected for now: making the source the device itself with the chosen folder as a path inside it. The import root stays the source identity until stable volume identity exists, so a second import from the same device creates a second source under the same device header.
 
-Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget), and Smart Collections (manual Collections are implemented in D25). Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
+Status: **schema v4/v5 and the import/update wiring are implemented and tested** (`source` with `device_id`/`device_label`, `folder.source_id`, `folder.path`; `import --kind`; offline sources in `update`; the UI groups source roots by device). Open: volume-UUID/hardware identity (two Macs' boot volumes both derive `"/"`; a share remounted elsewhere looks like a new source), a `source`/`folder` command surface (rename, relink, forget). Manual Collections are implemented in D25 and Smart Collections in D35. Legacy `.ivc` import must map `FSM!` into the same tree or keep it as a separate unsourced hierarchy.
 
 ## D22. Native macOS menu bar via `muda` (2026-10-23)
 
@@ -230,7 +230,7 @@ Desktop import/update/edit run one at a time on a worker with its own engine con
 
 Validation: regressions for panic-after-write, commit failure, invalid rating after keyword writes, startup/refresh errors, background outcomes, and viewport thumbnail bounds. `task scale` checks 10,000 generated PNGs through import/browse/search/edit/update/reopen/integrity validation, plus a separate 10,000-asset HTTP snapshot round trip. Synthetic sync thumbnail blobs test transport size, not decoding.
 
-Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, Smart Collections, legacy import and wasm remain pending (manual Collections landed in D25).
+Limits: asset rows are still fetched together; visible thumbnail decoding stays on the UI thread; progress is a busy indicator, not per-file progress or cancellation. No new schema or sync protocol; D20, legacy import and wasm remain pending (manual Collections landed in D25; Smart Collections in D35).
 
 ## D24. Automated UI verification (2026-10-24)
 
@@ -252,7 +252,7 @@ Collection ids are authoritative; display names may repeat, matching the existin
 
 The desktop sidebar creates collections through a modal (D26) and selects collections; membership uses drag-and-drop and asset context-menu actions (D27). Search applies within the selected collection. All writes use the same background worker and engine command as other edits; controls disable while busy and failed writes are reported. Removing a selected asset from the active collection refreshes the view and clears that selection. Tests cover persistence/reopen, overlapping membership, idempotency, invalid inputs, filter composition, failed writes and real-widget interactions.
 
-Status: implemented. Smart Collections, rename/delete, multiple-asset selection and collection-specific conflict merging remain future work. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
+Status: implemented. Rename/delete and collection-specific conflict merging remain future work; multiple-asset selection landed in D29 and Smart Collections in D35. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
 
 ## D26. Create Collection modal (2026-10-26)
 
@@ -345,6 +345,18 @@ Windows links the MSVC runtime statically. The macOS app is ad-hoc signed; Devel
 `task release:build`, `release:package` and `release:test` are the documented command surface. Regression tests verify tag matching, unsupported targets/missing binaries and executable contents of extracted desktop archives. Workflow smoke checks run the installed/extracted CLI against a synthetic catalogue and check Linux ELF dependencies; graphical desktop operation is not claimed. NAS musl/Docker packaging and wasm are unchanged planned work.
 
 Status: local workspace, visual, archive/version and Arch metadata regression checks passed. After correcting missing Go and Arch's spaced dependency, hosted recovery run 40751654218 passed all four builds, Debian/Fedora/Arch installations and final upload to v0.1.0. All six published asset digests were checked against SHA256SUMS; the checksum manifest's own digest also matches GitHub's recorded value.
+
+## D35. Smart Collections with typed, live AND rules (2026-10-28)
+
+The owner requested Smart Collections next after resolving the native smoke timeout. Extend the existing `collection` command with `create-smart`, `rules` and `set-rules`; keep `show` and `list`/`find --collection` shared with manual collections. `collection list` identifies the kind. Rule replacement is explicit and clears omitted rules; an empty predicate is rejected. Manual collections keep their existing behavior and cannot be converted through these commands.
+
+Schema v6 adds a `smart_collection` row keyed by collection id with optional typed fields: format, inclusive local capture-date bounds, camera make/model substring, lens substring, minimum rating, exact label, exact keyword and filename/path substring. All filled fields must match. SQLite's ASCII case folding applies except for exact case-sensitive keyword names. Dates use real `YYYY-MM-DD` calendar dates; rule strings are bounded to 1024 bytes and reject controls. Missing metadata does not satisfy its rule; absent annotations count as rating/label zero. There is no stored SQL, recursion, OR grouping, media-file access or materialized smart membership. Existing manual memberships and asset identity survive migration; v6 is no longer available for the proposed D20 annotation revision.
+
+Catalogue SQL evaluates membership consistently for browsing, selected-asset memberships, counts and deduplicated mixed manual/smart unions before paging. Manual counts retain indexed membership counts. Triggers guard manual membership insert/update against Smart Collections; catalogue and engine add/remove reject computed membership. Atomic engine dispatch covers creation and rule replacement, including rollback on failed rule storage.
+
+The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal with the name fixed. The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules travel with today's whole-snapshot sync; D20 still needs collection ownership/edit semantics.
+
+Tests cover migration/reopen, every rule type and missing data, literal hostile text, invalid dates/ranges/bounds, live annotation changes, counts, mixed unions/paging, failed-create/rule rollback, engine/CLI browsing, whole-snapshot sync, real-widget create/edit/cancel/failure/retry/busy behavior and membership gesture restrictions. Visual checks cover the creation modal and Smart Collection browsing/editing.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

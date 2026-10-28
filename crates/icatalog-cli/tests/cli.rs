@@ -138,3 +138,54 @@ fn collection_cli_round_trip_and_argument_errors() {
     }
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn smart_collection_cli_create_browse_rules_edit_and_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("smart.sqlite");
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    let c = icatalog_engine::Context::open(&path).unwrap();
+    c.catalog().connection().execute_batch("INSERT INTO asset(id,uid,name,path,format) VALUES(1,'one','One.jpg','/one.jpg','JPEG'),(2,'two','Two.nef','/two.nef','NEF');").unwrap();
+    drop(c);
+    let o = icatalog(&[
+        "collection",
+        p,
+        "create-smart",
+        "--name",
+        "JPEGs",
+        "--format",
+        "jpeg",
+    ]);
+    assert!(o.status.success(), "{}", s(&o.stderr));
+    let list = icatalog(&["collection", p, "list"]);
+    assert!(s(&list.stdout).contains("smart"));
+    for args in [
+        vec!["collection", p, "show", "--id", "1"],
+        vec!["list", p, "--collection", "1"],
+    ] {
+        let o = icatalog(&args);
+        assert!(o.status.success());
+        let text = s(&o.stdout);
+        assert!(text.contains("One.jpg"));
+        assert!(!text.contains("Two.nef"));
+    }
+    let o = icatalog(&["collection", p, "set-rules", "--id", "1", "--format", "NEF"]);
+    assert!(o.status.success(), "{}", s(&o.stderr));
+    let o = icatalog(&["collection", p, "rules", "--id", "1"]);
+    assert!(s(&o.stdout).contains("NEF"));
+    let o = icatalog(&["find", p, "Two", "--collection", "1"]);
+    assert!(s(&o.stdout).contains("Two.nef"));
+    assert!(
+        !icatalog(&["collection", p, "add", "--id", "1", "--asset", "1"])
+            .status
+            .success()
+    );
+    assert!(
+        !icatalog(&["collection", p, "create-smart", "--name", "Empty"])
+            .status
+            .success()
+    );
+    let c = icatalog_engine::Context::open(&path).unwrap();
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![2]);
+}

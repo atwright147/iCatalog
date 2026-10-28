@@ -14,6 +14,7 @@
 
 mod list_row;
 mod selection;
+mod smart_collection;
 mod typography;
 #[cfg(test)]
 mod ui_tests;
@@ -147,6 +148,9 @@ struct App {
 #[derive(Default)]
 struct CreateCollectionDialog {
     name: String,
+    smart: bool,
+    editing_id: Option<i64>,
+    rules: smart_collection::RuleInputs,
     error: Option<String>,
     pending: bool,
     focus_name: bool,
@@ -535,6 +539,7 @@ impl App {
     fn collections_panel(&mut self, ui: &mut egui::Ui) -> Option<Params> {
         let mut command = None;
         let mut clicked = None;
+        let mut edit_rules = None;
         let selected_ids: HashSet<i64> = match &self.folder_sel {
             FolderSelection::Collections(ids) => ids.iter().copied().collect(),
             _ => HashSet::new(),
@@ -567,16 +572,48 @@ impl App {
                             .get(&collection.id)
                             .copied()
                             .unwrap_or(0);
-                        let row = collection_row(ui, &collection.name, count, selected)
+                        let display_name = if collection.rules.is_some() {
+                            format!("{} (Smart)", collection.name)
+                        } else {
+                            collection.name.clone()
+                        };
+                        let row = collection_row(ui, &display_name, count, selected)
                             .response
                             .on_hover_text(format!(
-                                "{} (Collection {})",
-                                collection.name, collection.id
+                                "{} ({} {})",
+                                collection.name,
+                                if collection.rules.is_some() {
+                                    "Smart Collection"
+                                } else {
+                                    "Collection"
+                                },
+                                collection.id
                             ));
                         if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
-                        if self.worker.is_none() && self.create_collection.is_none() {
+                        if let Some(rules) = &collection.rules {
+                            row.context_menu(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        self.worker.is_none() && self.create_collection.is_none(),
+                                        egui::Button::new("Edit Rules…"),
+                                    )
+                                    .clicked()
+                                {
+                                    edit_rules = Some((
+                                        collection.id,
+                                        collection.name.clone(),
+                                        rules.clone(),
+                                    ));
+                                    ui.close();
+                                }
+                            });
+                        }
+                        if self.worker.is_none()
+                            && self.create_collection.is_none()
+                            && collection.rules.is_none()
+                        {
                             if row.dnd_hover_payload::<DraggedAsset>().is_some() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
                                 ui.painter().rect_stroke(
@@ -596,6 +633,16 @@ impl App {
         if let Some((id, modifiers)) = clicked {
             self.select_collection(id, modifiers);
         }
+        if let Some((id, name, rules)) = edit_rules {
+            self.create_collection = Some(CreateCollectionDialog {
+                name,
+                smart: true,
+                editing_id: Some(id),
+                rules: smart_collection::RuleInputs::from_rules(&rules),
+                ..Default::default()
+            });
+            self.set_menu_enabled(false);
+        }
         command
     }
 
@@ -606,12 +653,17 @@ impl App {
         let mut submit = false;
         let mut cancel = false;
         let response = egui::Modal::new(egui::Id::new("create_collection")).show(ctx, |ui| {
-            ui.set_width(300.0);
-            ui.heading("New Collection");
+            ui.set_width(if dialog.smart { 440.0 } else { 300.0 });
+            ui.heading(if dialog.editing_id.is_some() {
+                "Edit Smart Collection"
+            } else {
+                "New Collection"
+            });
             ui.add_enabled_ui(!dialog.pending, |ui| {
                 let label = ui.label("Name");
                 let name = ui
-                    .add(
+                    .add_enabled(
+                        dialog.editing_id.is_none(),
                         egui::TextEdit::singleline(&mut dialog.name)
                             .desired_width(f32::INFINITY)
                             .char_limit(1024),
@@ -622,20 +674,39 @@ impl App {
                     dialog.focus_name = false;
                 }
                 let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if dialog.editing_id.is_none() {
+                    ui.checkbox(&mut dialog.smart, "Smart Collection");
+                }
+                if dialog.smart {
+                    dialog.rules.show(ui);
+                }
                 if let Some(error) = &dialog.error {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
                 }
                 ui.horizontal(|ui| {
                     cancel = ui.button("Cancel").clicked();
                     let valid = !dialog.name.trim().is_empty();
-                    submit = ui.add_enabled(valid, egui::Button::new("Create")).clicked()
+                    submit = ui
+                        .add_enabled(
+                            valid,
+                            egui::Button::new(if dialog.editing_id.is_some() {
+                                "Save Rules"
+                            } else {
+                                "Create"
+                            }),
+                        )
+                        .clicked()
                         || (valid && enter);
                 });
             });
             if dialog.pending {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("Creating collection…");
+                    ui.label(if dialog.editing_id.is_some() {
+                        "Saving rules…"
+                    } else {
+                        "Creating collection…"
+                    });
                 });
             }
         });
@@ -644,9 +715,23 @@ impl App {
             self.set_menu_enabled(self.worker.is_none());
         } else if submit && !dialog.pending {
             let mut params = Params::new();
-            params
-                .set("action", "create")
-                .set("name", dialog.name.trim());
+            if let Some(id) = dialog.editing_id {
+                params.set("action", "set-rules").set("id", id.to_string());
+            } else {
+                params
+                    .set(
+                        "action",
+                        if dialog.smart {
+                            "create-smart"
+                        } else {
+                            "create"
+                        },
+                    )
+                    .set("name", dialog.name.trim());
+            }
+            if dialog.smart {
+                dialog.rules.apply(&mut params);
+            }
             self.run_command("collection", &params);
             if let Some(dialog) = &mut self.create_collection {
                 dialog.pending = self.worker.is_some();
@@ -701,13 +786,16 @@ impl App {
                     if ids.len() > 1 {
                         ui.label(format!("{} assets selected", ids.len()));
                     }
-                    if self.collections.is_empty() {
+                    if !self.collections.iter().any(|c| c.rules.is_none()) {
                         ui.label("Create a collection in the sidebar first.");
                     }
                     egui::ScrollArea::vertical()
                         .max_height(240.0)
                         .show(ui, |ui| {
                             for collection in &self.collections {
+                                if collection.rules.is_some() {
+                                    continue;
+                                }
                                 let member_count = self
                                     .selection_collection_members
                                     .get(&collection.id)

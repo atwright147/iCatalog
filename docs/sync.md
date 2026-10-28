@@ -18,7 +18,7 @@ Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). S
 
 Proposed, not accepted (**Open**): per-item compare-and-swap for annotation pushes (a `base_rev` per asset) replacing the generation guard; push-then-pull when a client has unpushed edits; a `previews --external|--embed` conversion command; a shared-token auth on the write endpoint. Also **Open:** preview sizes and quality, whether the write endpoint survives, and how a push names a keyword the server does not yet have.
 
-Manual Collections (D25) currently travel with the existing whole-snapshot catalogue. The future D20 protocol needs a decision on collection ownership and edits: its rating/label/keyword delta does not cover collection creation or membership changes.
+Manual Collections and Smart Collection rules (D25/D35) currently travel with the existing whole-snapshot catalogue. The future D20 protocol needs a decision on collection ownership and edits: its rating/label/keyword delta does not cover collection creation or membership changes.
 
 ## 1. Model
 

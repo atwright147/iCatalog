@@ -129,6 +129,8 @@ pub struct AssetMeta {
 pub struct Collection {
     pub id: i64,
     pub name: String,
+    /// None for a manual album; otherwise membership is evaluated from rules.
+    pub rules: Option<crate::SmartRules>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -44,7 +44,11 @@ fn collections_persist_without_moving_assets_and_membership_is_idempotent() {
     let created = rows(run(&mut ctx, &[("action", "create"), ("name", name)]));
     assert_eq!(
         created,
-        vec![vec!["1".to_owned(), "Trip '26 🦀".to_owned()]]
+        vec![vec![
+            "1".to_owned(),
+            "Trip '26 🦀".to_owned(),
+            "manual".to_owned()
+        ]]
     );
     // Names are display text; ids identify collections even when names repeat.
     run(&mut ctx, &[("action", "create"), ("name", name)]);

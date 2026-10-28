@@ -88,7 +88,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
-| `collection <catalogue> <action>` | EXISTS (D25): manual albums; `list`, `create --name <name>`, `show --id <collection>`, `add/remove --id <collection> --asset <asset>`; `list`/`find --collection <id>` browse members |
+| `collection <catalogue> <action>` | EXISTS (D25): manual albums; `list`, `create --name <name>`, `create-smart --name <name> <rules>`, `rules/set-rules --id <collection>`, `show --id <collection>`, `add/remove --id <collection> --asset <asset>`; `list`/`find --collection <id>` browse members |
 | `sync` | EXISTS (D18): pull/push against the NAS catalogue over HTTP (section 5) |
 | `serve` | EXISTS (D18): run the NAS-side HTTP sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |
@@ -121,7 +121,7 @@ Priorities: format knowledge first (tracked in `ivc-file-research/AGENTS.md`), t
 3. Sync service and client.
 4. egui browser (desktop shell EXISTS in `icatalog-ui`, D15; wasm later).
 
-Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Shift-click ranges and Ctrl/⌘-click toggles select multiple collections for a combined asset view (D28). Smart Collections remain PLANNED.
+Manual Collections EXIST (D25): create/browse/add/remove through the engine, CLI and desktop sidebar on the v1 tables (desktop creation uses a modal, D26); membership does not move assets between folders. Grid/list assets can be dragged onto a collection or edited through a right-click collection menu (D27). Shift-click ranges and Ctrl/⌘-click toggles select multiple collections for a combined asset view (D28). Smart Collections EXIST (D35): the same New Collection modal offers a Smart Collection option with AND rules over format, local capture-date range, camera/lens, minimum rating, label, keyword and filename/path text. They display a (Smart) suffix and live counts, support mixed collection selection/search, and expose Edit Rules… on right-click. Membership is computed, so drops and manual membership checkboxes apply only to manual collections. Schema v6 stores bounded typed rules; existing catalogues migrate automatically.
 
 Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
 
