@@ -126,6 +126,45 @@ fn xmp_rows(ctx: &Context, id: i64) -> usize {
 }
 
 #[test]
+fn smart_rating_uses_imported_xmp_and_combines_with_other_rules() {
+    let (mut ctx, dir, base) = setup("smart-rating");
+    std::fs::write(dir.join("red_xmp.jpg"), jpeg_xmp(7)).unwrap();
+    go(&mut ctx, "import", &dir);
+    let id = only_asset(&ctx);
+    assert_eq!(ctx.catalog().annotation(id).unwrap().unwrap().rating, 3);
+    let mut params = Params::new();
+    params
+        .set("action", "create-smart")
+        .set("name", "Rated")
+        .set("min-rating", "3");
+    dispatch(&mut ctx, "collection", &params).unwrap();
+    let collection = ctx.catalog().all_collections().unwrap().remove(0).id;
+    let query = AssetQuery {
+        collection_id: Some(collection),
+        ..Default::default()
+    };
+    assert_eq!(ctx.catalog().query_assets(&query).unwrap().len(), 1);
+    assert_eq!(
+        ctx.catalog().collection_assets(collection).unwrap(),
+        vec![id]
+    );
+    // A minimum above the imported rating excludes it.
+    let mut params = Params::new();
+    params
+        .set("action", "set-rules")
+        .set("id", collection.to_string())
+        .set("min-rating", "4");
+    dispatch(&mut ctx, "collection", &params).unwrap();
+    assert!(ctx.catalog().query_assets(&query).unwrap().is_empty());
+    // Meeting the rating does not bypass a camera rule when EXIF is absent.
+    params.set("min-rating", "3").set("camera", "Sony");
+    dispatch(&mut ctx, "collection", &params).unwrap();
+    assert!(ctx.catalog().query_assets(&query).unwrap().is_empty());
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn raw_preview_and_xmp_seeded() {
     let (mut ctx, dir, base) = setup("raw");
     std::fs::write(dir.join("a.dng"), dng(Some(&jpeg(32, 24, 5)), Some(XMP))).unwrap();

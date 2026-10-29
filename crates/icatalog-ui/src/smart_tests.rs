@@ -2,6 +2,70 @@
 use super::*;
 
 #[test]
+fn smart_minimum_rating_can_be_entered_and_saved() {
+    let fixture = Fixture::new();
+    let c = open_catalogue(&fixture.path()).unwrap();
+    c.catalog()
+        .connection()
+        .execute_batch("INSERT INTO annotation(asset_id,rating) VALUES(1,5),(2,4);")
+        .unwrap();
+    let mut h = fixture.harness([1100.0, 720.0]);
+    h.get_by_label("New Collection…").click();
+    settle(&mut h);
+    h.get_by_label("Name").type_text("Picks");
+    h.run_steps(2);
+    h.get_by_label("Smart Collection").click();
+    settle(&mut h);
+    h.run_steps(10);
+    h.get_by_label("Minimum Rating").click();
+    h.run_steps(2);
+    h.get_by_label("Minimum Rating").type_text("4");
+    h.run_steps(2);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    assert!(h.state().create_collection.is_none());
+    assert_eq!(
+        c.catalog().smart_rules(1).unwrap().unwrap().min_rating,
+        Some(4)
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1, 2]);
+    h.get_by_label("Picks (Smart)").click();
+    settle(&mut h);
+    assert_eq!(
+        h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(h.state().collection_counts.get(&1), Some(&2));
+    h.get_by_label("Picks (Smart)").click_secondary();
+    settle(&mut h);
+    h.get_by_label("Edit Rules…").click();
+    settle(&mut h);
+    h.get_by_label("Minimum Rating").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    h.key_press(egui::Key::Delete);
+    h.get_by_label("Minimum Rating").type_text("5");
+    h.run_steps(2);
+    assert_eq!(
+        h.get_by_label("Minimum Rating").value().as_deref(),
+        Some("5")
+    );
+    h.get_by_label("Save Rules").click();
+    settle(&mut h);
+    assert!(h.state().create_collection.is_none());
+    assert_eq!(
+        c.catalog().smart_rules(1).unwrap().unwrap().min_rating,
+        Some(5)
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1]);
+    assert_eq!(
+        h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![1]
+    );
+    assert_eq!(h.state().collection_counts.get(&1), Some(&1));
+}
+
+#[test]
 fn smart_rules_fit_a_narrow_window_and_all_fields_remain_reachable() {
     let fixture = Fixture::new();
     let mut h = fixture.harness([800.0, 600.0]);
