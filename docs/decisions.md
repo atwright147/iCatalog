@@ -252,7 +252,7 @@ Collection ids are authoritative; display names may repeat, matching the existin
 
 The desktop sidebar creates collections through a modal (D26) and selects collections; membership uses drag-and-drop and asset context-menu actions (D27). Search applies within the selected collection. All writes use the same background worker and engine command as other edits; controls disable while busy and failed writes are reported. Removing a selected asset from the active collection refreshes the view and clears that selection. Tests cover persistence/reopen, overlapping membership, idempotency, invalid inputs, filter composition, failed writes and real-widget interactions.
 
-Status: implemented. Rename/delete and collection-specific conflict merging remain future work; multiple-asset selection landed in D29 and Smart Collections in D35. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
+Status: implemented. Delete and collection-specific conflict merging remain future work; renaming landed in D36, multiple-asset selection landed in D29 and Smart Collections in D35. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
 
 ## D26. Create Collection modal (2026-10-26)
 
@@ -357,6 +357,16 @@ Catalogue SQL evaluates membership consistently for browsing, selected-asset mem
 The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal with the name fixed. The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules travel with today's whole-snapshot sync; D20 still needs collection ownership/edit semantics.
 
 Tests cover migration/reopen, every rule type and missing data, literal hostile text, invalid dates/ranges/bounds, live annotation changes, counts, mixed unions/paging, failed-create/rule rollback, engine/CLI browsing, whole-snapshot sync, real-widget create/edit/cancel/failure/retry/busy behavior and membership gesture restrictions. Visual checks cover the creation modal and Smart Collection browsing/editing.
+
+## D36. Rename manual and Smart Collections (2026-10-28)
+
+The owner requested that all collections be renameable. Add `rename --id <collection> --name <name>` to the existing `collection` command and expose Rename… on every sidebar row's context menu. Rename is separate from smart rule editing and applies to either kind. Reuse creation-name validation (trimmed, 1–1024 UTF-8 bytes, no control characters); repeated names and renaming to the same name remain valid.
+
+The catalogue updates only `collection.name`; the engine's existing transaction rolls back failed writes. IDs, manual memberships, smart rules, counts and active selection remain unchanged. The sidebar reorders by name on refresh. No migration, dependency or new command id is needed.
+
+Reuse the collection modal/worker, with the current name focused and selected for replacement. Rename/Enter submits; Cancel/Escape/backdrop dismisses without writing. Empty names disable Rename. Pending controls/cancellation are disabled. Errors preserve the entered name and select it again for retry. Native Import/Update remain blocked while the modal is open.
+
+Tests cover both kinds, persistence/identity/membership/rule preservation, duplicate names, invalid input, failed-write rollback, CLI invocation, and real-widget grid/list rename, selection/count preservation, context-menu refresh, cancellation, invalid UTF-8-byte length, failure/retry and blocked writes. Reviewed screenshots cover the sidebar menu and rename modal. Collection names continue to travel with current whole-snapshot sync; D20 collection ownership/conflicts remain open.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

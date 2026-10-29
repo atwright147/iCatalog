@@ -150,6 +150,7 @@ struct CreateCollectionDialog {
     name: String,
     smart: bool,
     editing_id: Option<i64>,
+    rename_id: Option<i64>,
     rules: smart_collection::RuleInputs,
     error: Option<String>,
     pending: bool,
@@ -540,6 +541,7 @@ impl App {
         let mut command = None;
         let mut clicked = None;
         let mut edit_rules = None;
+        let mut rename = None;
         let selected_ids: HashSet<i64> = match &self.folder_sel {
             FolderSelection::Collections(ids) => ids.iter().copied().collect(),
             _ => HashSet::new(),
@@ -592,8 +594,16 @@ impl App {
                         if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
-                        if let Some(rules) = &collection.rules {
-                            row.context_menu(|ui| {
+                        row.context_menu(|ui| {
+                            let enabled = self.worker.is_none() && self.create_collection.is_none();
+                            if ui
+                                .add_enabled(enabled, egui::Button::new("Rename…"))
+                                .clicked()
+                            {
+                                rename = Some((collection.id, collection.name.clone()));
+                                ui.close();
+                            }
+                            if let Some(rules) = &collection.rules {
                                 if ui
                                     .add_enabled(
                                         self.worker.is_none() && self.create_collection.is_none(),
@@ -608,8 +618,8 @@ impl App {
                                     ));
                                     ui.close();
                                 }
-                            });
-                        }
+                            }
+                        });
                         if self.worker.is_none()
                             && self.create_collection.is_none()
                             && collection.rules.is_none()
@@ -643,6 +653,15 @@ impl App {
             });
             self.set_menu_enabled(false);
         }
+        if let Some((id, name)) = rename {
+            self.create_collection = Some(CreateCollectionDialog {
+                name,
+                rename_id: Some(id),
+                focus_name: true,
+                ..Default::default()
+            });
+            self.set_menu_enabled(false);
+        }
         command
     }
 
@@ -654,7 +673,9 @@ impl App {
         let mut cancel = false;
         let response = egui::Modal::new(egui::Id::new("create_collection")).show(ctx, |ui| {
             ui.set_width(if dialog.smart { 440.0 } else { 300.0 });
-            ui.heading(if dialog.editing_id.is_some() {
+            ui.heading(if dialog.rename_id.is_some() {
+                "Rename Collection"
+            } else if dialog.editing_id.is_some() {
                 "Edit Smart Collection"
             } else {
                 "New Collection"
@@ -671,10 +692,23 @@ impl App {
                     .labelled_by(label.id);
                 if dialog.focus_name {
                     name.request_focus();
+                    if dialog.rename_id.is_some() {
+                        if let Some(mut state) =
+                            egui::text_edit::TextEditState::load(ui.ctx(), name.id)
+                        {
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(0),
+                                    egui::text::CCursor::new(dialog.name.chars().count()),
+                                )));
+                            state.store(ui.ctx(), name.id);
+                        }
+                    }
                     dialog.focus_name = false;
                 }
                 let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if dialog.editing_id.is_none() {
+                if dialog.editing_id.is_none() && dialog.rename_id.is_none() {
                     ui.checkbox(&mut dialog.smart, "Smart Collection");
                 }
                 if dialog.smart {
@@ -689,7 +723,9 @@ impl App {
                     submit = ui
                         .add_enabled(
                             valid,
-                            egui::Button::new(if dialog.editing_id.is_some() {
+                            egui::Button::new(if dialog.rename_id.is_some() {
+                                "Rename"
+                            } else if dialog.editing_id.is_some() {
                                 "Save Rules"
                             } else {
                                 "Create"
@@ -702,7 +738,9 @@ impl App {
             if dialog.pending {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(if dialog.editing_id.is_some() {
+                    ui.label(if dialog.rename_id.is_some() {
+                        "Renaming collection…"
+                    } else if dialog.editing_id.is_some() {
                         "Saving rules…"
                     } else {
                         "Creating collection…"
@@ -715,7 +753,12 @@ impl App {
             self.set_menu_enabled(self.worker.is_none());
         } else if submit && !dialog.pending {
             let mut params = Params::new();
-            if let Some(id) = dialog.editing_id {
+            if let Some(id) = dialog.rename_id {
+                params
+                    .set("action", "rename")
+                    .set("id", id.to_string())
+                    .set("name", dialog.name.trim());
+            } else if let Some(id) = dialog.editing_id {
                 params.set("action", "set-rules").set("id", id.to_string());
             } else {
                 params

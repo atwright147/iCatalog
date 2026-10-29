@@ -189,3 +189,56 @@ fn smart_collection_cli_create_browse_rules_edit_and_reopen() {
     let c = icatalog_engine::Context::open(&path).unwrap();
     assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![2]);
 }
+
+#[test]
+fn rename_both_collection_kinds_through_cli() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rename.sqlite");
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    assert!(icatalog(&["collection", p, "create", "--name", "Album"])
+        .status
+        .success());
+    assert!(icatalog(&[
+        "collection",
+        p,
+        "create-smart",
+        "--name",
+        "Picks",
+        "--min-rating",
+        "4"
+    ])
+    .status
+    .success());
+    for id in ["1", "2"] {
+        let out = icatalog(&[
+            "collection",
+            p,
+            "rename",
+            "--id",
+            id,
+            "--name",
+            "  New name  ",
+        ]);
+        assert!(out.status.success(), "{}", s(&out.stderr));
+        assert!(
+            !icatalog(&["collection", p, "rename", "--id", id, "--name", ""])
+                .status
+                .success()
+        );
+    }
+    let out = icatalog(&["collection", p, "list"]);
+    let text = s(&out.stdout);
+    assert!(text.contains("New name") && !text.contains("Album") && !text.contains("Picks"));
+    let ctx = icatalog_engine::Context::open(&path).unwrap();
+    for id in [1, 2] {
+        assert_eq!(
+            ctx.catalog().collection(id).unwrap().unwrap().name,
+            "New name"
+        );
+    }
+    assert_eq!(
+        ctx.catalog().smart_rules(2).unwrap().unwrap().min_rating,
+        Some(4)
+    );
+}

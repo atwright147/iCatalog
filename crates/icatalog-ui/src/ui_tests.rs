@@ -9,6 +9,8 @@ use egui_kittest::{
 };
 use std::time::{Duration, Instant};
 use support::bmp;
+#[path = "rename_tests.rs"]
+mod rename_tests;
 #[path = "smart_tests.rs"]
 mod smart_tests;
 
@@ -1749,6 +1751,20 @@ fn visual_snapshots() {
     smart.event(egui::Event::PointerGone);
     smart.run();
     smart.snapshot("catalogue-smart-rules");
+    results.extend(smart.take_snapshot_results());
+    smart.get_by_label("Cancel").click();
+    settle(&mut smart);
+    smart.get_by_label("Highly rated (Smart)").click_secondary();
+    settle(&mut smart);
+    smart.event(egui::Event::PointerGone);
+    smart.run();
+    smart.snapshot("catalogue-rename-menu");
+    results.extend(smart.take_snapshot_results());
+    smart.get_by_label("Rename…").click();
+    settle(&mut smart);
+    smart.event(egui::Event::PointerGone);
+    smart.run();
+    smart.snapshot("catalogue-rename-collection");
     results.extend(smart.take_snapshot_results());
 }
 

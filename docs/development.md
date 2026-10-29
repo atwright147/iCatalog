@@ -92,6 +92,8 @@ task run -- collection photos.sqlite remove --id 1 --asset 3
 
 Use the ids returned by create/list and the asset ids from `list`. Names are trimmed, limited to 1024 UTF-8 bytes and cannot contain control characters; names may repeat, so commands identify collections by id. Add/remove are idempotent. Membership does not move or delete assets, folders or media. Smart Collections are implemented (D35); see below.
 
+Rename either collection kind with `task run -- collection my.sqlite rename --id 1 --name "New name"`. In the desktop sidebar, right-click any collection and choose **Rename…**. The current name is selected for replacement; **Rename** or Enter saves, while Cancel/Escape/backdrop dismisses without writing. Blank names disable Rename. Invalid names and failed writes preserve the entered name and show an inline error for retry. Controls and cancellation are disabled while saving. Renaming preserves collection ids, manual membership, smart rules, active selections and counts; the sidebar reorders by the new name (D36).
+
 Smart Collections evaluate stored rules against the current catalogue automatically:
 
 ```sh

@@ -78,6 +78,18 @@ impl Catalog {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Rename either collection kind, preserving its id, members and rules.
+    pub fn rename_collection(&self, id: i64, name: &str) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE collection SET name=?2 WHERE id=?1",
+            params![id, name],
+        )?;
+        if changed == 0 {
+            return Err(CatalogError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        }
+        Ok(())
+    }
+
     pub fn collection(&self, id: i64) -> Result<Option<Collection>> {
         let mut collection = self
             .conn

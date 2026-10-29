@@ -10,7 +10,7 @@ impl Command for Collection {
     }
 
     fn label(&self) -> &'static str {
-        "Create and browse manual and Smart Collections"
+        "Create, rename and browse manual and Smart Collections"
     }
 
     fn params(&self) -> &'static [ParamSpec] {
@@ -19,19 +19,19 @@ impl Command for Collection {
                 name: "action",
                 required: true,
                 positional: true,
-                doc: "list | create | create-smart | rules | set-rules | show | add | remove (after the catalogue path); set-rules replaces all rules",
+                doc: "list | create | create-smart | rename | rules | set-rules | show | add | remove (after the catalogue path); set-rules replaces all rules",
             },
             ParamSpec {
                 name: "name",
                 required: false,
                 positional: false,
-                doc: "collection name for create (1-1024 bytes after trimming)",
+                doc: "collection name for create/create-smart/rename (1-1024 bytes after trimming)",
             },
             ParamSpec {
                 name: "id",
                 required: false,
                 positional: false,
-                doc: "collection id for show/add/remove (see collection list)",
+                doc: "collection id for show/add/remove/rename/rules/set-rules (see collection list)",
             },
             ParamSpec {
                 name: "asset",
@@ -94,6 +94,7 @@ impl Command for Collection {
         let allowed: &[&str] = match action {
             "list" => &[],
             "create" => &["name"],
+            "rename" => &["id", "name"],
             "create-smart" => &["name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
             "set-rules" => &["id", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
             "rules" => &["id"],
@@ -101,7 +102,7 @@ impl Command for Collection {
             "add" | "remove" => &["id", "asset", "assets"],
             _ => {
                 return Err(EngineError::BadParam(
-                    "collection action must be list, create, create-smart, rules, set-rules, show, add or remove".into(),
+                    "collection action must be list, create, create-smart, rename, rules, set-rules, show, add or remove".into(),
                 ))
             }
         };
@@ -118,6 +119,12 @@ impl Command for Collection {
         match action {
             "create-smart" | "rules" | "set-rules" => super::smart_collection::run(ctx, params),
             "list" => Ok(collection_table(ctx.catalog().all_collections()?)),
+            "rename" => {
+                let id = require_id(ctx, params, "id")?;
+                let name = name(params)?;
+                ctx.catalog().rename_collection(id, name)?;
+                Ok(Outcome::text(format!("Renamed collection {id}: {name}")))
+            }
             "create" => {
                 let name = name(params)?;
                 let id = ctx.catalog().insert_collection(name)?;
