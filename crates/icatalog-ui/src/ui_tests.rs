@@ -149,6 +149,27 @@ fn settle(h: &mut Harness<'_, App>) {
     h.run();
 }
 
+fn double_click_collection(h: &mut Harness<'_, App>, label: &str) {
+    // Separate gestures, then send two clicks at native-like frame intervals.
+    h.run_steps(40);
+    h.get_by_label(label).click();
+    h.run_steps(2);
+    h.get_by_label(label).click();
+    settle(h);
+}
+
+fn double_click_harness(fixture: &Fixture) -> Harness<'static, App> {
+    let path = fixture.path();
+    Harness::builder()
+        .with_size([800.0, 600.0])
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |cc| {
+            typography::configure(&cc.egui_ctx);
+            let (_, receiver) = std::sync::mpsc::channel();
+            App::with_menu(open_catalogue(&path).unwrap(), path, None, receiver)
+        })
+}
+
 fn seed_list_metadata(fixture: &Fixture) {
     let ctx = open_catalogue(&fixture.path()).unwrap();
     ctx.catalog()

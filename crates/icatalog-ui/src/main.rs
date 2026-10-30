@@ -605,12 +605,13 @@ impl App {
                         if row.double_clicked()
                             && self.worker.is_none()
                             && self.create_collection.is_none()
-                            && collection.rules.is_some()
                         {
+                            double_clicked = Some(collection.id);
                             if let Some(rules) = &collection.rules {
-                                double_clicked = Some(collection.id);
                                 edit_rules =
                                     Some((collection.id, collection.name.clone(), rules.clone()));
+                            } else {
+                                rename = Some((collection.id, collection.name.clone()));
                             }
                         } else if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
@@ -667,12 +668,9 @@ impl App {
             self.collection_anchor = Some(id);
             self.dirty = true;
         } else if let Some((id, modifiers)) = clicked {
-            let selected_smart = matches!(&self.folder_sel, FolderSelection::Collections(ids) if ids == &[id])
-                && self
-                    .collections
-                    .iter()
-                    .any(|c| c.id == id && c.rules.is_some());
-            if selected_smart
+            let selected_collection =
+                matches!(&self.folder_sel, FolderSelection::Collections(ids) if ids == &[id]);
+            if selected_collection
                 && !modifiers.ctrl
                 && !modifiers.command
                 && !modifiers.shift

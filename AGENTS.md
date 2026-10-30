@@ -127,11 +127,11 @@ Smart Collection previews (D37) show a live catalogue-wide match count and plain
 
 Every manual and Smart Collection supports `collection rename --id <id> --name <name>` and sidebar right-click Rename… (D36). The modal selects the current name, saves with Rename/Enter and preserves inputs on failure; pending writes disable controls/cancellation. Renaming preserves collection ids, membership, rules, selection and counts. No schema migration.
 
-Smart Collection editing (D38) supports changing Name and rules in the same Save/Enter transaction (`set-rules` accepts optional `--name`; omission preserves the name). Double-clicking a Smart Collection selects it and opens the same dialog as Edit Rules…. Manual clicks remain unchanged; busy commands/modals block opening another editor. Invalid names or failed writes preserve both inputs and roll back both changes.
+Smart Collection editing (D38) supports changing Name and rules in the same Save/Enter transaction (`set-rules` accepts optional `--name`; omission preserves the name). Double-clicking a Smart Collection selects it and opens the same dialog as Edit Rules…. Normal Collections open Rename on double-click (D41); busy commands/modals block opening another editor. Invalid names or failed writes preserve both inputs and roll back both changes.
 
 macOS double-click timing follows the system preference (D39), with a 500 ms fallback when AppKit cannot supply it. Headless interaction checks include slower clicks and native-style batched input. Other platforms retain their current egui input settings.
 
-Smart Collection double-clicks keep the current selection stable (D40). A plain click on an already solely selected Smart Collection waits for the double-click interval before deselecting; another click/action cancels that pending toggle. New selections, manual rows and modifiers remain immediate.
+Double-clicking a normal Collection opens Rename with its name focused and selected (D41); Smart Collections open Edit Rules. Both keep the current selection stable (D40/D41). A plain click on an already solely selected Collection waits for the double-click interval before deselecting; another click/action cancels that pending toggle. New selections and modifiers remain immediate. Opening either dialog is blocked during a pending command or another modal.
 
 Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
 

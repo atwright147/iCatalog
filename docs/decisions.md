@@ -382,7 +382,7 @@ Tests cover preview/saved-count parity across every rule, read-only engine/CLI p
 
 The owner requested editable names in the Smart Collection editor and double-click access to its rules. Enable Name in the shared Edit Smart Collection modal and use Save (or Enter from Name) to submit the name and complete rule set together. Extend `collection set-rules --id …` with optional `--name …`, preserving the current name when omitted. Reuse creation/rename name validation and the existing per-command transaction; a validation/storage failure preserves both the old name and rules. IDs, asset identity and selection stay stable; membership/counts reflect the saved rules. No schema or dependency change.
 
-A double-click on a Smart Collection sidebar row selects that collection and opens the same editor as right-click Edit Rules…. It takes precedence over the second single-click toggle; D40 also defers deselection from the first click on an already selected Smart Collection. Manual collections retain their existing clicks, and opening an editor is blocked during a pending command or another modal. Controls and dismissal disable while saving; errors preserve both name and rules for retry. Existing standalone Rename remains available for both kinds.
+A double-click on a Smart Collection sidebar row selects that collection and opens the same editor as right-click Edit Rules…. It takes precedence over the second single-click toggle; D40 also defers deselection from the first click on an already selected Smart Collection. D41 later adds Rename on manual-collection double-click; opening an editor is blocked during a pending command or another modal. Controls and dismissal disable while saving; errors preserve both name and rules for retry. Existing standalone Rename remains available for both kinds.
 
 Tests cover atomic name/rule rollback and optional-name compatibility, CLI invocation, real-widget double-clicks in grid/list with native-like timing, manual rows, save/Enter/cancel/reopen, blank/invalid names, failed-save retry and busy controls/opening. The editable-name and Save-button screenshots are reviewed.
 
@@ -394,11 +394,19 @@ Tests cover application/fallback of the native preference, invalid values, 400 m
 
 ## D40. Keep Smart Collection selection stable during double-clicks (2026-10-30)
 
-The owner observed that the editor opened but an already selected collection briefly deselected between the two clicks. A regression test reproduced the first click switching to All. Defer only the plain-click deselection of an already solely selected Smart Collection until the configured double-click interval expires. Selecting a different collection, manual rows and modifier gestures remain immediate. The double-click cancels the pending toggle and opens the editor with the collection and asset selection intact.
+The owner observed that the editor opened but an already selected collection briefly deselected between the two clicks. A regression test reproduced the first click switching to All. Defer only the plain-click deselection of an already solely selected Smart Collection until the configured double-click interval expires. Selecting a different collection and modifier gestures remain immediate; D41 extends the delayed deselection to manual rows as well. The double-click cancels the pending toggle and opens the editor with the collection and asset selection intact.
 
 This is pure shell gesture state, using egui's event clock and D39's interval. A later pointer press, keyboard/scroll action, navigation, modal or pending command cancels obsolete deselection; a completed single click still returns to All. Request a repaint when the timer commits so the row and asset view refresh together. No engine, schema, dependency or command change.
 
 The grid/list regression checks the state between clicks, asset selection, editor opening/cancellation, actual single-click deselection, navigation cancellation, immediate modifier toggles and Escape cancellation. It failed before the fix.
+
+## D41. Open Rename by double-clicking normal Collections (2026-10-30)
+
+The owner requested double-click access to Rename for normal (manual) Collections. Route their sidebar double-clicks to the existing Rename modal/command, while Smart Collections retain Edit Rules. Select the targeted collection, focus/select its current name, and preserve D36's validation, Rename/Enter, cancellation and pending/error safeguards.
+
+Extend D40's delayed plain-click deselection to both kinds so an already selected normal Collection does not flash through All between clicks. New selections and modifier gestures remain immediate; opening dialogs remains blocked by pending commands or another modal. Reuse the existing command/worker; no engine, schema, dependency, CLI or Taskfile surface changes.
+
+Grid/list real-widget tests use native-like click timing and cover unselected/selected targets, stable asset selection, focused replacement, Rename/Enter/persistence, Cancel/Escape and busy opening. Existing drag/drop, modifiers and rename failure/retry tests stay green.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

@@ -10,27 +10,6 @@ fn replace_rule(h: &mut Harness<'_, App>, label: &str, text: &str) {
     h.run_steps(2);
 }
 
-fn double_click_collection(h: &mut Harness<'_, App>, label: &str) {
-    // Separate gestures, then send two clicks at native-like frame intervals.
-    h.run_steps(40);
-    h.get_by_label(label).click();
-    h.run_steps(2);
-    h.get_by_label(label).click();
-    settle(h);
-}
-
-fn double_click_harness(fixture: &Fixture) -> Harness<'static, App> {
-    let path = fixture.path();
-    Harness::builder()
-        .with_size([800.0, 600.0])
-        .with_step_dt(1.0 / 60.0)
-        .build_eframe(move |cc| {
-            typography::configure(&cc.egui_ctx);
-            let (_, receiver) = std::sync::mpsc::channel();
-            App::with_menu(open_catalogue(&path).unwrap(), path, None, receiver)
-        })
-}
-
 #[test]
 fn selected_smart_double_click_keeps_selection_stable_between_clicks() {
     for list in [false, true] {
@@ -217,7 +196,12 @@ fn smart_double_click_edits_name_and_rules_in_grid_and_list() {
             settle(&mut h);
         }
         double_click_collection(&mut h, "Album");
-        assert!(h.state().create_collection.is_none());
+        assert_eq!(
+            h.state().create_collection.as_ref().unwrap().rename_id,
+            Some(2)
+        );
+        h.get_by_label("Cancel").click();
+        settle(&mut h);
         double_click_collection(&mut h, "Picks (Smart)");
         assert_eq!(
             h.state().create_collection.as_ref().unwrap().editing_id,

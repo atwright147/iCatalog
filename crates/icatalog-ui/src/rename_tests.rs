@@ -35,6 +35,89 @@ fn open_rename(h: &mut Harness<'_, App>, label: &str) {
 }
 
 #[test]
+fn double_click_manual_collection_renames_without_selection_flicker() {
+    for list in [false, true] {
+        let fixture = setup();
+        let ctx = open_catalogue(&fixture.path()).unwrap();
+        let mut h = double_click_harness(&fixture);
+        if list {
+            h.get_by_label("List").click();
+            settle(&mut h);
+        }
+        h.get_by_label("Album").click();
+        settle(&mut h);
+        h.get(
+            By::new()
+                .label("Red.bmp")
+                .role(egui::accesskit::Role::Button),
+        )
+        .click();
+        settle(&mut h);
+        h.run_steps(40);
+        h.get_by_label("Album").click();
+        h.run_steps(2);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![1]));
+        assert_eq!(h.state().selection.primary, Some(1));
+        h.get_by_label("Album").click();
+        settle(&mut h);
+        assert_eq!(
+            h.state().create_collection.as_ref().unwrap().rename_id,
+            Some(1)
+        );
+        assert_eq!(h.get_by_label("Name").value().as_deref(), Some("Album"));
+        assert!(h.query_by_label("Smart Collection").is_none());
+        h.get_by_label("Name").type_text("Renamed album");
+        h.run_steps(2);
+        if list {
+            h.key_press(egui::Key::Enter);
+        } else {
+            h.get_by_label("Rename").click();
+        }
+        settle(&mut h);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![1]));
+        assert_eq!(h.state().selection.primary, Some(1));
+        assert_eq!(h.state().collection_counts.get(&1), Some(&2));
+        let reopened = open_catalogue(&fixture.path()).unwrap();
+        assert_eq!(
+            reopened.catalog().collection(1).unwrap().unwrap().name,
+            "Renamed album"
+        );
+        assert_eq!(reopened.catalog().collection_assets(1).unwrap(), vec![1, 2]);
+        double_click_collection(&mut h, "Renamed album");
+        h.get_by_label("Name").type_text("Discarded");
+        h.run_steps(2);
+        if list {
+            h.key_press(egui::Key::Escape);
+        } else {
+            h.get_by_label("Cancel").click();
+        }
+        settle(&mut h);
+        h.run_steps(40);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![1]));
+        assert_eq!(
+            reopened.catalog().collection(1).unwrap().unwrap().name,
+            "Renamed album"
+        );
+        ctx.catalog()
+            .connection()
+            .execute_batch("BEGIN EXCLUSIVE")
+            .unwrap();
+        let mut params = Params::new();
+        params.set("id", "1").set("rating", "4");
+        h.state_mut().run_command("edit", &params);
+        h.run_steps(40);
+        h.get_by_label("Renamed album").click();
+        h.run_steps(2);
+        h.get_by_label("Renamed album").click();
+        h.run_steps(3);
+        assert!(h.state().worker.is_some());
+        assert!(h.state().create_collection.is_none());
+        ctx.catalog().connection().execute_batch("COMMIT").unwrap();
+        settle(&mut h);
+    }
+}
+
+#[test]
 fn rename_manual_and_smart_preserves_selection_counts_memberships_rules_and_reopen() {
     for list in [false, true] {
         let fixture = setup();

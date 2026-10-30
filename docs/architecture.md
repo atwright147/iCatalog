@@ -35,7 +35,7 @@ Smart Collection editing (D38) submits the editable Name and full rules through 
 
 Desktop shell input initialization (D39) reads the macOS double-click interval through the existing safe AppKit binding and sets egui's input option; unavailable intervals fall back to 500 ms. Other platforms keep their current settings. No engine/model behavior or new dependency is involved.
 
-Smart Collection deselection arbitration (D40) lives only in shell gesture state: a selected smart row delays its plain-click toggle for the configured double-click interval. A double-click or intervening action cancels it; committed timers request repaint. Model/command behavior is unchanged.
+Collection double-click routing and deselection arbitration (D40/D41) live only in shell gesture state: a selected row delays its plain-click toggle for the configured double-click interval. A double-click or intervening action cancels it; committed timers request repaint. Normal Collections open the shared Rename modal and Smart Collections open Edit Rules. Both use existing engine commands/workers; model/command behavior is unchanged.
 
 ## 3. Layers
 
