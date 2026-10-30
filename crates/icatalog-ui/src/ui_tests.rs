@@ -149,6 +149,96 @@ fn settle(h: &mut Harness<'_, App>) {
     h.run();
 }
 
+fn seed_folder_tree(fixture: &Fixture, device_name: &str) {
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute(
+            "INSERT INTO source(id,label,identity,device_id,device_label)
+             VALUES (1,'Photos','/synthetic/Photos','synthetic-device',?1)",
+            [device_name],
+        )
+        .unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "UPDATE folder SET source_id=1 WHERE id=1;
+             UPDATE folder SET source_id=1,parent_id=1 WHERE id=2;
+             UPDATE asset SET folder_id=NULL WHERE id=3;",
+        )
+        .unwrap();
+}
+
+fn click_position(h: &mut Harness<'_, App>, pos: egui::Pos2) {
+    h.hover_at(pos);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(1);
+    release_at(h, pos);
+}
+
+#[test]
+fn folders_fill_sidebar_and_respond_at_the_right_edge() {
+    let device_name = "A very long device name that should truncate inside the sidebar";
+    let fixture = Fixture::new();
+    seed_folder_tree(&fixture, device_name);
+    for size in [[800.0, 600.0], [1100.0, 720.0]] {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            for scale in [1.0, 2.0] {
+                let mut h = fixture.harness_with_display(size, scale, theme);
+                settle(&mut h);
+                let all = h.get_by_label("All").rect();
+                let unassigned = h.get_by_label("Unassigned").rect();
+                let device = h.get_by_label(device_name).rect();
+                let photos = h.get_by_label("Photos").rect();
+                assert!(all.width() > 180.0);
+                assert_eq!(all.left(), unassigned.left());
+                for row in [unassigned, device, photos] {
+                    assert!((row.right() - all.right()).abs() < 1.0);
+                    assert_eq!(row.height(), all.height());
+                }
+                assert!(photos.left() > device.left());
+                let right_edge = |rect: egui::Rect| egui::pos2(rect.right() - 3.0, rect.center().y);
+                click_position(&mut h, right_edge(unassigned));
+                assert_eq!(h.state().folder_sel, FolderSelection::Unassigned);
+                assert_eq!(h.state().assets.len(), 1);
+                click_position(&mut h, right_edge(all));
+                assert_eq!(h.state().folder_sel, FolderSelection::All);
+                assert_eq!(h.state().assets.len(), 3);
+                click_position(&mut h, right_edge(device));
+                assert_eq!(
+                    h.state().folder_sel,
+                    FolderSelection::Device("synthetic-device".into())
+                );
+                assert_eq!(h.state().assets.len(), 2);
+                click_position(&mut h, right_edge(photos));
+                assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
+                // The separate arrow still expands folders without selecting them.
+                let gap = h.ctx.style_of(theme).spacing.item_spacing.x;
+                let arrow = egui::pos2(photos.left() - gap - 9.0, photos.center().y);
+                click_position(&mut h, arrow);
+                let child = h.get_by_label("Other").rect();
+                assert!((child.right() - all.right()).abs() < 1.0);
+                assert!(child.left() > photos.left());
+                assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
+                // Device arrows still collapse; clicking its name reopens it.
+                let arrow = egui::pos2(device.left() - gap - 9.0, device.center().y);
+                click_position(&mut h, arrow);
+                assert!(h.query_by_label("Photos").is_none());
+                assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
+                click_position(&mut h, right_edge(device));
+                assert!(h.query_by_label("Photos").is_some());
+                assert!(h.query_by_label("Other").is_some());
+            }
+        }
+    }
+}
+
 fn double_click_collection(h: &mut Harness<'_, App>, label: &str) {
     // Separate gestures, then send two clicks at native-like frame intervals.
     h.run_steps(40);
@@ -1564,6 +1654,22 @@ fn visual_snapshots() {
     narrow.snapshot_options("catalogue-narrow", &clipped_thumbnail_options);
     let mut results = h.take_snapshot_results();
     results.extend(narrow.take_snapshot_results());
+    let folders_fixture = Fixture::new();
+    let device_name = "A very long device name that should truncate inside the sidebar";
+    seed_folder_tree(&folders_fixture, device_name);
+    for (name, theme) in [
+        ("catalogue-folders", egui::Theme::Dark),
+        ("catalogue-folders-light", egui::Theme::Light),
+    ] {
+        let mut folders = folders_fixture.harness_with_display([800.0, 600.0], 1.0, theme);
+        folders.get_by_label(device_name).click();
+        settle(&mut folders);
+        folders.state_mut().expanded.insert(1);
+        folders.event(egui::Event::PointerGone);
+        folders.run();
+        folders.snapshot(name);
+        results.extend(folders.take_snapshot_results());
+    }
     let ctx = open_catalogue(&fixture.path()).unwrap();
     let id = ctx.catalog().insert_collection("Favourites").unwrap();
     ctx.catalog().add_to_collection(id, 1).unwrap();

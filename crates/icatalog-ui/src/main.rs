@@ -1405,6 +1405,22 @@ fn disclosure_arrow(ui: &mut egui::Ui, open: bool) -> egui::Response {
     response
 }
 
+/// Fill the remaining sidebar width while keeping the name left aligned.
+fn folder_row<'a>(
+    ui: &mut egui::Ui,
+    selected: bool,
+    name: impl Into<egui::Atom<'a>>,
+) -> egui::Response {
+    ui.add(
+        egui::Button::selectable(selected, (name.into(), egui::Atom::grow()))
+            .min_size(egui::vec2(
+                ui.available_width(),
+                ui.spacing().interact_size.y,
+            ))
+            .truncate(),
+    )
+}
+
 /// A single clickable row, with fixed count space and a shrinking name.
 fn collection_row(
     ui: &mut egui::Ui,
@@ -1632,10 +1648,10 @@ impl eframe::App for App {
                 // folder tree
                 let mut sel = self.folder_sel.clone();
                 ui.label("Folders");
-                if ui.selectable_label(matches!(sel, FolderSelection::All), "All").clicked() {
+                if folder_row(ui, matches!(sel, FolderSelection::All), "All").clicked() {
                     sel = FolderSelection::All;
                 }
-                if ui.selectable_label(matches!(sel, FolderSelection::Unassigned), "Unassigned").clicked() {
+                if folder_row(ui, matches!(sel, FolderSelection::Unassigned), "Unassigned").clicked() {
                     sel = FolderSelection::Unassigned;
                 }
                 fn folder_device(
@@ -1702,11 +1718,12 @@ impl eframe::App for App {
                                             state.selected,
                                             FolderSelection::Device(d) if *d == key
                                         );
-                                        if ui
-                                            .selectable_label(
+                                        if folder_row(
+                                                ui,
                                                 is_sel,
                                                 egui::RichText::new(&dev).strong(),
                                             )
+                                            .on_hover_text(&dev)
                                             .clicked()
                                         {
                                             state.collapsed_devices.remove(&key);
@@ -1740,7 +1757,7 @@ impl eframe::App for App {
                                 ui.add_space(16.0);
                             }
                             let is_sel = matches!(state.selected, FolderSelection::Folder(id) if *id == f.id);
-                            if ui.selectable_label(is_sel, &f.name).clicked() {
+                            if folder_row(ui, is_sel, f.name.as_str()).on_hover_text(&f.name).clicked() {
                                 *state.selected = FolderSelection::Folder(f.id);
                             }
                         });

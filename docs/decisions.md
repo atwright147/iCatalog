@@ -408,6 +408,12 @@ Extend D40's delayed plain-click deselection to both kinds so an already selecte
 
 Grid/list real-widget tests use native-like click timing and cover unselected/selected targets, stable asset selection, focused replacement, Rename/Enter/persistence, Cancel/Escape and busy opening. Existing drag/drop, modifiers and rename failure/retry tests stay green.
 
+## D42. Full-width Folders navigation (2026-10-30)
+
+The owner requested full-width accordion headers and All/Unassigned buttons. Use selectable rows filling the available sidebar content width, with names aligned left. Device and folder names fill the remaining width after their existing disclosure arrows and indentation; selection highlights and click targets extend to the right edge. Long names truncate and expose their full text on hover. Disclosure arrows still only expand/collapse, and selecting a device still opens its section.
+
+This is shell layout only; no engine, schema, dependency or command/gate surface changes. Real-widget tests cover right-edge selection, long-name bounds, nested folders and independent disclosure behavior at narrow/normal sizes, both themes and 1×/2× scales. Reviewed screenshots cover the wider rows and device sections.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

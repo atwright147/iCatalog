@@ -78,6 +78,8 @@ Commands return `Err` for any input (hostile params included). A fuzz-style test
 
 UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless tests instantiate the same eframe App without installing OS menus; screenshot tests use its real renderer at fixed viewport/theme/scale. The native smoke integration test launches the production binary and operates macOS menus/dialog cancellation through System Events. Test fixtures and snapshot baselines live under `crates/icatalog-ui`; no test logic enters the engine or catalogue layers.
 
+Folders rows (D42) use selectable buttons filling the remaining sidebar width, with left-aligned names, truncation and full-name hover text. All/Unassigned fill the content area; device and folder rows retain separate disclosure arrows and indentation. Selection and collapse behavior remain shell state.
+
 Collection renaming (D36) uses `collection rename --id … --name …` for both manual and Smart Collections. Every sidebar row offers Rename…; the shared collection modal and worker submit the same engine action as the CLI. Catalogue CRUD updates only `collection.name`; collection ids, membership and rules remain stable. No migration or dependency is needed.
 
 Visual comparisons allow no failed pixels. Two Linux 800×600 screenshots with a clipped thumbnail use a per-pixel YIQ colour tolerance of 1.0, based on inspected Mesa/Metal differences of at most two red-channel levels in two pixels. Other snapshots/platforms keep the library's 0.6 tolerance; reviewed baselines remain unchanged.
