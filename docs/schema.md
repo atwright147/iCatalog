@@ -190,6 +190,8 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 
 `Catalog::count_smart_matches` (D37) validates unsaved `SmartRules` and binds them as one CTE row, reusing the saved membership predicate for a single COUNT(*) query. It allocates no asset result set and writes no collection or rule rows. Preview counts have the same missing-data, rating/label-zero and AND semantics as saved collections. No migration.
 
+`AssetQuery::folder_recursive` (D43) optionally includes all descendants of `folder_id` using `folder.parent_id`. The recursive SQL CTE deduplicates folder ids with `UNION`, so cyclic links terminate and assets appear once. Filtering happens before paging and composes with other predicates; names, path prefixes and UI expansion state do not determine membership. The default remains exact-folder matching. Unassigned (`folder_id_null = Some(true)`) takes precedence; recursion without a folder id has no effect. The desktop enables recursion for folder browsing. No migration or catalogue write.
+
 `rename_collection` (D36) updates only the name of an existing collection, regardless of kind; ids, members and smart rules are unchanged. The engine `collection rename` action applies the creation-name validation and atomic transaction. Duplicate names remain allowed. No schema migration is required.
 
 `collection set-rules` may also rename the Smart Collection (D38): optional `--name` uses the existing validation and updates `collection.name` in the same engine transaction as `smart_collection` replacement. Any error rolls both back. Omitted names preserve the existing value, and ids/asset identity remain stable. No migration.

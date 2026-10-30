@@ -414,6 +414,14 @@ The owner requested full-width accordion headers and All/Unassigned buttons. Use
 
 This is shell layout only; no engine, schema, dependency or command/gate surface changes. Real-widget tests cover right-edge selection, long-name bounds, nested folders and independent disclosure behavior at narrow/normal sizes, both themes and 1×/2× scales. Reviewed screenshots cover the wider rows and device sections.
 
+## D43. Browse selected folders recursively (2026-10-30)
+
+The owner requested recursive folder browsing. Selecting any folder in the desktop shows assets directly assigned to it and all descendants in grid/list, including collapsed branches and descendants of folders with no direct assets. Search narrows that subtree; selecting a child narrows the scope again. Disclosure arrows change only expansion state, preserving the current asset view and selection. All, Unassigned, device and collection scopes retain their behavior.
+
+Add an opt-in `AssetQuery::folder_recursive` boolean and enable it in desktop browsing. The catalogue SQL follows `folder.parent_id` in a recursive CTE with `UNION` over folder ids as its seen-set, preventing cycles and duplicate assets. It uses the existing parent index and applies subtree membership alongside other filters before ordering/paging. Folder names and path prefixes are not hierarchy tests; browsing needs no original media. Exact-folder queries remain the API default, Unassigned takes precedence and recursion without a folder id has no effect.
+
+This extends the existing read-only browsing query; the shell holds selection/expansion state only. No new command, CLI surface, schema, dependency or Taskfile gate is needed. Synthetic catalogue tests cover direct/child/grandchild membership, unrelated roots/sources and similar paths, empty/missing folders, filter composition/paging, self/multi-folder cycles and a 2,000-level tree. Real-widget grid/list tests cover collapsed descendants, search/clear, annotation edit persistence, child navigation, stable asset selection while expanding/collapsing, empty parents/leaves and existing navigation scopes.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

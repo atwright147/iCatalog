@@ -325,6 +325,7 @@ impl App {
                 FolderSelection::Folder(fid) => Some(*fid),
                 _ => None,
             },
+            folder_recursive: true,
             folder_id_null: match &self.folder_sel {
                 FolderSelection::Unassigned => Some(true),
                 _ => None,

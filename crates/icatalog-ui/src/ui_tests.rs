@@ -183,6 +183,124 @@ fn click_position(h: &mut Harness<'_, App>, pos: egui::Pos2) {
 }
 
 #[test]
+fn recursive_folder_browsing_includes_collapsed_descendants_and_scopes_search_and_edits() {
+    let fixture = Fixture::new();
+    seed_folder_tree(&fixture, "Demo device");
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "INSERT INTO source(id,label,identity,device_id,device_label)
+             VALUES (2,'Another source','/synthetic/another','another-device','Another device');
+             UPDATE folder SET name='Trips' WHERE id=2;
+             INSERT INTO folder(id,parent_id,source_id,name) VALUES
+             (3,2,1,'Beach'),(4,NULL,1,'Sibling'),(5,NULL,2,'Another source'),
+             (6,NULL,1,'Empty parent'),(7,6,1,'Nested'),(8,NULL,1,'Empty leaf');
+             UPDATE asset SET folder_id=2 WHERE id=2;
+             UPDATE asset SET folder_id=3 WHERE id=3;
+             INSERT INTO asset(id,uid,folder_id,path,name) VALUES
+             (4,'sibling',4,'/synthetic/sibling.bmp','Sibling.bmp'),
+             (5,'another-source',5,'/synthetic/Photos/Green.bmp','Another.bmp'),
+             (6,'unassigned',NULL,'/synthetic/Photos/loose.bmp','Loose.bmp'),
+             (7,'nested',7,'/synthetic/nested.bmp','Nested.bmp');",
+        )
+        .unwrap();
+    drop(ctx);
+    for mode in ["Grid", "List"] {
+        let mut h = fixture.harness([1100.0, 720.0]);
+        h.get_by_label(mode).click();
+        settle(&mut h);
+        let visible_ids =
+            |h: &Harness<'_, App>| h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>();
+        let toggle_arrow = |h: &mut Harness<'_, App>, label: &str| {
+            let rect = h.get_by_label(label).rect();
+            let gap = h.ctx.style_of(egui::Theme::Dark).spacing.item_spacing.x;
+            click_position(h, egui::pos2(rect.left() - gap - 9.0, rect.center().y));
+            settle(h);
+        };
+        h.get_by_label("Photos").click();
+        settle(&mut h);
+        assert!(h.query_by_label("Trips").is_none());
+        assert_eq!(visible_ids(&h), vec![1, 2, 3]);
+        assert!(h
+            .query(
+                By::new()
+                    .label("Green.bmp")
+                    .role(egui::accesskit::Role::Button)
+            )
+            .is_some());
+        // Search finds a grandchild even when its entire branch is collapsed.
+        h.get_by_label("Search name or path").click();
+        h.get_by_label("Search name or path").type_text("Green");
+        h.key_press(egui::Key::Enter);
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![3]);
+        h.get(
+            By::new()
+                .label("Green.bmp")
+                .role(egui::accesskit::Role::Button),
+        )
+        .click();
+        settle(&mut h);
+        if mode == "List" {
+            h.get_by_label("Details").click();
+            settle(&mut h);
+        }
+        h.get_by_label("Rating 5").click();
+        settle(&mut h);
+        assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
+        assert_eq!(visible_ids(&h), vec![3]);
+        h.get_by_label("x").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![1, 2, 3]);
+        // Expanding and collapsing the tree does not change results or asset selection.
+        toggle_arrow(&mut h, "Photos");
+        toggle_arrow(&mut h, "Trips");
+        assert_eq!(visible_ids(&h), vec![1, 2, 3]);
+        assert_eq!(h.state().selection.primary, Some(3));
+        h.get_by_label("Trips").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![2, 3]);
+        h.get_by_label("Beach").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![3]);
+        assert_eq!(h.state().selection.primary, Some(3));
+        h.get_by_label("Photos").click();
+        settle(&mut h);
+        toggle_arrow(&mut h, "Photos");
+        assert_eq!(visible_ids(&h), vec![1, 2, 3]);
+        assert_eq!(h.state().selection.primary, Some(3));
+        h.get_by_label("Empty parent").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![7]);
+        h.get_by_label("Empty leaf").click();
+        settle(&mut h);
+        assert!(h.state().assets.is_empty());
+        h.get_by_label("Sibling").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![4]);
+        h.get_by_label("Unassigned").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![6]);
+        h.get_by_label("Demo device").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![1, 2, 3, 4, 7]);
+        h.get_by_label("Another device").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![5]);
+        h.get_by_label("All").click();
+        settle(&mut h);
+        assert_eq!(visible_ids(&h), vec![1, 2, 3, 4, 5, 6, 7]);
+    }
+    let reopened = open_catalogue(&fixture.path()).unwrap();
+    assert_eq!(reopened.catalog().annotation(3).unwrap().unwrap().rating, 5);
+    assert_eq!(
+        reopened.catalog().asset(3).unwrap().unwrap().folder_id,
+        Some(3)
+    );
+}
+
+#[test]
 fn folders_fill_sidebar_and_respond_at_the_right_edge() {
     let device_name = "A very long device name that should truncate inside the sidebar";
     let fixture = Fixture::new();

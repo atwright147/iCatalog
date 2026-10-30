@@ -80,6 +80,8 @@ UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless test
 
 Folders rows (D42) use selectable buttons filling the remaining sidebar width, with left-aligned names, truncation and full-name hover text. All/Unassigned fill the content area; device and folder rows retain separate disclosure arrows and indentation. Selection and collapse behavior remain shell state.
 
+Folder browsing (D43) sets `AssetQuery::folder_recursive` for desktop selections. The catalogue query follows `folder.parent_id` with a recursive CTE using `UNION` to deduplicate visited ids and terminate cycles. It filters the selected folder and descendants before ordering/paging, composing with search and other filters. Expansion state does not affect membership. Exact-folder queries remain the API default; the shell holds only selection/expansion state. No schema, command or dependency change.
+
 Collection renaming (D36) uses `collection rename --id … --name …` for both manual and Smart Collections. Every sidebar row offers Rename…; the shared collection modal and worker submit the same engine action as the CLI. Catalogue CRUD updates only `collection.name`; collection ids, membership and rules remain stable. No migration or dependency is needed.
 
 Visual comparisons allow no failed pixels. Two Linux 800×600 screenshots with a clipped thumbnail use a per-pixel YIQ colour tolerance of 1.0, based on inspected Mesa/Metal differences of at most two red-channel levels in two pixels. Other snapshots/platforms keep the library's 0.6 tolerance; reviewed baselines remain unchanged.

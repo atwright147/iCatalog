@@ -24,8 +24,11 @@ pub struct AssetQuery {
     pub min_rating: Option<i64>,
     /// Exact label.
     pub label: Option<i64>,
-    /// Filter by folder id (Some(fid)) or unassigned (Some logic via folder_id_null).
+    /// Filter by folder id; exact unless `folder_recursive` is true.
     pub folder_id: Option<i64>,
+    /// Include descendants of `folder_id` using catalogue parent links, not paths.
+    /// Ignored without a folder id or when `folder_id_null` is true.
+    pub folder_recursive: bool,
     /// If true, match assets with folder_id IS NULL (takes precedence when filtering unassigned).
     pub folder_id_null: Option<bool>,
     /// Restrict to assets in folders belonging to any of these sources (device/volume view).
@@ -116,15 +119,23 @@ impl Catalog {
             );
             args.push(Value::Integer(l));
         }
-        if let Some(fid_null) = q.folder_id_null {
-            if fid_null {
-                sql.push_str(" AND asset.folder_id IS NULL");
-            } else if let Some(fid) = q.folder_id {
-                sql.push_str(" AND asset.folder_id = ?");
-                args.push(Value::Integer(fid));
-            }
+        if q.folder_id_null == Some(true) {
+            sql.push_str(" AND asset.folder_id IS NULL");
         } else if let Some(fid) = q.folder_id {
-            sql.push_str(" AND asset.folder_id = ?");
+            if q.folder_recursive {
+                // UNION deduplicates visited ids, so even cyclic parent links terminate.
+                sql.push_str(
+                    " AND asset.folder_id IN (
+                        WITH RECURSIVE subtree(id) AS (
+                            SELECT id FROM folder WHERE id = ?
+                            UNION
+                            SELECT f.id FROM folder f JOIN subtree s ON f.parent_id = s.id
+                        ) SELECT id FROM subtree
+                    )",
+                );
+            } else {
+                sql.push_str(" AND asset.folder_id = ?");
+            }
             args.push(Value::Integer(fid));
         }
         if let Some(sids) = &q.source_ids {

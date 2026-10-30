@@ -137,6 +137,8 @@ Asset selections support ranges, toggles and rectangle selection with wheel scro
 
 Folders navigation fills the available sidebar width (D42): All and Unassigned span the content area; device headers and folder names extend to its right edge while retaining disclosure arrows and tree indentation. Long names truncate with full-name hover text.
 
+Selecting a folder includes assets in that folder and all descendants in grid/list (D43), even when the branch is collapsed. Search narrows the entire selected subtree. The shared `AssetQuery::folder_recursive` option follows catalogue parent links with cycle-safe SQL before paging; exact-folder queries remain available by default. No schema or CLI change.
+
 Thumbnails use the asset's EXIF orientation, including mirrored values (D31). Import/update store oriented pixels; desktop display applies stored metadata to older, unapplied thumbnails without modifying the catalogue or requiring the original media.
 
 List view uses thumbnail rows with filename/rating/dates/filesize, document/camera/lens/focal length, and dimensions/colour/profile columns (D32). It uses the browsing width with an optional Details inspector and horizontal scrolling in narrow windows. Import/update capture supported source colour/ICC descriptions; Update backfills older catalogue entries. Missing metadata stays explicit.
