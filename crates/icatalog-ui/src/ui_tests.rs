@@ -132,6 +132,7 @@ fn settle(h: &mut Harness<'_, App>) {
     // Process queued pointer/key events before checking the worker.
     h.run_steps(3);
     while h.state().worker.is_some()
+        || h.state().pending_collection_toggle.is_some()
         || h.state()
             .create_collection
             .as_ref()

@@ -131,6 +131,8 @@ Smart Collection editing (D38) supports changing Name and rules in the same Save
 
 macOS double-click timing follows the system preference (D39), with a 500 ms fallback when AppKit cannot supply it. Headless interaction checks include slower clicks and native-style batched input. Other platforms retain their current egui input settings.
 
+Smart Collection double-clicks keep the current selection stable (D40). A plain click on an already solely selected Smart Collection waits for the double-click interval before deselecting; another click/action cancels that pending toggle. New selections, manual rows and modifiers remain immediate.
+
 Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
 
 Thumbnails use the asset's EXIF orientation, including mirrored values (D31). Import/update store oriented pixels; desktop display applies stored metadata to older, unapplied thumbnails without modifying the catalogue or requiring the original media.

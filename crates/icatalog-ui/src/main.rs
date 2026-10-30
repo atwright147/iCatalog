@@ -120,6 +120,7 @@ struct App {
     selection_membership_loaded: bool,
     folder_sel: FolderSelection,
     collection_anchor: Option<i64>,
+    pending_collection_toggle: Option<PendingCollectionToggle>,
     expanded: HashSet<i64>,
     collapsed_devices: HashSet<String>,
     view_mode: ViewMode,
@@ -144,6 +145,11 @@ struct App {
     worker: Option<worker::Worker>,
     attempted_thumbnails: HashSet<i64>,
     visible_thumbnails: HashSet<i64>,
+}
+
+struct PendingCollectionToggle {
+    id: i64,
+    deadline: f64,
 }
 
 #[derive(Default)]
@@ -257,6 +263,7 @@ impl App {
             selection_membership_loaded: false,
             folder_sel: FolderSelection::All,
             collection_anchor: None,
+            pending_collection_toggle: None,
             expanded: HashSet::new(),
             collapsed_devices: HashSet::new(),
             view_mode: ViewMode::Grid,
@@ -655,11 +662,37 @@ impl App {
                 }
             });
         if let Some(id) = double_clicked {
+            self.pending_collection_toggle = None;
             self.folder_sel = FolderSelection::Collections(vec![id]);
             self.collection_anchor = Some(id);
             self.dirty = true;
         } else if let Some((id, modifiers)) = clicked {
-            self.select_collection(id, modifiers);
+            let selected_smart = matches!(&self.folder_sel, FolderSelection::Collections(ids) if ids == &[id])
+                && self
+                    .collections
+                    .iter()
+                    .any(|c| c.id == id && c.rules.is_some());
+            if selected_smart
+                && !modifiers.ctrl
+                && !modifiers.command
+                && !modifiers.shift
+                && self.worker.is_none()
+                && self.create_collection.is_none()
+            {
+                let delay = ui.ctx().options(|o| o.input_options.max_double_click_delay);
+                let delay = if delay.is_finite() && delay > 0.0 {
+                    delay
+                } else {
+                    0.5
+                };
+                self.pending_collection_toggle = Some(PendingCollectionToggle {
+                    id,
+                    deadline: ui.input(|i| i.time) + delay,
+                });
+            } else {
+                self.pending_collection_toggle = None;
+                self.select_collection(id, modifiers);
+            }
         }
         if let Some((id, name, rules)) = edit_rules {
             self.create_collection = Some(CreateCollectionDialog {
@@ -680,7 +713,27 @@ impl App {
             });
             self.set_menu_enabled(false);
         }
+        self.finish_collection_toggle(ui.ctx());
         command
+    }
+
+    fn finish_collection_toggle(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending_collection_toggle else {
+            return;
+        };
+        if self.worker.is_some()
+            || self.create_collection.is_some()
+            || !matches!(&self.folder_sel, FolderSelection::Collections(ids) if ids == &[pending.id])
+        {
+            self.pending_collection_toggle = None;
+        } else if ctx.input(|i| i.time) >= pending.deadline {
+            let id = pending.id;
+            self.pending_collection_toggle = None;
+            self.select_collection(id, egui::Modifiers::NONE);
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(25));
+        }
     }
 
     fn create_collection_modal(&mut self, ctx: &egui::Context) {
@@ -1489,6 +1542,19 @@ fn collection_params(action: &str, collection: i64, assets: &[i64]) -> Params {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
+        // A new press either starts the second click or another interaction;
+        // neither may leave a delayed deselection behind.
+        if ui.input(|i| {
+            i.pointer.any_pressed()
+                || i.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
+                    )
+                })
+        }) {
+            self.pending_collection_toggle = None;
+        }
         self.visible_thumbnails.clear();
         if self.worker.is_some() {
             ui.ctx()

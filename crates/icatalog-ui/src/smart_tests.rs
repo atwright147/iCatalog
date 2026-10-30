@@ -32,6 +32,97 @@ fn double_click_harness(fixture: &Fixture) -> Harness<'static, App> {
 }
 
 #[test]
+fn selected_smart_double_click_keeps_selection_stable_between_clicks() {
+    for list in [false, true] {
+        let fixture = Fixture::new();
+        let c = open_catalogue(&fixture.path()).unwrap();
+        let id = c.catalog().insert_collection("Picks").unwrap();
+        c.catalog()
+            .set_smart_rules(
+                id,
+                &icatalog_catalog::SmartRules {
+                    min_rating: Some(4),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        c.catalog()
+            .connection()
+            .execute_batch("INSERT INTO annotation(asset_id,rating) VALUES(1,5),(2,4)")
+            .unwrap();
+        let mut h = double_click_harness(&fixture);
+        if list {
+            h.get_by_label("List").click();
+            settle(&mut h);
+        }
+        h.get_by_label("Picks (Smart)").click();
+        settle(&mut h);
+        h.get(
+            By::new()
+                .label("Red.bmp")
+                .role(egui::accesskit::Role::Button),
+        )
+        .click();
+        settle(&mut h);
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)").click();
+        h.run_steps(2);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![id]));
+        assert_eq!(h.state().assets.len(), 2);
+        assert_eq!(h.state().selection.primary, Some(1));
+        h.get_by_label("Picks (Smart)").click();
+        settle(&mut h);
+        assert_eq!(
+            h.state().create_collection.as_ref().map(|d| d.editing_id),
+            Some(Some(id))
+        );
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![id]));
+        assert_eq!(h.state().selection.primary, Some(1));
+        h.get_by_label("Cancel").click();
+        settle(&mut h);
+        h.run_steps(40);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![id]));
+        // A genuine single click still returns to All after the click window.
+        h.get_by_label("Picks (Smart)").click();
+        h.run_steps(2);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![id]));
+        settle(&mut h);
+        assert_eq!(h.state().folder_sel, FolderSelection::All);
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)").click();
+        settle(&mut h);
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)").click();
+        h.run_steps(2);
+        h.get_by_label("All").click();
+        settle(&mut h);
+        h.run_steps(40);
+        assert_eq!(h.state().folder_sel, FolderSelection::All);
+        h.get_by_label("Picks (Smart)").click();
+        settle(&mut h);
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)")
+            .click_modifiers(egui::Modifiers {
+                ctrl: true,
+                ..Default::default()
+            });
+        h.run_steps(2);
+        assert_eq!(h.state().folder_sel, FolderSelection::All);
+        assert!(h.state().pending_collection_toggle.is_none());
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)").click();
+        settle(&mut h);
+        h.run_steps(40);
+        h.get_by_label("Picks (Smart)").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        assert_eq!(h.state().folder_sel, FolderSelection::Collections(vec![id]));
+        assert!(h.state().pending_collection_toggle.is_none());
+    }
+}
+
+#[test]
 fn smart_double_click_honors_a_slower_native_interval() {
     let fixture = Fixture::new();
     let c = open_catalogue(&fixture.path()).unwrap();
