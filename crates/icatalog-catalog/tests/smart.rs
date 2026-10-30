@@ -222,6 +222,10 @@ fn individual_rules_follow_new_assets_metadata_and_keywords() {
             vec![2],
         ),
     ] {
+        assert_eq!(
+            c.count_smart_matches(&rules).unwrap(),
+            expected.len() as i64
+        );
         c.set_smart_rules(id, &rules).unwrap();
         assert_eq!(c.collection_assets(id).unwrap(), expected);
     }

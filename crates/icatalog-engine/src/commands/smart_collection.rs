@@ -52,6 +52,10 @@ pub(super) fn run(ctx: &mut Context, params: &Params) -> Result<Outcome> {
             };
             if params.require("action")? == "set-rules" {
                 rules = parse(params)?;
+                if params.get("name").is_some() {
+                    let name = super::collection::name(params)?;
+                    ctx.catalog().rename_collection(id, name)?;
+                }
                 ctx.catalog().set_smart_rules(id, &rules)?;
             }
             let pairs = [

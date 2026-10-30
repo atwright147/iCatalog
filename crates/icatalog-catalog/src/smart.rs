@@ -115,6 +115,20 @@ pub(crate) fn membership_sql() -> String {
 }
 
 impl Catalog {
+    /// Count an unsaved rule set using exactly the saved membership predicate.
+    /// No temporary collections or membership rows are written.
+    pub fn count_smart_matches(&self, rules: &SmartRules) -> Result<i64> {
+        rules.validate()?;
+        Ok(self.conn.query_row(
+            &format!("WITH sc(format,captured_from,captured_to,camera,lens,min_rating,label,keyword,text)
+                AS (VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9))
+                SELECT COUNT(*) FROM asset CROSS JOIN sc WHERE {SMART_MATCH}"),
+            params![rules.format,rules.captured_from,rules.captured_to,rules.camera,rules.lens,
+                rules.min_rating,rules.label,rules.keyword,rules.text],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn smart_rules(&self, id: i64) -> Result<Option<SmartRules>> {
         let rules = self.conn.query_row(
             "SELECT format,captured_from,captured_to,camera,lens,min_rating,label,keyword,text FROM smart_collection WHERE collection_id=?1",

@@ -148,6 +148,9 @@ fn smart_collection_cli_create_browse_rules_edit_and_reopen() {
     let c = icatalog_engine::Context::open(&path).unwrap();
     c.catalog().connection().execute_batch("INSERT INTO asset(id,uid,name,path,format) VALUES(1,'one','One.jpg','/one.jpg','JPEG'),(2,'two','Two.nef','/two.nef','NEF');").unwrap();
     drop(c);
+    let preview = icatalog(&["collection", p, "preview-smart", "--format", "jpeg"]);
+    assert!(preview.status.success(), "{}", s(&preview.stderr));
+    assert!(s(&preview.stdout).contains("1 matching item\nFormat is \"jpeg\""));
     let o = icatalog(&[
         "collection",
         p,
@@ -170,7 +173,17 @@ fn smart_collection_cli_create_browse_rules_edit_and_reopen() {
         assert!(text.contains("One.jpg"));
         assert!(!text.contains("Two.nef"));
     }
-    let o = icatalog(&["collection", p, "set-rules", "--id", "1", "--format", "NEF"]);
+    let o = icatalog(&[
+        "collection",
+        p,
+        "set-rules",
+        "--id",
+        "1",
+        "--format",
+        "NEF",
+        "--name",
+        "RAW files",
+    ]);
     assert!(o.status.success(), "{}", s(&o.stderr));
     let o = icatalog(&["collection", p, "rules", "--id", "1"]);
     assert!(s(&o.stdout).contains("NEF"));
@@ -188,6 +201,10 @@ fn smart_collection_cli_create_browse_rules_edit_and_reopen() {
     );
     let c = icatalog_engine::Context::open(&path).unwrap();
     assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![2]);
+    assert_eq!(
+        c.catalog().collection(1).unwrap().unwrap().name,
+        "RAW files"
+    );
 }
 
 #[test]

@@ -12,6 +12,7 @@
     clippy::unreachable
 )]
 
+mod interaction;
 mod list_row;
 mod selection;
 mod smart_collection;
@@ -152,6 +153,7 @@ struct CreateCollectionDialog {
     editing_id: Option<i64>,
     rename_id: Option<i64>,
     rules: smart_collection::RuleInputs,
+    preview: smart_collection::RulePreview,
     error: Option<String>,
     pending: bool,
     focus_name: bool,
@@ -228,6 +230,7 @@ fn install_native_menu(
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, ctx: Context, path: PathBuf) -> Self {
         typography::configure(&cc.egui_ctx);
+        interaction::configure(&cc.egui_ctx);
         let (menu_tx, menu_events) = std::sync::mpsc::channel();
         let menu = install_native_menu(&cc.egui_ctx, menu_tx);
         Self::with_menu(ctx, path, menu, menu_events)
@@ -540,6 +543,7 @@ impl App {
     fn collections_panel(&mut self, ui: &mut egui::Ui) -> Option<Params> {
         let mut command = None;
         let mut clicked = None;
+        let mut double_clicked = None;
         let mut edit_rules = None;
         let mut rename = None;
         let selected_ids: HashSet<i64> = match &self.folder_sel {
@@ -591,7 +595,17 @@ impl App {
                                 },
                                 collection.id
                             ));
-                        if row.clicked() {
+                        if row.double_clicked()
+                            && self.worker.is_none()
+                            && self.create_collection.is_none()
+                            && collection.rules.is_some()
+                        {
+                            if let Some(rules) = &collection.rules {
+                                double_clicked = Some(collection.id);
+                                edit_rules =
+                                    Some((collection.id, collection.name.clone(), rules.clone()));
+                            }
+                        } else if row.clicked() {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
                         row.context_menu(|ui| {
@@ -640,7 +654,11 @@ impl App {
                     });
                 }
             });
-        if let Some((id, modifiers)) = clicked {
+        if let Some(id) = double_clicked {
+            self.folder_sel = FolderSelection::Collections(vec![id]);
+            self.collection_anchor = Some(id);
+            self.dirty = true;
+        } else if let Some((id, modifiers)) = clicked {
             self.select_collection(id, modifiers);
         }
         if let Some((id, name, rules)) = edit_rules {
@@ -683,8 +701,7 @@ impl App {
             ui.add_enabled_ui(!dialog.pending, |ui| {
                 let label = ui.label("Name");
                 let name = ui
-                    .add_enabled(
-                        dialog.editing_id.is_none(),
+                    .add(
                         egui::TextEdit::singleline(&mut dialog.name)
                             .desired_width(f32::INFINITY)
                             .char_limit(1024),
@@ -713,6 +730,7 @@ impl App {
                 }
                 if dialog.smart {
                     dialog.rules.show(ui);
+                    dialog.preview.show(ui, &self.path, &dialog.rules);
                 }
                 if let Some(error) = &dialog.error {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
@@ -726,7 +744,7 @@ impl App {
                             egui::Button::new(if dialog.rename_id.is_some() {
                                 "Rename"
                             } else if dialog.editing_id.is_some() {
-                                "Save Rules"
+                                "Save"
                             } else {
                                 "Create"
                             }),
@@ -741,7 +759,7 @@ impl App {
                     ui.label(if dialog.rename_id.is_some() {
                         "Renaming collection…"
                     } else if dialog.editing_id.is_some() {
-                        "Saving rules…"
+                        "Saving collection…"
                     } else {
                         "Creating collection…"
                     });
@@ -759,7 +777,10 @@ impl App {
                     .set("id", id.to_string())
                     .set("name", dialog.name.trim());
             } else if let Some(id) = dialog.editing_id {
-                params.set("action", "set-rules").set("id", id.to_string());
+                params
+                    .set("action", "set-rules")
+                    .set("id", id.to_string())
+                    .set("name", dialog.name.trim());
             } else {
                 params
                     .set(

@@ -131,7 +131,12 @@ fn settle(h: &mut Harness<'_, App>) {
     let deadline = Instant::now() + Duration::from_secs(10);
     // Process queued pointer/key events before checking the worker.
     h.run_steps(3);
-    while h.state().worker.is_some() {
+    while h.state().worker.is_some()
+        || h.state()
+            .create_collection
+            .as_ref()
+            .is_some_and(|d| d.smart && d.preview.is_pending())
+    {
         assert!(
             Instant::now() < deadline,
             "worker timeout: {}",
@@ -1571,7 +1576,7 @@ fn visual_snapshots() {
     collections.get_by_label("Format").click();
     collections.run_steps(2);
     collections.get_by_label("Format").type_text("JPEG");
-    collections.run_steps(2);
+    settle(&mut collections);
     collections.event(egui::Event::PointerGone);
     collections.run();
     collections.snapshot("catalogue-create-smart");
@@ -1752,6 +1757,21 @@ fn visual_snapshots() {
     smart.run();
     smart.snapshot("catalogue-smart-rules");
     results.extend(smart.take_snapshot_results());
+    let mut preview = smart_fixture.harness([800.0, 600.0]);
+    preview
+        .get_by_label("Highly rated (Smart)")
+        .click_secondary();
+    settle(&mut preview);
+    preview.get_by_label("Edit Rules…").click();
+    settle(&mut preview);
+    preview.get_by_label("Camera Contains").click();
+    preview.run_steps(2);
+    preview.get_by_label("Camera Contains").type_text("Sony");
+    settle(&mut preview);
+    preview.event(egui::Event::PointerGone);
+    preview.run();
+    preview.snapshot("catalogue-smart-preview-empty");
+    results.extend(preview.take_snapshot_results());
     smart.get_by_label("Cancel").click();
     settle(&mut smart);
     smart.get_by_label("Highly rated (Smart)").click_secondary();

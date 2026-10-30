@@ -25,6 +25,121 @@ fn fixture() -> Context {
 }
 
 #[test]
+fn unsaved_preview_counts_summarizes_and_never_changes_the_catalogue() {
+    let mut c = fixture();
+    let before = c.catalog().connection().total_changes();
+    for (rules, expected) in [
+        (
+            vec![("min-rating", "5")],
+            "1 matching item\nRating is at least 5 out of 5",
+        ),
+        (
+            vec![("min-rating", "0")],
+            "2 matching items\nRating is at least 0 out of 5",
+        ),
+        (
+            vec![("camera", "Sony"), ("min-rating", "4")],
+            "0 matching items\nCamera contains \"Sony\" AND Rating is at least 4 out of 5",
+        ),
+        (
+            vec![("format", "NEF"), ("text", "Two")],
+            "1 matching item\nFormat is \"NEF\" AND Filename or path contains \"Two\"",
+        ),
+    ] {
+        let mut params = p(&rules);
+        params.set("action", "preview-smart");
+        assert_eq!(
+            dispatch(&mut c, "collection", &params).unwrap().render(),
+            expected
+        );
+    }
+    for invalid in [
+        vec![],
+        vec![("min-rating", "6")],
+        vec![("min-rating", "NaN")],
+        vec![("captured-from", "2026-02-30")],
+        vec![("text", "\0")],
+        vec![("min-rating", "4"), ("name", "Not saved")],
+    ] {
+        let mut params = p(&invalid);
+        params.set("action", "preview-smart");
+        assert!(dispatch(&mut c, "collection", &params).is_err());
+    }
+    assert!(c.catalog().all_collections().unwrap().is_empty());
+    assert_eq!(c.catalog().connection().total_changes(), before);
+}
+
+#[test]
+fn smart_name_and_rules_save_atomically_and_keep_the_name_when_omitted() {
+    let mut c = fixture();
+    run(
+        &mut c,
+        &[
+            ("action", "create-smart"),
+            ("name", "Picks"),
+            ("min-rating", "4"),
+        ],
+    );
+    let original = c.catalog().collection(1).unwrap().unwrap();
+    for name in ["", "  ", "bad\nname", &"x".repeat(1025)] {
+        assert!(dispatch(
+            &mut c,
+            "collection",
+            &p(&[
+                ("action", "set-rules"),
+                ("id", "1"),
+                ("name", name),
+                ("min-rating", "3")
+            ])
+        )
+        .is_err());
+        assert_eq!(c.catalog().collection(1).unwrap().unwrap(), original);
+    }
+    assert!(dispatch(
+        &mut c,
+        "collection",
+        &p(&[
+            ("action", "set-rules"),
+            ("id", "1"),
+            ("name", "Changed"),
+            ("min-rating", "6")
+        ])
+    )
+    .is_err());
+    for trigger in [
+        "CREATE TRIGGER reject_edit BEFORE UPDATE ON smart_collection BEGIN SELECT RAISE(ABORT,'synthetic rules failure'); END;",
+        "CREATE TRIGGER reject_edit AFTER UPDATE OF name ON collection BEGIN SELECT RAISE(ABORT,'synthetic name failure'); END;",
+    ] {
+        c.catalog().connection().execute_batch(trigger).unwrap();
+        assert!(dispatch(&mut c, "collection", &p(&[("action", "set-rules"), ("id", "1"), ("name", "Changed"), ("min-rating", "3")])).is_err());
+        assert_eq!(c.catalog().collection(1).unwrap().unwrap(), original);
+        c.catalog().connection().execute_batch("DROP TRIGGER reject_edit").unwrap();
+    }
+    run(
+        &mut c,
+        &[
+            ("action", "set-rules"),
+            ("id", "1"),
+            ("name", "  Favourites  "),
+            ("min-rating", "5"),
+        ],
+    );
+    let updated = c.catalog().collection(1).unwrap().unwrap();
+    assert_eq!(updated.id, original.id);
+    assert_eq!(updated.name, "Favourites");
+    assert_eq!(updated.rules.unwrap().min_rating, Some(5));
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1]);
+    run(
+        &mut c,
+        &[("action", "set-rules"), ("id", "1"), ("min-rating", "0")],
+    );
+    assert_eq!(
+        c.catalog().collection(1).unwrap().unwrap().name,
+        "Favourites"
+    );
+}
+
+#[test]
 fn commands_browse_edit_rules_and_follow_annotation_changes() {
     let mut c = fixture();
     run(

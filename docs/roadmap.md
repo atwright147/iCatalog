@@ -22,7 +22,11 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 
 Smart Collections (D35) are implemented in the catalogue, engine/CLI and desktop: typed AND rules for format, capture dates, camera/lens, rating/label, keyword and filename/path text; live membership/counts; mixed collection unions/search; create and replace-rule commands; modal creation and right-click rule editing. Schema v6 preserves existing manual collections. OR groups, nested rules and manual-to-smart conversion are not included.
 
+Smart Collection previews (D37) show a live catalogue-wide match count and readable AND summary in Create/Edit Rules before saving. The same read-only preview is available through `collection preview-smart`. Background previews debounce typing, discard stale results and report invalid rules/read errors; long summaries scroll while fields and buttons remain visible in 800×600 windows. No schema or sync change.
+
 All collections can be renamed (D36) through `collection rename` or the sidebar's right-click Rename… modal. Renaming preserves ids, membership, rules, counts and active selections; failures retain the entered name for retry. No schema change.
+
+Smart Collection names and rules can be edited together (D38) through the shared editor and optional `set-rules --name`. Double-clicking a Smart Collection selects it and opens Edit Rules; Save/Enter commits both changes atomically. Invalid input/failures retain the draft; pending commands block opening another editor. Manual collection gestures remain unchanged. macOS double-click timing follows the system preference with a 500 ms fallback (D39); slower-click and batched-input regressions supplement the original fast-click tests.
 
 D23 hardening is implemented: atomic engine command dispatch, reported UI refresh/startup errors, background import/update/edit/collection, visible-row rendering and bounded thumbnail caching. Regression coverage includes partial writes, panic/commit rollback and 10,000-row viewport bounds; `task scale` adds opt-in generated-image and sync workloads. Remaining scale work includes asset-query paging, asynchronous visible-thumbnail decoding, per-file progress/cancellation and representative RAW-library benchmarks.
 

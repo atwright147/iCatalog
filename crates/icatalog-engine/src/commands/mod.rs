@@ -6,6 +6,7 @@ mod import;
 mod init;
 mod list;
 mod open;
+mod preview_smart;
 mod scan;
 mod smart_collection;
 mod status;

@@ -188,7 +188,11 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 
 `SmartRules` is a bounded, typed AND predicate, not stored SQL or a recursive query tree. A collection with no `smart_collection` row is manual. Rules support exact ASCII-case-insensitive format, inclusive local capture dates, camera make/model or lens substring, minimum rating, exact label, exact keyword and filename/path substring. Missing metadata cannot satisfy its rule; missing annotations have rating/label zero. Real calendar dates and ordered ranges are validated in Rust, with 1024-byte/control-character limits on rule text. `Collection.rules`, membership reads, counts and `AssetQuery` all use live SQL results; no membership is materialized. Smart create/rule-replacement uses the engine transaction, preserving the previous rules on failure. The v6 migration preserves existing asset identities/manual membership and updates the catalogue's schema version; D20 annotation revisions now require v7 or later.
 
+`Catalog::count_smart_matches` (D37) validates unsaved `SmartRules` and binds them as one CTE row, reusing the saved membership predicate for a single COUNT(*) query. It allocates no asset result set and writes no collection or rule rows. Preview counts have the same missing-data, rating/label-zero and AND semantics as saved collections. No migration.
+
 `rename_collection` (D36) updates only the name of an existing collection, regardless of kind; ids, members and smart rules are unchanged. The engine `collection rename` action applies the creation-name validation and atomic transaction. Duplicate names remain allowed. No schema migration is required.
+
+`collection set-rules` may also rename the Smart Collection (D38): optional `--name` uses the existing validation and updates `collection.name` in the same engine transaction as `smart_collection` replacement. Any error rolls both back. Omitted names preserve the existing value, and ids/asset identity remain stable. No migration.
 
 ## 4. Open items
 

@@ -85,7 +85,7 @@ tasks:
       - cargo clean
 
   run:
-    desc: Run the icatalog CLI (e.g. `task run -- collection my.sqlite rename --id 1 --name Favourites`)
+    desc: Run the icatalog CLI (e.g. `task run -- collection my.sqlite set-rules --id 1 --name Favourites --min-rating 4`)
     cmds:
       - cargo run -q -p icatalog-cli -- {{.CLI_ARGS}}
 

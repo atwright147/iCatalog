@@ -29,6 +29,12 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 
 Release automation (D34) packages the existing L4 binaries without adding an app crate or changing the engine seam. `.github/workflows/release.yml` builds Windows x64/ARM64, macOS ARM64 and Linux x86-64, tests native Linux package installation, then attaches the six assets and SHA-256 checksums to the published release. Manual dispatch keeps artifacts only unless an existing `release_tag` is supplied. Recovery compiles that tag's app code while loading `packaging/` and `Taskfile.yml` from the dispatched workflow revision, so package fixes apply without moving app tags. Every runner explicitly installs Go before compiling Task. Hosted v0.1.0 recovery passed all builds, all three Linux installation checks and final upload. Arch constraints are checked in generated metadata; published asset digests match SHA256SUMS. NAS musl/Docker and wasm remain separate planned work.
 
+Smart Collection previews (D37) dispatch the read-only `collection preview-smart` action from a separate desktop worker after a 200 ms typing pause. The engine validates the draft and produces its count and readable AND summary; the catalogue counts against the shared saved-membership SQL predicate. The shell holds draft/worker state and discards stale responses. No temporary collection, new layer, dependency or schema is needed.
+
+Smart Collection editing (D38) submits the editable Name and full rules through one `collection set-rules --id … --name …` command/transaction. Optional name validation reuses rename/create; omission preserves the existing name. The shell handles double-click selection/opening and the shared modal/worker, including busy guards and retained inputs on errors. No new layer, command id, dependency or schema.
+
+Desktop shell input initialization (D39) reads the macOS double-click interval through the existing safe AppKit binding and sets egui's input option; unavailable intervals fall back to 500 ms. Other platforms keep their current settings. No engine/model behavior or new dependency is involved.
+
 ## 3. Layers
 
 ```text

@@ -354,19 +354,43 @@ Schema v6 adds a `smart_collection` row keyed by collection id with optional typ
 
 Catalogue SQL evaluates membership consistently for browsing, selected-asset memberships, counts and deduplicated mixed manual/smart unions before paging. Manual counts retain indexed membership counts. Triggers guard manual membership insert/update against Smart Collections; catalogue and engine add/remove reject computed membership. Atomic engine dispatch covers creation and rule replacement, including rollback on failed rule storage.
 
-The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal with the name fixed. The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules travel with today's whole-snapshot sync; D20 still needs collection ownership/edit semantics.
+The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal (the name is editable as of D38). The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules travel with today's whole-snapshot sync; D20 still needs collection ownership/edit semantics.
 
 Tests cover migration/reopen, every rule type and missing data, literal hostile text, invalid dates/ranges/bounds, live annotation changes, counts, mixed unions/paging, failed-create/rule rollback, engine/CLI browsing, whole-snapshot sync, real-widget create/edit/cancel/failure/retry/busy behavior and membership gesture restrictions. Visual checks cover the creation modal and Smart Collection browsing/editing.
 
 ## D36. Rename manual and Smart Collections (2026-10-28)
 
-The owner requested that all collections be renameable. Add `rename --id <collection> --name <name>` to the existing `collection` command and expose Rename… on every sidebar row's context menu. Rename is separate from smart rule editing and applies to either kind. Reuse creation-name validation (trimmed, 1–1024 UTF-8 bytes, no control characters); repeated names and renaming to the same name remain valid.
+The owner requested that all collections be renameable. Add `rename --id <collection> --name <name>` to the existing `collection` command and expose Rename… on every sidebar row's context menu. The standalone Rename action applies to either kind; D38 also allows renaming from the Smart Collection editor. Reuse creation-name validation (trimmed, 1–1024 UTF-8 bytes, no control characters); repeated names and renaming to the same name remain valid.
 
 The catalogue updates only `collection.name`; the engine's existing transaction rolls back failed writes. IDs, manual memberships, smart rules, counts and active selection remain unchanged. The sidebar reorders by name on refresh. No migration, dependency or new command id is needed.
 
 Reuse the collection modal/worker, with the current name focused and selected for replacement. Rename/Enter submits; Cancel/Escape/backdrop dismisses without writing. Empty names disable Rename. Pending controls/cancellation are disabled. Errors preserve the entered name and select it again for retry. Native Import/Update remain blocked while the modal is open.
 
 Tests cover both kinds, persistence/identity/membership/rule preservation, duplicate names, invalid input, failed-write rollback, CLI invocation, and real-widget grid/list rename, selection/count preservation, context-menu refresh, cancellation, invalid UTF-8-byte length, failure/retry and blocked writes. Reviewed screenshots cover the sidebar menu and rename modal. Collection names continue to travel with current whole-snapshot sync; D20 collection ownership/conflicts remain open.
+
+## D37. Preview unsaved Smart Collection rules (2026-10-29)
+
+The owner requested live match counts and readable rule summaries after a rated photo was excluded by a higher minimum combined with a camera rule. Preserve D35's AND semantics and add the read-only `collection preview-smart` action, accepting the same nine rule options without a collection name/id. Return a catalogue-wide count and a plain-language AND summary. Validation is shared with create/set-rules; empty or invalid predicates return an error.
+
+`count_smart_matches` binds an unsaved rule row through a CTE and reuses the saved membership SQL predicate. It performs COUNT(*) without loading assets, writing temporary collections or changing the schema. CLI and GUI dispatch the same collection command.
+
+The desktop Create/Edit Rules modal previews after a 200 ms typing pause on a separate background worker. A changed draft immediately hides its previous result; one query runs at a time and stale responses are discarded. The count explicitly covers the whole catalogue, independent of sidebar/search filters. Invalid rules/read errors show an unavailable message rather than zero matches. Long summaries scroll in a bounded region so all fields and buttons fit 800×600. Save/cancel and pending-write safeguards remain shared with the existing collection modal.
+
+Tests cover preview/saved-count parity across every rule, read-only engine/CLI previews, validation, real-widget live changes, zero results, long-summary layout, cancellation and stale in-flight responses. No schema, sync protocol, dependency or command id changes.
+
+## D38. Edit Smart Collection names and open rules with a double-click (2026-10-30)
+
+The owner requested editable names in the Smart Collection editor and double-click access to its rules. Enable Name in the shared Edit Smart Collection modal and use Save (or Enter from Name) to submit the name and complete rule set together. Extend `collection set-rules --id …` with optional `--name …`, preserving the current name when omitted. Reuse creation/rename name validation and the existing per-command transaction; a validation/storage failure preserves both the old name and rules. IDs, asset identity and selection stay stable; membership/counts reflect the saved rules. No schema or dependency change.
+
+A double-click on a Smart Collection sidebar row selects that collection and opens the same editor as right-click Edit Rules…. It takes precedence over the second single-click toggle. Manual collections retain their existing clicks, and opening an editor is blocked during a pending command or another modal. Controls and dismissal disable while saving; errors preserve both name and rules for retry. Existing standalone Rename remains available for both kinds.
+
+Tests cover atomic name/rule rollback and optional-name compatibility, CLI invocation, real-widget double-clicks in grid/list with native-like timing, manual rows, save/Enter/cancel/reopen, blank/invalid names, failed-save retry and busy controls/opening. The editable-name and Save-button screenshots are reviewed.
+
+## D39. Respect macOS double-click timing (2026-10-30)
+
+A reported Smart Collection double-click still selected/deselected the row. Fast native double-clicks and the existing 60 Hz widget test worked, but egui used its fixed 300 ms interval instead of the macOS preference. Initialize shell input options from the safe AppKit `NSEvent::doubleClickInterval` API. If AppKit returns an invalid/zero interval (as in headless initialization), use 500 ms. Other platforms retain their existing input settings. This applies consistently to egui double-clicks, including Smart Collection rows and text editing. No dependency, engine, schema or command changes.
+
+Tests cover application/fallback of the native preference, invalid values, 400 ms-separated collection clicks with a 600 ms preference, and native-style press/release events batched into the same frame. Existing grid/list, selection, busy and modal guards remain in place.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

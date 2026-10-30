@@ -10,7 +10,7 @@ impl Command for Collection {
     }
 
     fn label(&self) -> &'static str {
-        "Create, rename and browse manual and Smart Collections"
+        "Preview, create, rename and browse manual and Smart Collections"
     }
 
     fn params(&self) -> &'static [ParamSpec] {
@@ -19,13 +19,13 @@ impl Command for Collection {
                 name: "action",
                 required: true,
                 positional: true,
-                doc: "list | create | create-smart | rename | rules | set-rules | show | add | remove (after the catalogue path); set-rules replaces all rules",
+                doc: "list | create | create-smart | preview-smart | rename | rules | set-rules | show | add | remove; preview-smart counts unsaved rules; set-rules replaces all rules",
             },
             ParamSpec {
                 name: "name",
                 required: false,
                 positional: false,
-                doc: "collection name for create/create-smart/rename (1-1024 bytes after trimming)",
+                doc: "collection name for create/create-smart/rename; optional with set-rules to rename atomically (1-1024 bytes after trimming)",
             },
             ParamSpec {
                 name: "id",
@@ -96,13 +96,14 @@ impl Command for Collection {
             "create" => &["name"],
             "rename" => &["id", "name"],
             "create-smart" => &["name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
-            "set-rules" => &["id", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
+            "preview-smart" => super::smart_collection::RULE_KEYS,
+            "set-rules" => &["id", "name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
             "rules" => &["id"],
             "show" => &["id"],
             "add" | "remove" => &["id", "asset", "assets"],
             _ => {
                 return Err(EngineError::BadParam(
-                    "collection action must be list, create, create-smart, rename, rules, set-rules, show, add or remove".into(),
+                    "collection action must be list, create, create-smart, preview-smart, rename, rules, set-rules, show, add or remove".into(),
                 ))
             }
         };
@@ -117,6 +118,7 @@ impl Command for Collection {
             }
         }
         match action {
+            "preview-smart" => super::preview_smart::run(ctx, params),
             "create-smart" | "rules" | "set-rules" => super::smart_collection::run(ctx, params),
             "list" => Ok(collection_table(ctx.catalog().all_collections()?)),
             "rename" => {
