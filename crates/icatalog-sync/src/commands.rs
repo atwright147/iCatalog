@@ -11,7 +11,7 @@ use crate::error::SyncError;
 use crate::server;
 use crate::transport::UreqTransport;
 
-pub(crate) static ALL: &[&dyn Command] = &[&Sync, &Serve];
+pub(crate) static ALL: &[&dyn Command] = &[&Sync, &Serve, &crate::clone::CloneCatalogue];
 
 /// The sync command registry, merged with the engine's by the shells.
 pub fn commands() -> &'static [&'static dyn Command] {
@@ -61,12 +61,20 @@ impl Command for Sync {
         "Sync this catalogue with the NAS"
     }
     fn params(&self) -> &'static [ParamSpec] {
-        &[ParamSpec {
-            name: "url",
-            required: true,
-            positional: false,
-            doc: "base URL of the sync service, e.g. http://nas:8080",
-        }]
+        &[
+            ParamSpec {
+                name: "url",
+                required: true,
+                positional: false,
+                doc: "base URL of the sync service, e.g. http://nas:8080",
+            },
+            ParamSpec {
+                name: "preview",
+                required: false,
+                positional: false,
+                doc: "fetch one referenced preview by SHA-256 instead of syncing the catalogue",
+            },
+        ]
     }
     fn enabled(&self, ctx: &Context) -> bool {
         is_initialised(ctx)
@@ -75,6 +83,14 @@ impl Command for Sync {
         let base = params.require("url")?.trim().to_owned();
         validate_base(&base)?;
         let transport = UreqTransport::new();
+        if let Some(hash) = params.get("preview") {
+            let fetched = client::fetch_preview(ctx, &transport, &base, hash)?;
+            return Ok(Outcome::text(if fetched {
+                "preview downloaded and verified"
+            } else {
+                "preview already cached"
+            }));
+        }
         match client::sync_once(ctx, &transport, &base) {
             Ok(report) => Ok(render(&report)),
             // Offline is deferred and reported, never fatal (docs/sync.md section 1).
@@ -138,7 +154,7 @@ impl Command for Serve {
     }
 }
 
-fn validate_base(base: &str) -> EngineResult<()> {
+pub(crate) fn validate_base(base: &str) -> EngineResult<()> {
     if base.is_empty() {
         return Err(EngineError::BadParam("url must not be empty".into()));
     }
@@ -162,6 +178,9 @@ fn validate_base(base: &str) -> EngineResult<()> {
 
 fn render(r: &SyncReport) -> Outcome {
     let mut lines = Vec::new();
+    if r.initial {
+        lines.push("initial sync: established the server state; earlier local edits are preserved in the backup and were not uploaded".to_owned());
+    }
     match &r.action {
         SyncAction::UpToDate => lines.push(format!(
             "already up to date at generation {}; nothing to push",
@@ -182,7 +201,7 @@ fn render(r: &SyncReport) -> Outcome {
         }
         SyncAction::Resynced { backup } => {
             lines.push(format!(
-                "push refused: the server generation moved to {}; local copy resynced",
+                "conflicting user edits preserved in backup; local copy resynced at generation {}",
                 r.server_generation
             ));
             if let Some(b) = backup {
@@ -192,6 +211,17 @@ fn render(r: &SyncReport) -> Outcome {
                 ));
             }
         }
+    }
+    if matches!(r.action, SyncAction::Pushed) {
+        if let Some(b) = &r.backup {
+            lines.push(format!("backup: {} (local copy before sync)", b.display()));
+        }
+    }
+    for key in &r.conflicts {
+        lines.push(format!("conflict: {key}"));
+    }
+    if r.sent_bytes > 0 {
+        lines.push(format!("user-edit upload: {} bytes", r.sent_bytes));
     }
     if r.bytes > 0 {
         lines.push(format!("snapshot: {} bytes", r.bytes));

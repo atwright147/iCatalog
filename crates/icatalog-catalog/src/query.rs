@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(s.collections, 1);
         assert_eq!(s.keywords, 1);
         assert_eq!(s.thumbnails, 1);
-        assert_eq!(s.generation, Some(0));
-        assert_eq!(s.schema_version, 6);
+        assert_eq!(s.generation, c.generation().unwrap());
+        assert_eq!(s.schema_version, 7);
     }
 }

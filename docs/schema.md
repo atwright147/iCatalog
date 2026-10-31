@@ -1,6 +1,6 @@
 # iCatalog SQLite schema
 
-Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1, v2, v3, v4, v5 and v6 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
+Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner decision or golden rule), **Proposed** (designed here), **Open** (unresolved). Migrations v1 through v7 are **implemented** in `crates/icatalog-catalog` (EXISTS, tested); the Rust model and CRUD cover every table below.
 
 ## 1. Basis
 
@@ -12,7 +12,7 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 
 - Versioned, **forward-only**, each migration in a single transaction.
 - A `schema_migrations` table records applied versions; it is created in code (not in a migration file) before migrations run.
-- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21), `v5.sql` (`source.device_id`/`device_label`, D21), and `v6.sql` (`smart_collection` typed rules and membership guards, D35). `foreign_keys` is ON for every connection.
+- Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21), `v5.sql` (`source.device_id`/`device_label`, D21), `v6.sql` (`smart_collection` typed rules and membership guards, D35), and `v7.sql` (stable Collection UIDs, transactional revisions/generations, replica baseline and previews, D20/D44). `foreign_keys` is ON for every connection.
 - A catalogue with a newer schema version than the app knows is refused with an actionable error, never opened read-write.
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
@@ -25,7 +25,7 @@ Engine command writes are grouped in a single deferred transaction (D23), with r
 -- catalogue-level metadata (single row)
 CREATE TABLE catalogue (
   id          TEXT PRIMARY KEY,        -- per-catalogue id (see sync.md)
-  generation  INTEGER NOT NULL,        -- bumped on every accepted push
+  generation  INTEGER NOT NULL,        -- advanced transactionally on catalogue-data writes
   created_utc TEXT NOT NULL,
   schema_version INTEGER NOT NULL
 );
@@ -172,6 +172,46 @@ CREATE INDEX idx_annotation_rating ON annotation(rating);
 CREATE INDEX idx_annotation_label ON annotation(label);
 ```
 
+### v7 additions (D20/D44, implemented)
+
+`collection.uid TEXT` has a unique index. The migration fills existing rows as `legacy:<catalogue-id>:<numeric-id>`; new rows receive random `collection:<128-bit hex>` UIDs through a trigger. A non-null UID cannot change. Numeric IDs, names, rules and memberships survive migration.
+
+```sql
+CREATE TABLE sync_revision (
+  kind TEXT NOT NULL CHECK(kind IN ('asset','collection')),
+  entity_id INTEGER NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0
+    CHECK(typeof(revision)='integer' AND revision>=0),
+  PRIMARY KEY(kind,entity_id)
+);
+CREATE TABLE replica_base (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  generation INTEGER NOT NULL CHECK(generation>=0),
+  data BLOB NOT NULL CHECK(length(data)<=67108864)
+);
+CREATE TABLE preview_setting (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  mode TEXT NOT NULL CHECK(mode IN ('embedded','external'))
+);
+CREATE TABLE preview_blob (
+  hash TEXT PRIMARY KEY CHECK(length(hash)=64 AND hash NOT GLOB '*[^0-9a-f]*'),
+  bytes BLOB CHECK(bytes IS NULL OR length(bytes)<=16777216)
+);
+CREATE TABLE preview (
+  asset_id INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,
+  hash TEXT NOT NULL REFERENCES preview_blob(hash),
+  width INTEGER NOT NULL CHECK(width>0 AND width<=1920),
+  height INTEGER NOT NULL CHECK(height>0 AND height<=1920),
+  source_hash TEXT NOT NULL
+);
+```
+
+Every asset and Collection has a revision row. Triggers track rating/label and keyword-membership/name changes per asset; name, Smart rules and manual membership per Collection. Deleting an entity removes its revision; missing entities conflict during sync. Revisions cover whole editable entities rather than individual fields. Catalogue-data writes advance generation transactionally, including direct CRUD; internal revision/baseline bookkeeping is excluded. Type/range guards abort generation or revision overflow and roll back the triggering write. Schema-version changes also advance generation.
+
+`replica_base` contains the last accepted server generation and a bounded binary baseline of user-editable values/revisions (codec in `icatalog-sync::delta`). It is established in a verified download before replacement, or before initial publication by `clone` (D45). Cloned replicas can immediately upload their first user edits; only manually seeded/untracked copies need the backup-first initial sync. Its presence identifies a replica; no manual mode flag or baseline sidecar is needed. Triggers reject media/metadata/source/folder/preview-setting writes on replicas. Annotation and Collection edits remain available; Collection deletion is unsupported there. This baseline replaces D19 fingerprint markers, which are ignored on upgrade. First v2 sync backs up the previous local state and establishes the server baseline without uploading unknown local edits.
+
+Previews default to embedded bytes. External mode records the same hash and reference but stores bytes in `previews/<sha>.jpg` beside the catalogue. JPEG generation is explicit through the engine, using a 1920-pixel maximum long edge and existing media decoding/orientation. Source content-hash changes remove stale references. Conversion verifies all referenced bytes before committing; external files are retained. Grid thumbnails keep their existing embedded representation. Generation/cache reads and writes are bounded; SHA-256 verification and filesystem storage live in the engine/media layers. Full protocol, safety and CLI behavior: `docs/sync.md`.
+
 Notes (**Proposed**, per D8):
 
 - **Thumbnail sources:** `legacy_ivc_jfif`, `legacy_ivc_pict`, `exif_ifd1`, `mpf_preview`, `raw_preview`, `psd_resource`, `rendered`. Legacy embedded JPEGs are stored unchanged, never re-encoded.
@@ -186,7 +226,7 @@ User-annotation tables (D11) and `find` indexes are done (migration v2). Still *
 
 Manual Collections (D25) use the existing v1 tables without a migration. Collection ids identify albums; display names may repeat. Membership is many-to-many, adding/removing a member is idempotent, and removing membership preserves the asset and its source/folder. `AssetQuery::collection_id` composes with other filters and paging. `collection_ids` (D28) matches membership in any listed collection using EXISTS, so overlapping albums produce no duplicate assets before paging. An empty list matches nothing; an absent list adds no restriction. Both fields, when set, are ANDed, as with all other filters. To bound query allocations and SQLite parameters, the list accepts at most 32,000 ids; larger lists return an InvalidQuery error. This is a query API change without a migration. `all_collections` orders by name then id; `asset_collection_ids` returns membership for a selected asset. Smart Collection rules are stored in v6 (D35); the same queries evaluate them live, including counts and mixed collection unions.
 
-`SmartRules` is a bounded, typed AND predicate, not stored SQL or a recursive query tree. A collection with no `smart_collection` row is manual. Rules support exact ASCII-case-insensitive format, inclusive local capture dates, camera make/model or lens substring, minimum rating, exact label, exact keyword and filename/path substring. Missing metadata cannot satisfy its rule; missing annotations have rating/label zero. Real calendar dates and ordered ranges are validated in Rust, with 1024-byte/control-character limits on rule text. `Collection.rules`, membership reads, counts and `AssetQuery` all use live SQL results; no membership is materialized. Smart create/rule-replacement uses the engine transaction, preserving the previous rules on failure. The v6 migration preserves existing asset identities/manual membership and updates the catalogue's schema version; D20 annotation revisions now require v7 or later.
+`SmartRules` is a bounded, typed AND predicate, not stored SQL or a recursive query tree. A collection with no `smart_collection` row is manual. Rules support exact ASCII-case-insensitive format, inclusive local capture dates, camera make/model or lens substring, minimum rating, exact label, exact keyword and filename/path substring. Missing metadata cannot satisfy its rule; missing annotations have rating/label zero. Real calendar dates and ordered ranges are validated in Rust, with 1024-byte/control-character limits on rule text. `Collection.rules`, membership reads, counts and `AssetQuery` all use live SQL results; no membership is materialized. Smart create/rule-replacement uses the engine transaction, preserving the previous rules on failure. The v6 migration preserves existing asset identities/manual membership and updates the catalogue's schema version; D20/D44 revisions and preview storage are implemented in v7.
 
 `Catalog::count_smart_matches` (D37) validates unsaved `SmartRules` and binds them as one CTE row, reusing the saved membership predicate for a single COUNT(*) query. It allocates no asset result set and writes no collection or rule rows. Preview counts have the same missing-data, rating/label-zero and AND semantics as saved collections. No migration.
 
@@ -200,7 +240,7 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 
 - **Encoding:** resolved by D10 (decoded text plus raw bytes). Mac Roman detection remains an `ivc` RE item.
 - **Path normalisation:** separators (legacy Mac paths versus POSIX/Windows), case, Unicode normalisation, and the rule that a catalogued path is never trusted to stay inside a directory (**Decided** in golden rules; representation **Open**).
-- Stable asset ids across machines (needed for merge, see `docs/sync.md`).
+- Stable asset UIDs are used by D20 sync; detecting moved source files remains open.
 - **Source identity:** currently the absolute import-root path, so a NAS share remounted elsewhere or a drive that changes mount point looks like a new source. Volume UUID/label detection is **Open**.
 - `size_class` (long edge in pixels, grid = 256), `source` (`"rendered"`), `derived_from` (`"<file_size>:<mtime>"`) and `content_hash` (`"sha256:<hex>"`, also the `asset.uid`) are **RESOLVED per D13**. Since D31, generator version 2 sets `orientation_applied` true when a valid EXIF orientation (1–8, including identity) has been applied to the thumbnail pixels. Thumbnail width/height describe the oriented pixels; asset dimensions and `asset_meta.orientation` retain source values. Missing/invalid orientation leaves pixels unchanged and the flag false. Older false-flag thumbnails use stored asset orientation at display time without a migration or rewrite. Raw-versus-decoded metadata storage is answered by D8.
 

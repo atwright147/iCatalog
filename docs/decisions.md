@@ -156,7 +156,7 @@ Decision:
 - **Policy:** server ahead of the client -> back up and pull; level -> push (a refusal is a race: back up, resync, report); client ahead of the server -> refuse. A local copy is backed up (`name.rejected-<UTC>.sqlite`) before any overwrite; downloads land in a temp file and are swapped in atomically after verification.
 - **Limit of this slice:** as first landed there was no change marker, so an idle re-sync re-pushed and bumped the generation (fixed by D19). Delta transfer and merge are later work.
 
-Status: Accepted (owner chose tiny_http + ureq and the `icatalog-sync` command registry, Oct 2026). Implementation: the whole-snapshot `serve`/`sync` slice EXISTS (`crates/icatalog-sync`; CLI `sync`/`serve` wired; help and `commands` list them). Tests cover a real push/pull round trip, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral and hostile params. Open: TLS, auth, incremental transfer, conflict merge (the D1/D2 policy is unchanged). **Superseded in part by D20:** the push direction (whole-snapshot `POST /catalogue`) and the generation-guard conflict policy of this entry are replaced by the annotation-delta model; the transport (`tiny_http`+`ureq`), the command location and the download/atomic-swap machinery still stand.
+Status: D18 shipped the initial whole-snapshot service/client and safety policy. **Superseded by implemented D20/D44:** the transport and command location remain, but uploads now carry revision-checked user edits; whole-snapshot POSTs return 405. See D44 and `docs/sync.md` for current behavior and tests. TLS/auth and incremental catalogue pulls remain open.
 
 ## D19. An idle re-sync is a no-op (local change marker)
 
@@ -168,7 +168,7 @@ Decision: a **local-only change marker** beside the local copy.
 - The marker is best-effort: missing, unreadable or malformed means "unknown", which is always treated as *changed*, so the failure mode is a redundant push, never a skipped one. Any local writer — CLI, GUI, another tool — marks the copy changed simply by changing its bytes.
 - Fingerprint scope: it detects local change only. It is never a security or integrity guarantee; integrity is still the snapshot verification in D18, and cross-client consistency still rests on the generation counter.
 
-Status: Accepted. Implemented in `crates/icatalog-sync` (`util::fingerprint`/`read_state`/`write_state`, `SyncAction::UpToDate`); tests: `idle_resync_is_a_no_op`, `a_local_change_is_pushed`, and unit tests for the fingerprint and marker. **Repurposed by D20:** under annotation-delta push the marker answers "has this replica got unpushed edits?" rather than "should the whole file be pushed?"; the best-effort rule (unknown means changed) is unchanged.
+Status: shipped with D19, then **retired by D20/D44**. The current client stores a user-state baseline inside SQLite; the fingerprint helpers and marker tests were removed. Existing sidecars are ignored. An unknown baseline triggers a backed-up first pull, never an unconditional upload.
 
 ## D20. Sync model: server-authoritative catalogue, annotation-delta push, previews pulled not pushed
 
@@ -190,7 +190,7 @@ Proposed (recommended here; the owner has not accepted the mechanism):
 
 Open: preview tiers and quality (big tier long edge 1080 or 1920; grid 256 only, or add 512); whether the write endpoint survives at all or only a designated master pushes; how a push names a keyword the server does not yet have; whether preview generation is a per-catalogue default and how it is triggered (at ingest or by an explicit command).
 
-Status: **Accepted as the target model (owner, Oct 2026); NOT IMPLEMENTED.** What is built today is D18/D19 (bidirectional whole-snapshot push). This entry fixes the direction and the open points; no code or schema has changed yet.
+Status: **Implemented by D44 (2026-10-30), including owner-requested Collection edits.** The proposal above records the original design discussion; D44 resolves the mechanism, preview tier and Collection ownership. D18/D19 snapshot uploads are retired.
 
 ## D21. Source-rooted folders and device provenance
 
@@ -252,7 +252,7 @@ Collection ids are authoritative; display names may repeat, matching the existin
 
 The desktop sidebar creates collections through a modal (D26) and selects collections; membership uses drag-and-drop and asset context-menu actions (D27). Search applies within the selected collection. All writes use the same background worker and engine command as other edits; controls disable while busy and failed writes are reported. Removing a selected asset from the active collection refreshes the view and clears that selection. Tests cover persistence/reopen, overlapping membership, idempotency, invalid inputs, filter composition, failed writes and real-widget interactions.
 
-Status: implemented. Delete and collection-specific conflict merging remain future work; renaming landed in D36, multiple-asset selection landed in D29 and Smart Collections in D35. Collection writes use the existing D18/D19 whole-snapshot sync; the future D20 annotation delta still needs a policy for collection edits.
+Status: implemented. Delete and collection-specific conflict merging remain future work; renaming landed in D36, multiple-asset selection landed in D29 and Smart Collections in D35. Collection writes now use the D20/D44 revision-checked user-edit protocol.
 
 ## D26. Create Collection modal (2026-10-26)
 
@@ -354,7 +354,7 @@ Schema v6 adds a `smart_collection` row keyed by collection id with optional typ
 
 Catalogue SQL evaluates membership consistently for browsing, selected-asset memberships, counts and deduplicated mixed manual/smart unions before paging. Manual counts retain indexed membership counts. Triggers guard manual membership insert/update against Smart Collections; catalogue and engine add/remove reject computed membership. Atomic engine dispatch covers creation and rule replacement, including rollback on failed rule storage.
 
-The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal (the name is editable as of D38). The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules travel with today's whole-snapshot sync; D20 still needs collection ownership/edit semantics.
+The existing creation modal offers a Smart Collection checkbox and rule fields. Sidebar rows use a (Smart) suffix and live counts; right-click Edit Rules… opens the same modal (the name is editable as of D38). The background worker handles all writes, preserving inputs/errors for retry and blocking cancellation while pending. Search/modifier selection remain shared. Smart rows accept no membership drops and are omitted from manual membership checkboxes. Rules now travel through D20/D44 Collection deltas and catalogue downloads.
 
 Tests cover migration/reopen, every rule type and missing data, literal hostile text, invalid dates/ranges/bounds, live annotation changes, counts, mixed unions/paging, failed-create/rule rollback, engine/CLI browsing, whole-snapshot sync, real-widget create/edit/cancel/failure/retry/busy behavior and membership gesture restrictions. Visual checks cover the creation modal and Smart Collection browsing/editing.
 
@@ -366,7 +366,7 @@ The catalogue updates only `collection.name`; the engine's existing transaction 
 
 Reuse the collection modal/worker, with the current name focused and selected for replacement. Rename/Enter submits; Cancel/Escape/backdrop dismisses without writing. Empty names disable Rename. Pending controls/cancellation are disabled. Errors preserve the entered name and select it again for retry. Native Import/Update remain blocked while the modal is open.
 
-Tests cover both kinds, persistence/identity/membership/rule preservation, duplicate names, invalid input, failed-write rollback, CLI invocation, and real-widget grid/list rename, selection/count preservation, context-menu refresh, cancellation, invalid UTF-8-byte length, failure/retry and blocked writes. Reviewed screenshots cover the sidebar menu and rename modal. Collection names continue to travel with current whole-snapshot sync; D20 collection ownership/conflicts remain open.
+Tests cover both kinds, persistence/identity/membership/rule preservation, duplicate names, invalid input, failed-write rollback, CLI invocation, and real-widget grid/list rename, selection/count preservation, context-menu refresh, cancellation, invalid UTF-8-byte length, failure/retry and blocked writes. Reviewed screenshots cover the sidebar menu and rename modal. Collection names now travel with D20/D44 Collection deltas, using per-Collection revisions.
 
 ## D37. Preview unsaved Smart Collection rules (2026-10-29)
 
@@ -421,6 +421,30 @@ The owner requested recursive folder browsing. Selecting any folder in the deskt
 Add an opt-in `AssetQuery::folder_recursive` boolean and enable it in desktop browsing. The catalogue SQL follows `folder.parent_id` in a recursive CTE with `UNION` over folder ids as its seen-set, preventing cycles and duplicate assets. It uses the existing parent index and applies subtree membership alongside other filters before ordering/paging. Folder names and path prefixes are not hierarchy tests; browsing needs no original media. Exact-folder queries remain the API default, Unassigned takes precedence and recursion without a folder id has no effect.
 
 This extends the existing read-only browsing query; the shell holds selection/expansion state only. No new command, CLI surface, schema, dependency or Taskfile gate is needed. Synthetic catalogue tests cover direct/child/grandchild membership, unrelated roots/sources and similar paths, empty/missing folders, filter composition/paging, self/multi-folder cycles and a 2,000-level tree. Real-widget grid/list tests cover collapsed descendants, search/clear, annotation edit persistence, child navigation, stable asset selection while expanding/collapsing, empty parents/leaves and existing navigation scopes.
+
+## D44. Implement D20 with Collection edits and pull-only previews (2026-10-30)
+
+The owner requested D20 and explicitly chose to sync Collection edits as well as annotations. Schema v7 implements server-authoritative media/metadata with user-edit deltas keyed by stable asset/Collection UIDs. Existing Collection UIDs derive deterministically from catalogue ID and numeric ID; new Collections use random 128-bit UIDs. Local numeric IDs are never wire identities.
+
+Choose whole-asset rating/label/keyword revisions and whole-Collection name/rule/manual-membership revisions. Compare-and-swap rejects stale entities while applying independent entities in the same atomic batch. Missing assets/members conflict. Already-present desired values are successful no-ops, making lost-response retries idempotent. Collection creation, rename, rules and membership sync; deletion and manual/Smart conversion remain unsupported. New keyword names are sent directly. Captions and other annotation text fields are not part of this upload surface.
+
+A bounded user-state baseline lives inside the replica database. First v2 sync (including upgrade from D18/D19) downloads the server state and backs up the previous local copy without uploading unknown edits. Subsequent sync pushes pending edits before pulling; conflicts print stable keys and preserve drafts in a timestamped backup. Idle sync makes no upload or generation change. Baseline bookkeeping replaces the old best-effort fingerprint sidecar. Triggers advance generation on catalogue-data writes and track revisions transactionally; overflow aborts writes. Established replicas reject media-derived writes, while Collection and annotation editing remains available. Desktop Import/Update controls follow those restrictions.
+
+Protocol v2 uses bounded length-prefixed binary messages through the existing transport, with no new dependencies. `/info` advertises the version; `/annotations` accepts user edits, `/catalogue` is GET-only (POST returns 405), and `/preview/<sha>` serves referenced JPEG bytes only. Both peers must be upgraded. Discovery, snapshots and previews have distinct size caps; requests have bounded timeouts and no redirects. SQLite `VACUUM INTO` produces consistent snapshots; download checks include foreign keys and header/database-generation agreement. The client reserves the local SQLite writer during sync, flushes verified temp files and distinct backups, then uses the existing close/rename/reopen replacement.
+
+Choose explicit `previews status|generate|external|embed` engine/CLI actions. The preview tier is oriented JPEG, quality 80, maximum long edge 1920 without upscaling, using existing raster/RAW-preview media code. Embedded storage is the default; external NAS storage is `previews/<sha>.jpg`. Conversion verifies all referenced bytes before committing and never removes source/external files. Source content-hash changes invalidate old preview references. `sync --preview <sha>` fetches/cache-checks one referenced preview on demand using GET only and verifies SHA-256 before storing it. GUI full-size viewing and GUI/startup sync remain unbuilt.
+
+Tests cover v6 migration/identity, revision/generation rollback and overflow, media-write restrictions, binary hostility, independent/conflicting replicas, Collection identity collisions, lost-response retry, atomic batch failure, corrupt downloads, first-sync backups, local writer exclusion, preview generation/orientation/portability/conversion failure, HTTP hash checks and cache reuse. The normal workspace gate, opt-in screenshots and `task scale` remain the validation surface. No crate, dependency, media codec or packaging target is added. TLS/auth, incremental pulls, per-field merges, preview garbage collection, GUI sync/viewing, wasm and NAS packaging remain separate work.
+
+## D45. Clone a server catalogue directly into a new replica (2026-10-31)
+
+The owner requested a connect/clone command in addition to manual copying. Choose `icatalog clone <new-local-catalogue> --url <server>` in the existing L3 sync registry. It downloads the server catalogue and establishes its replica baseline immediately, so users can edit and upload through normal sync without a separate first-sync setup. No new protocol version, endpoint, schema or remembered server URL. Existing manually copied catalogues keep D44's backup-first initial sync.
+
+Add `Context::for_destination` as an in-memory session carrying the intended path. The CLI chooses it for clone and dispatches the registered command normally, avoiding the usual open/create/migrate step on the destination. Factor download verification and baseline preparation into a shared L3 module used by clone and sync. Both paths enforce the same identity, generation, integrity, foreign-key, authoritative-server and user-state validation, with a flushed same-directory staging file.
+
+Clone requires an existing parent directory and rejects existing destinations (including directories/symlinks) and SQLite journal/WAL/SHM sidecars. After validation it checks again and publishes using a same-filesystem hard link, which fails atomically if a destination appears in the final race window. This requires filesystem hard-link support; an unsupported filesystem returns an error without a partially copied catalogue. The stage is removed and the session reopened on the completed replica. Directory changes are flushed where supported. Download/validation failures leave no destination; publication/flush/reopen errors retain any already-published verified file rather than deleting data. There is no force/overwrite mode or upload; offline clone is an error, while ordinary offline sync retains its deferred behavior.
+
+`task clone` is the matching Taskfile shortcut. The user guide now recommends starting the service and cloning each client, preserving the manual-copy alternative and first-sync recovery instructions. Tests cover actual CLI creation/idle sync/first-edit upload, missing/bad URL/offline behavior without file creation, preserving arbitrary existing files, malformed/stale/mismatched/replica downloads, retry and staging cleanup, existing sidecars and symlinks, destination races, and filesystem-dependent non-UTF-8 path behavior. GUI clone/connect controls remain planned.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

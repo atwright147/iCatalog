@@ -85,7 +85,12 @@ fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut ctx = match icatalog_engine::Context::open(&inv.catalogue) {
+    let session = if inv.command == "clone" {
+        icatalog_engine::Context::for_destination(&inv.catalogue)
+    } else {
+        icatalog_engine::Context::open(&inv.catalogue)
+    };
+    let mut ctx = match session {
         Ok(c) => c,
         Err(e) => {
             eprintln!("icatalog: {e}");

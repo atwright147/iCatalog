@@ -18,14 +18,19 @@ mod annotation;
 mod folder;
 mod metadata;
 mod model;
+mod preview;
 mod query;
+mod replication;
 mod smart;
 mod source;
 
 pub use model::{
     device_of, Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Source, Thumbnail,
 };
+pub use preview::{valid_hash as valid_preview_hash, Preview, MAX_PREVIEW_BYTES};
 pub use query::{AssetQuery, CatalogStats};
+pub use replication::{AnnotationState, CollectionState};
+pub use replication::{MAX_SYNC_BYTES, MAX_SYNC_ROWS};
 pub use smart::SmartRules;
 
 /// Shared user-facing product name; executable, crate and file names stay lowercase.
@@ -38,6 +43,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("v4.sql"),
     include_str!("v5.sql"),
     include_str!("v6.sql"),
+    include_str!("v7.sql"),
 ];
 
 /// Errors from opening, migrating or querying a catalogue.

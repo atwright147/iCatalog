@@ -22,7 +22,7 @@ fn version_and_help() {
     let out = s(&o.stdout);
     assert!(out.contains("Usage") && out.contains("init"));
     // The sync registry is merged into the shell's listing.
-    assert!(out.contains("sync") && out.contains("serve"));
+    assert!(out.contains("sync") && out.contains("serve") && out.contains("clone"));
 }
 
 #[test]
@@ -30,7 +30,10 @@ fn commands_lists_sync_and_serve() {
     let o = icatalog(&["commands"]);
     assert!(o.status.success());
     let out = s(&o.stdout);
-    assert!(out.contains("sync") && out.contains("serve"), "{out}");
+    assert!(
+        out.contains("sync") && out.contains("serve") && out.contains("clone"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -258,4 +261,83 @@ fn rename_both_collection_kinds_through_cli() {
         ctx.catalog().smart_rules(2).unwrap().unwrap().min_rating,
         Some(4)
     );
+}
+
+#[test]
+fn previews_are_registered_and_validate_actions_through_the_cli() {
+    let p = std::env::temp_dir().join(format!("icat-cli-previews-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&p);
+    let path = p.to_str().unwrap();
+    assert!(icatalog(&["init", path]).status.success());
+    let status = icatalog(&["previews", path, "status"]);
+    assert!(status.status.success());
+    assert!(s(&status.stdout).contains("embedded"));
+    assert!(icatalog(&["previews", path, "external"]).status.success());
+    assert!(s(&icatalog(&["previews", path, "status"]).stdout).contains("external"));
+    assert!(icatalog(&["previews", path, "embed"]).status.success());
+    assert!(!icatalog(&["previews", path]).status.success());
+    assert!(!icatalog(&["previews", path, "invalid"]).status.success());
+    let _ = std::fs::remove_file(p);
+}
+
+#[test]
+fn clone_errors_do_not_create_or_open_the_destination() {
+    let dir = std::env::temp_dir().join(format!("icat-cli-clone-errors-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("new.sqlite");
+    let p = path.to_str().unwrap();
+    let missing = icatalog(&["clone", p]);
+    assert!(!missing.status.success());
+    assert!(s(&missing.stderr).contains("url"));
+    assert!(!path.exists());
+    let bad = icatalog(&["clone", p, "--url", "https://example"]);
+    assert!(!bad.status.success());
+    assert!(!path.exists());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let url = format!("http://127.0.0.1:{port}");
+    let offline = icatalog(&["clone", p, "--url", &url]);
+    assert!(!offline.status.success());
+    assert!(!path.exists());
+    std::fs::write(&path, b"existing non-SQLite file").unwrap();
+    let existing = icatalog(&["clone", p, "--url", &url]);
+    assert!(!existing.status.success());
+    assert!(s(&existing.stderr).contains("already exists"));
+    assert_eq!(std::fs::read(path).unwrap(), b"existing non-SQLite file");
+}
+
+#[test]
+fn clone_initialises_a_client_through_the_cli_without_init_or_a_manual_copy() {
+    let dir = std::env::temp_dir().join(format!("icat-cli-clone-success-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let server_path = dir.join("server.sqlite");
+    let mut server = icatalog_engine::Context::open(&server_path).unwrap();
+    icatalog_engine::dispatch(&mut server, "init", &icatalog_engine::Params::new()).unwrap();
+    server.catalog().connection().execute_batch("INSERT INTO asset(uid,name,path) VALUES('clone-asset','Photo.jpg','/synthetic/Photo.jpg')").unwrap();
+    let listener = icatalog_sync::server::bind("127.0.0.1:0").unwrap();
+    let port = listener.server_addr().to_ip().unwrap().port();
+    std::thread::spawn(move || {
+        let _ = icatalog_sync::server::serve_loop(listener, &mut server);
+    });
+    let path = dir.join("local.sqlite");
+    let p = path.to_str().unwrap();
+    let url = format!("http://127.0.0.1:{port}");
+    let out = icatalog(&["clone", p, "--url", &url]);
+    assert!(out.status.success(), "{}", s(&out.stderr));
+    assert!(s(&out.stdout).contains("local replica ready"));
+    assert!(s(&icatalog(&["list", p]).stdout).contains("Photo.jpg"));
+    let idle = icatalog(&["sync", p, "--url", &url]);
+    assert!(idle.status.success());
+    assert!(s(&idle.stdout).contains("up to date"));
+    assert!(icatalog(&["edit", p, "--id", "1", "--rating", "5"])
+        .status
+        .success());
+    let pushed = icatalog(&["sync", p, "--url", &url]);
+    assert!(pushed.status.success());
+    assert!(s(&pushed.stdout).contains("push: accepted"));
+    let nas = icatalog_engine::Context::open(server_path).unwrap();
+    assert_eq!(nas.catalog().annotation(1).unwrap().unwrap().rating, 5);
 }

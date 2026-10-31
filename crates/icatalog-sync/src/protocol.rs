@@ -1,10 +1,10 @@
-//! Wire protocol for whole-snapshot sync (see `docs/sync.md`).
+//! Protocol v2 discovery and catalogue download headers (see `docs/sync.md`).
 
 use crate::error::{Result, SyncError};
 
 /// `GET /info` — catalogue id and generation.
 pub const PATH_INFO: &str = "/info";
-/// `GET`/`POST /catalogue` — the snapshot.
+/// `GET /catalogue` — server snapshot; uploads are retired.
 pub const PATH_CATALOGUE: &str = "/catalogue";
 /// Response header carrying the catalogue id.
 pub const HEADER_ID: &str = "X-Catalogue-Id";
@@ -25,13 +25,17 @@ pub struct CatalogueInfo {
 impl CatalogueInfo {
     /// Encode as `key=value` lines.
     pub fn encode(&self) -> String {
-        format!("id={}\ngeneration={}\n", self.id, self.generation)
+        format!(
+            "protocol=2\nid={}\ngeneration={}\n",
+            self.id, self.generation
+        )
     }
 
     /// Parse the `GET /info` body leniently; unknown lines are ignored.
     pub fn parse(body: &str) -> Result<Self> {
         let mut id = None;
         let mut generation = None;
+        let mut protocol = None;
         for line in body.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -41,6 +45,7 @@ impl CatalogueInfo {
                 return Err(SyncError::Protocol(format!("malformed info line '{line}'")));
             };
             match key.trim() {
+                "protocol" => protocol = Some(value.trim()),
                 "id" => id = Some(value.trim().to_string()),
                 "generation" => {
                     generation = Some(value.trim().parse::<i64>().map_err(|_| {
@@ -56,6 +61,12 @@ impl CatalogueInfo {
         }
         let generation =
             generation.ok_or_else(|| SyncError::Protocol("info is missing 'generation'".into()))?;
+        if protocol != Some("2") || generation < 0 {
+            return Err(SyncError::Protocol(
+                "server must support sync protocol 2 with a valid generation; upgrade the server"
+                    .into(),
+            ));
+        }
         Ok(CatalogueInfo { id, generation })
     }
 }
@@ -66,12 +77,4 @@ pub fn split_url(url: &str) -> (&str, &str) {
         Some((path, query)) => (path, query),
         None => (url, ""),
     }
-}
-
-/// Read a `key=value` query parameter (first match).
-pub fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
-    query.split('&').find_map(|pair| {
-        let (key, value) = pair.split_once('=')?;
-        (key == name).then_some(value)
-    })
 }

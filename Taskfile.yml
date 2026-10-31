@@ -119,8 +119,18 @@ tasks:
     cmds:
       - cargo run -q -p icatalog-ui -- {{.CLI_ARGS}}
 
+  previews:
+    desc: Generate/manage previews (e.g. -- photos.sqlite generate; status/external/embed also available)
+    cmds:
+      - cargo run -q -p icatalog-cli -- previews {{.CLI_ARGS}}
+
+  clone:
+    desc: Clone a server catalogue into a new local file (e.g. -- local.sqlite --url http://nas:8080)
+    cmds:
+      - cargo run -q -p icatalog-cli -- clone {{.CLI_ARGS}}
+
   scale:
-    desc: Validate 10,000 generated images and a large sync snapshot
+    desc: Validate 10,000 generated images, catalogue pulls and annotation-delta sync
     cmds:
       - cargo test -p icatalog-engine --test scale -- --ignored --nocapture
       - cargo test -p icatalog-sync --test sync large_snapshot_round_trip -- --ignored --nocapture

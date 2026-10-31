@@ -1,110 +1,99 @@
 # iCatalog sync protocol
 
-Purpose: full sync model and conflict policy (summary: `AGENTS.md` section 5). Status vocabulary: **Decided** (D1/D2/D18 or a golden rule), **Implemented** (built and tested; see the section notes), **Proposed** (designed here, not built), **Open** (unresolved). The whole-snapshot `serve`/`sync` slice is **Implemented** in `crates/icatalog-sync` (D18), including the local change marker that makes an idle re-sync a no-op (D19); TLS, auth, delta transfer and merge are **Open**.
+For setup and everyday use, start with [Using iCatalog sync](sync-user-guide.md). This document describes the protocol and recovery guarantees.
 
-**Read this first:** the *Target model* below (D20) is the decided direction — annotation-delta push, previews pulled not pushed, a per-catalogue preview store. It is **not implemented**. Sections 1–8 describe what is built today (the D18/D19 bidirectional whole-snapshot push) and are marked where D20 supersedes them.
+D20 is implemented in schema v7 and HTTP protocol v2, including Collection edits requested in D44. The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. TLS/auth, incremental catalogue downloads, automatic desktop startup sync and a desktop full-size preview viewer remain unbuilt.
 
-## Target model (decided in D20; not implemented)
+## Model and identity
 
-**Nothing in this section is built.** It records the owner's decided direction (D20) and the points still open.
+Each computer opens a local SQLite copy. `icatalog serve` owns the canonical catalogue on the NAS; `icatalog sync` pushes supported local edits before pulling the latest catalogue. SQLite is never shared directly over SMB/NFS. An unreachable server defers catalogue sync without replacing the local copy.
 
-- **One writer, many readers.** The server (NAS `icatalog serve`) is authoritative for the catalogue and the media; clients pull.
-- **Push is an annotation delta, not a snapshot.** A client sends only user annotations — rating, label, keyword membership — keyed by stable asset `uid`. Never media, thumbnails or previews. This replaces `POST /catalogue`.
-- **Pull is the catalogue** (assets, `metadata_raw`/EXIF, annotations, grid thumbnails). The download / verify / back-up / atomic-swap sequence (section 5) is unchanged.
-- **Previews are content-addressed and pulled only.** `GET /preview/<sha>` returns one preview; the server derives them from the media it holds, a client fetches only what it lacks, and a client never pushes a preview.
-- **The preview store is a per-catalogue choice, one format.** Preview bytes are either **embedded** in the catalogue file (a standalone, portable single file — the `~/Pictures` case) or **external** in `previews/<sha>.jpg` beside it (the NAS case, so a client pull stays small and previews arrive lazily). Grid thumbnails stay in the catalogue in both modes.
-- **A catalogue may be standalone or a replica.** A standalone catalogue simply never runs `sync`; no new flag beyond the preview-store setting.
-- **Single file stays single.** The catalogue uses a rollback journal (no WAL), so there are no `-wal`/`-shm` sidecars. Enabling WAL later requires a checkpoint on close or a `VACUUM INTO` export.
+Catalogue IDs must match. Assets use their existing stable `uid`. Collections now also have immutable UIDs: migration v7 derives existing IDs deterministically from catalogue ID and numeric collection ID, so independently migrated copies agree; new Collections receive random 128-bit IDs. Numeric Collection IDs remain local database keys and CLI handles; wire membership uses asset UIDs. Concurrently created Collections cannot collide merely because their numeric IDs match.
 
-Proposed, not accepted (**Open**): per-item compare-and-swap for annotation pushes (a `base_rev` per asset) replacing the generation guard; push-then-pull when a client has unpushed edits; a `previews --external|--embed` conversion command; a shared-token auth on the write endpoint. Also **Open:** preview sizes and quality, whether the write endpoint survives, and how a push names a keyword the server does not yet have.
+The generation advances transactionally on writes to catalogue data tables, including direct catalogue CRUD and server-side ingest/updates. It can advance several times in one command; it is an increasing change counter, not a command count. Internal replica-baseline bookkeeping does not advance it. Revision and generation overflow abort the triggering write. Media/metadata and preview settings on an established replica are server-managed; Import/Update are disabled in the desktop and engine. Ratings, labels, keywords and Collection editing remain available offline.
 
-Manual Collections and Smart Collection rules (D25/D35) currently travel with the existing whole-snapshot catalogue. The future D20 protocol needs a decision on collection ownership and edits: its rating/label/keyword delta does not cover collection creation or membership changes.
+## Establishing a replica and tracking edits
 
-## 1. Model
+`icatalog clone <new-local-file> --url http://nas:8080` (D45) creates a ready-to-edit replica directly from a live server. It discovers the catalogue identity, shares sync's verified download/baseline preparation and installs the completed file without overwriting any destination entry. The CLI prepares an in-memory destination session, so errors cannot create/migrate a file through normal session opening. Parent directories must exist; existing destinations or SQLite sidecars are refused. Downloads are staged beside the target, flushed, and published with an atomic no-overwrite hard link (the local filesystem must support hard links). No upload, schema change, remembered URL or new endpoint is involved. Failed downloads/verification remove their staging file and leave the destination absent; a competing destination is preserved. Publication/flush/reopen errors can leave a verified completed file, which is retained rather than deleted.
 
-**Decided (D1, D2).**
+A clone records the baseline immediately, so an idle sync is a no-op and the first subsequent user edits can be uploaded. The following first-sync backup behavior remains for manually copied or older local files.
 
-- Each computer keeps a **local SQLite copy** and opens only that.
-- The **NAS holds the canonical copy**, owned by `icatalog serve`, which serialises writes. SQLite directly on SMB/NFS was rejected: network-share locking is unreliable and corrupts databases.
-- Clients (CLI, desktop GUI, wasm browser build) sync over an **HTTP(S) API**.
-- Sync runs at startup and on explicit `icatalog sync`. Sync is a command, so CLI and GUI behave identically.
-- **Offline:** fully usable. If the NAS is unreachable, sync is deferred and reported, never fatal. **Implemented:** the client reports `sync deferred: ...` and leaves the local copy unchanged.
-- "Everyone sees the same thing" means sync points, not live co-editing.
+A copied catalogue has no trustworthy record of its last synced annotations. On its **first v2 sync**, iCatalog verifies/downloads the server catalogue, preserves the previous local file in a timestamped backup, then establishes a replica baseline inside the downloaded SQLite file. It uploads nothing on this first sync. The CLI explicitly reports this and the backup path. This also applies to copies previously synced with D18/D19: their old `.sync-state` fingerprint cannot establish a per-item baseline and is ignored.
 
-## 2. Identity and generation
+Afterward `replica_base` stores the last server generation plus a bounded binary baseline of user-editable state. Comparing current values with that baseline identifies pending edits, even after restarting the app. Local revision changes never masquerade as server revisions. An idle sync sends no upload, downloads no catalogue and does not advance the server generation. No additional baseline sidecar is created.
 
-**Decided:** the catalogue has a per-catalogue **id** and a **generation counter** bumped on every accepted push. **Implemented.**
+Do original imports and rescans on the server or a standalone catalogue. To start a replica, use `clone` and then edit, or manually copy the server catalogue and run `sync` before editing. Existing local-only work remains recoverable from the first-sync backup; it is not automatically merged without a known base.
 
-- The client records the **base generation**: the server generation it last pulled or successfully pushed (its local `catalogue.generation`).
-- Local edits do not change the generation counter; only an accepted push does.
-- The catalogue id guards against syncing unrelated catalogues; a mismatch is refused.
+## Conflict policy and retries
 
-**Local change marker (implemented, D19).** Because local edits do not move the generation counter, the client keeps a small **local-only** marker beside its catalogue: `name.sqlite.sync-state`, holding `fingerprint=<hash>` — a fast non-cryptographic fingerprint of the local file after the last successful push or pull. On a level sync the client compares the marker to the current file: a match means nothing changed, so it is a **no-op** (no upload, no generation bump); a mismatch (or a missing marker) means the local copy changed and it is pushed. The marker is never sent to the server and never affects the catalogue id or generation. It is best effort: a missing or unreadable marker only causes an extra push, never a lost one.
+Annotation changes carry the stable asset UID, the baseline revision and the complete desired rating/label/keyword-name set. A revision covers that entire set, so two different fields on the same asset can conflict. A new keyword is named directly and created by the server when needed. Other annotation text fields and all media/thumbnail/metadata data are excluded from uploads.
 
-## 3. HTTP(S) API
+Collection changes carry UID, baseline revision, name, optional typed Smart Collection rules and sorted manual member asset UIDs. New Collections have no baseline revision. Each Collection is one conflict unit: concurrent name/rule/membership edits to the same Collection can conflict. Edits to separate Collections or assets proceed independently. Smart membership remains computed; it is never uploaded as a member list. Collection deletion and changing a Collection between manual and Smart are unsupported.
 
-**Implemented (D18), plain HTTP only.** Paths, status codes and payload encoding are fixed; TLS and auth are **Open**. **Superseded in part by D20:** the push endpoint becomes an annotation delta (`POST /annotations`) and `GET /preview/<sha>` is added; not implemented.
+The server validates the whole batch, then checks revisions under a SQLite `BEGIN IMMEDIATE` transaction. Matching entities are applied; stale or missing entities and missing Collection members are reported as conflicts. If a storage operation fails, all writes from that batch roll back. A retry whose desired value is already present is accepted as a no-op, including retries after the server committed but its reply was lost. No silent last-writer-wins occurs.
 
-| Operation | Request | Response |
-|---|---|---|
-| Info | `GET /info` | `200`, body `id=<id>\ngeneration=<n>\n` |
-| Pull | `GET /catalogue` | `200`, raw SQLite bytes, headers `X-Catalogue-Id`, `X-Generation` |
-| Push | `POST /catalogue?expected=<base>`, body = raw SQLite bytes | `200` + `X-Generation: <new>` on accept, or `409` + `X-Generation: <current>` when the generation moved |
+After uploading, the client pulls the current catalogue. Conflicting drafts are preserved in the pre-replacement backup and their stable keys are printed; the active copy shows server values. Other accepted entities remain applied. A failed upload/download leaves the local baseline and pending work intact; retrying cannot duplicate new Collections or reapply an already accepted value. Restoring a backup also restores its baseline and drafts; reconciliation is manual when edits still conflict.
 
-Whole-snapshot transfer is the implementation; incremental sync and per-item merge are later work (**Open**).
+## HTTP endpoints
 
-Guards (**Implemented**): the server caps a snapshot body (4 GiB) and verifies an incoming snapshot (it must open as an iCatalog catalogue with the matching id, and pass `PRAGMA integrity_check`) before it replaces anything; any other `POST` state (bad/missing `expected`, oversized or invalid body) is refused with `400`/`413`.
+Plain HTTP is implemented using `tiny_http` and `ureq`. Upgrade both peers for protocol v2; clients reject an old server before uploading, and the new server rejects old snapshot uploads. Authentication and TLS are separate future work.
 
-**Open:**
+| Request | Result |
+|---|---|
+| `GET /info` | UTF-8 lines `protocol=2`, `id=<catalogue-id>`, `generation=<nonnegative integer>` |
+| `GET /catalogue` | Consistent SQLite snapshot; `X-Catalogue-Id` and `X-Generation` describe that exact snapshot |
+| `POST /annotations` | Bounded binary v2 batch of annotation and Collection changes; 200 reply includes generation and conflict keys; malformed/wrong-ID batches return 400; oversized batches return 413 |
+| `POST /catalogue` | 405; snapshot uploads are retired |
+| `GET /preview/<sha>` | Referenced JPEG bytes; hash must be exactly 64 lowercase hexadecimal characters; invalid hash 400, unavailable/unreferenced hash 404 |
 
-- **Auth:** none, shared token, per-user credentials? Undecided.
-- **TLS:** self-signed, user-supplied certificate, or plain HTTP on a trusted LAN? Undecided. `ureq` is built without TLS in this slice, so `https://` is rejected with an "unsupported" error.
-- Versioning of the API and of the catalogue schema.
-- Incremental (delta) transfer; the whole file is sent today.
+`GET /info` is capped at 8 KiB, snapshots at 4 GiB, edit messages/baselines at 64 MiB and previews at 16 MiB. User-state reads are bounded to 100,000 assets/Collections and 100,000 keywords or members per entity, subject also to the total byte bound. Oversized catalogues return an actionable error rather than allocating from untrusted counts. Redirects are disabled; connection and total request timeouts are bounded.
 
-## 4. Conflict policy
+### Binary edit encoding
 
-**Decided (D18).** A push is refused if the server generation moved since the client's base generation (**refuse-and-resync**, never silent last-writer-wins). **Implemented.** **Superseded in part by D20:** the push direction and this coarse generation guard give way to a per-item compare-and-swap on annotation deltas (not implemented).
+`crates/icatalog-sync/src/delta.rs` is the canonical codec, with round-trip, truncation and mutation tests. It adds no dependency. Integers are little-endian: signed i64 revisions/ratings/labels, unsigned u32 lengths/counts. Text is length-prefixed UTF-8; lists begin with a count. Optional text has a 0/1 byte followed by text when present. `-1` represents an absent optional integer/base revision; other negative values are invalid.
 
-Sequence (**Implemented**):
+A batch starts with six bytes `ICAD2\0`, catalogue-ID text and a record count. Each record has kind byte (1 annotation, 2 Collection), baseline revision, an informational current revision and UID. Annotation data is rating, label and a sorted unique keyword list. Collection data is name, 0/1 Smart-rule presence, rules when present, then a sorted unique member-UID list. Rule text order is format, captured-from, captured-to, camera, lens, keyword, text; it is followed by optional minimum rating and label. Smart rules reuse normal catalogue validation. A reply begins `ICAR2\0`, generation and a list of conflict keys (`asset:<uid>` or `collection:<uid>`). Trailing bytes, duplicate entity keys, invalid flags/ranges, unbounded counts and unsorted/duplicate lists are rejected.
 
-1. The client decides from the generation: server ahead -> back up and **pull**; level -> **push** unless the local copy is unchanged since the last sync (then a **no-op**, D19); client ahead of the server -> **refuse** (never overwrite the server).
-2. On a push refusal (a race: another client pushed between info and push) the client writes its local state to a timestamped backup `name.rejected-<UTC>.sqlite` beside the local copy, then resyncs from the server.
-3. The refusal, the backup path and the new generation are reported to the user.
+The same record encoding stores the embedded baseline. Baselines contain only user-editable values and revisions, not media, thumbnails or preview bytes. The server does not trust the uploaded informational revision; compare-and-swap uses the baseline revision against its own stored revision.
 
-Merging local changes (per-item, by stable item id) is a later improvement and must keep the same safety guarantees. **Open:** the merge strategy and stable item ids.
+## Download, backup and replacement safety
 
-## 5. Atomic download and swap
+The server creates snapshots through SQLite `VACUUM INTO`, so concurrent NAS-side commands cannot produce a torn file and freed embedded-preview pages do not inflate external-store downloads. Snapshot headers are read from that snapshot, not from an earlier `/info` response.
 
-**Decided** principles; **Implemented** sequence:
+The client requires DELETE journal mode and holds a local SQLite write reservation while inspecting/uploading/downloading. Other SQLite writers cannot change the state being synchronized during these requests. The download goes into an exclusively reserved temporary file beside the local catalogue. It must pass:
 
-1. Download to a temp file in the same directory as the local copy (so the rename stays on one filesystem).
-2. Verify: it opens as an iCatalog catalogue, the id matches, and `PRAGMA integrity_check` returns `ok`.
-3. Back up the existing local copy first (timestamped) before any overwrite.
-4. Close the SQLite connection and atomically rename the temp file over the local copy, then reopen it.
-5. Any failure before step 4 leaves the existing local copy untouched; the temp file is removed.
+- SQLite integrity and foreign-key checks;
+- expected catalogue ID and matching header/database generation;
+- generation at least as new as the acknowledged upload/discovery;
+- an authoritative catalogue with no replica baseline;
+- valid, bounded user state for the new baseline.
 
-## 6. What "no silent data loss" means
+The client establishes the baseline in the verified temporary database and flushes it. Before replacement it creates and flushes a uniquely named `<stem>.rejected-<UTC timestamp>[-n].sqlite` backup without overwriting an existing file. Failure to back up aborts replacement. It closes its old connection, atomically renames the verified file into place and reopens it. Temporary files are removed on failure. No original media or preview file is deleted by sync. A server generation moving backward relative to a replica baseline is refused.
 
-**Decided** operationally:
+## Preview storage and commands
 
-- A failed or interrupted sync never destroys the only copy.
-- Nothing is replaced before the replacement is verified.
-- A rejected local state is always kept as a backup before it is overwritten.
-- Every refusal or deferral is reported to the user.
-- Server-side writes are transactional (SQLite) and serialised by the single service loop.
+Grid thumbnails stay embedded. A `preview` row links an asset to a SHA-256 JPEG hash, oriented dimensions and source content hash. Previews use a 1920-pixel maximum long edge, JPEG quality 80, no upscaling and the existing EXIF orientation/media decoder; RAW uses its embedded JPEG preview without demosaicing. Generation is explicit and runs on the machine holding the original media:
 
-Tests: synthetic and round-trip tests **exist** (`crates/icatalog-sync/tests/sync.rs`): a real push/pull round trip against the service, a refused push (backup + resync), an invalid snapshot that leaves the local copy untouched, offline deferral, hostile-parameter coverage, an idle re-sync that is a no-op, and a local change that is pushed.
+```sh
+task previews -- photos.sqlite status
+task previews -- photos.sqlite generate
+task previews -- nas.sqlite external
+task previews -- nas.sqlite generate
+task previews -- photos.sqlite embed
+```
 
-## 7. wasm browser client
+The per-catalogue default is **embedded**, giving a standalone portable SQLite file usable without the originals. **External** stores verified bytes in `previews/<sha>.jpg` beside the catalogue; choose this for a NAS so catalogue downloads contain references and grid thumbnails, while previews arrive lazily. External directories must be real directories, not symlinks. Writes use exclusive temporary files and rename; filenames derive only from validated hashes.
 
-**Decided (D3):** the browser keeps a local copy and syncs over the same HTTP(S) API. The client sits behind a small `Transport` trait (`crates/icatalog-sync/src/transport.rs`) so a wasm `fetch` implementation can replace the native `ureq` one later. **Open:** the storage backend (e.g. OPFS), running SQLite in wasm, and how the temp-file-and-swap sequence maps to browser storage. Mixed-content and CORS rules for the API are also **Open**. The server half (`tiny_http`) is native-only.
+Conversion verifies every referenced blob before committing the new mode. Missing/corrupt bytes or write failures leave the previous database representation intact. External files are retained after embedding and harmless unreferenced files may remain after failed generation/conversion; automatic garbage collection is not implemented. Updating an asset's content hash invalidates its old preview reference. Missing/changed/unsupported source files are counted and reported by Generate; changed sources require Update first.
 
-## 8. Open questions
+A replica fetches a referenced preview explicitly with:
 
-- Is the sync service **mandatory**, or is there also a simple **share-file mode**? (open in `docs/decisions.md`)
-- Auth and TLS (section 3).
-- Incremental sync versus whole-snapshot.
-- Merge strategy and stable item ids.
-- **D20 (target model):** preview store mode (embedded vs external), preview sizes and quality, per-item conflict granularity, the `previews --external|--embed` command, and whether the write endpoint survives. See the Target model section.
-- Browser storage.
+```sh
+task run -- sync local.sqlite --url http://nas:8080 --preview <sha>
+```
+
+This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop sync controls/startup sync and a full-size preview viewer are not wired yet; the desktop continues to display grid thumbnails.
+
+## Remaining work
+
+TLS/authentication; automatic desktop startup/explicit GUI sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; NAS musl/Docker packaging. The HTTP service and v2 protocol can be tested locally independently of that packaging.

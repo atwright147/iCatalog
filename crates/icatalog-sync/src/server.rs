@@ -1,137 +1,221 @@
-//! The NAS-side sync service: a thin HTTP layer over an open [`Context`].
-//! Handles `GET /info`, `GET /catalogue` and `POST /catalogue`.
-
+//! Server-authoritative catalogue, revision-checked user edits and pull-only previews.
+use crate::{
+    delta::{self, Change, Value},
+    protocol::{self, HEADER_GENERATION, HEADER_ID, PATH_CATALOGUE, PATH_INFO},
+    util, Result, SyncError,
+};
+use icatalog_catalog::{CatalogError, MAX_SYNC_BYTES};
 use icatalog_engine::Context;
+use std::collections::BTreeMap;
+use std::io::Read;
 use tiny_http::{Header, Request, Response, Server};
 
-use crate::error::{Result, SyncError};
-use crate::protocol::{
-    self, HEADER_GENERATION, HEADER_ID, MAX_SNAPSHOT_BYTES, PATH_CATALOGUE, PATH_INFO,
-};
-use crate::util;
-
-/// Bind the service to `addr` (host:port; port 0 picks an ephemeral port).
 pub fn bind(addr: &str) -> Result<Server> {
     Server::http(addr).map_err(|e| SyncError::Http(format!("cannot bind {addr}: {e}")))
 }
-
-/// Serve requests until the listener fails or is closed.
 pub fn serve_loop(server: Server, ctx: &mut Context) -> Result<()> {
+    if ctx.catalog().is_replica()? {
+        return Err(SyncError::Protocol(
+            "a synced replica cannot serve as the authoritative catalogue".into(),
+        ));
+    }
     loop {
         let request = server.recv().map_err(SyncError::Io)?;
-        // A single bad request must never take the service down.
         if let Err(e) = handle(request, ctx) {
-            eprintln!("icatalog serve: {e}");
+            eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
         }
     }
 }
-
 fn handle(request: Request, ctx: &mut Context) -> Result<()> {
-    let method = request.method().as_str().to_string();
-    let url = request.url().to_string();
-    let (path, query) = protocol::split_url(&url);
+    let method = request.method().as_str().to_owned();
+    let url = request.url().to_owned();
+    let (path, _) = protocol::split_url(&url);
     match (method.as_str(), path) {
-        ("GET", PATH_INFO) => respond_info(request, ctx),
+        ("GET", PATH_INFO) => {
+            let row = ctx
+                .catalog()
+                .catalogue()?
+                .ok_or_else(|| SyncError::Protocol("server catalogue is not initialised".into()))?;
+            respond_text(
+                request,
+                200,
+                &protocol::CatalogueInfo {
+                    id: row.id,
+                    generation: row.generation,
+                }
+                .encode(),
+            )
+        }
         ("GET", PATH_CATALOGUE) => respond_snapshot(request, ctx),
-        ("POST", PATH_CATALOGUE) => handle_push(request, ctx, query),
+        ("POST", "/annotations") => handle_edits(request, ctx),
+        ("POST", PATH_CATALOGUE) => respond_text(
+            request,
+            405,
+            "snapshot uploads are retired; use protocol v2 user edits",
+        ),
+        ("GET", p) if p.starts_with("/preview/") => {
+            let hash = p.strip_prefix("/preview/").unwrap_or("");
+            if !icatalog_catalog::valid_preview_hash(hash) {
+                return respond_text(request, 400, "invalid preview hash");
+            }
+            match icatalog_engine::previews::read(ctx.catalog(), ctx.path(), hash) {
+                Ok(Some(bytes)) => respond_bytes(request, 200, bytes, None, "image/jpeg"),
+                Ok(None) => respond_text(request, 404, "preview unavailable"),
+                Err(e) => respond_text(request, 500, &format!("preview unavailable: {e}")),
+            }
+        }
         _ => respond_text(request, 404, "not found"),
     }
 }
-
-fn respond_info(request: Request, ctx: &Context) -> Result<()> {
-    let Some(row) = ctx.catalog().catalogue()? else {
-        return respond_text(request, 500, "server catalogue is not initialised");
-    };
-    let info = protocol::CatalogueInfo {
-        id: row.id,
-        generation: row.generation,
-    };
-    respond_text(request, 200, &info.encode())
-}
-
 fn respond_snapshot(request: Request, ctx: &Context) -> Result<()> {
-    let Some(row) = ctx.catalog().catalogue()? else {
-        return respond_text(request, 500, "server catalogue is not initialised");
-    };
-    let bytes = std::fs::read(ctx.path())?;
-    let mut resp = Response::from_data(bytes).with_status_code(200);
-    add_header(&mut resp, HEADER_ID, &row.id);
-    add_header(&mut resp, HEADER_GENERATION, &row.generation.to_string());
-    add_header(&mut resp, "Content-Type", "application/octet-stream");
-    request.respond(resp).map_err(SyncError::Io)?;
-    Ok(())
+    let temp = util::TempPath::reserve(ctx.path(), "snapshot")?;
+    let path = temp
+        .path()
+        .to_str()
+        .ok_or_else(|| SyncError::Protocol("snapshot temporary path is not UTF-8".into()))?;
+    // VACUUM INTO gives a consistent SQLite snapshot and removes free pages
+    // left by an embedded-to-external conversion. It never copies a live file.
+    ctx.catalog()
+        .connection()
+        .execute("VACUUM INTO ?1", [path])
+        .map_err(CatalogError::from)?;
+    if std::fs::metadata(temp.path())?.len() > protocol::MAX_SNAPSHOT_BYTES {
+        return respond_text(request, 413, "snapshot exceeds transfer limit");
+    }
+    let c = icatalog_catalog::Catalog::open(temp.path())?;
+    let row = c
+        .catalogue()?
+        .ok_or_else(|| SyncError::Protocol("server catalogue is not initialised".into()))?;
+    let bytes = std::fs::read(temp.path())?;
+    respond_bytes(
+        request,
+        200,
+        bytes,
+        Some((&row.id, row.generation)),
+        "application/octet-stream",
+    )
 }
-
-fn handle_push(mut request: Request, ctx: &mut Context, query: &str) -> Result<()> {
-    let Some(row) = ctx.catalog().catalogue()? else {
-        return respond_text(request, 500, "server catalogue is not initialised");
+fn handle_edits(mut request: Request, ctx: &mut Context) -> Result<()> {
+    if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {
+        return respond_text(request, 413, "edit batch exceeds 64 MiB");
+    }
+    let mut bytes = Vec::new();
+    request
+        .as_reader()
+        .take(MAX_SYNC_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_SYNC_BYTES {
+        return respond_text(request, 413, "edit batch exceeds 64 MiB");
+    }
+    let (id, changes) = match delta::decode(&bytes) {
+        Ok(v) => v,
+        Err(e) => return respond_text(request, 400, &e.to_string()),
     };
-    let expected = match protocol::query_param(query, "expected") {
-        Some(v) => match v.trim().parse::<i64>() {
-            Ok(n) => n,
-            Err(_) => return respond_text(request, 400, "bad 'expected' generation"),
-        },
-        None => return respond_text(request, 400, "missing 'expected' generation"),
-    };
-
-    // Stream the body to a temp file beside the canonical copy, bounded.
-    let temp = util::temp_path(&util::parent_dir(ctx.path()), "incoming");
-    if let Err(e) = read_body_to_file(&mut request, &temp) {
-        let _ = std::fs::remove_file(&temp);
-        return respond_text(request, 413, &format!("snapshot rejected: {e}"));
+    match apply_edits(ctx, &id, &changes) {
+        Ok((generation, conflicts)) => respond_bytes(
+            request,
+            200,
+            delta::encode_reply(generation, &conflicts)?,
+            None,
+            "application/octet-stream",
+        ),
+        Err(e) => respond_text(request, 400, &e.to_string()),
     }
-
-    if expected != row.generation {
-        let _ = std::fs::remove_file(&temp);
-        return respond_generation(request, 409, row.generation);
-    }
-    if let Err(e) = util::verify_catalogue(&temp, &row.id) {
-        let _ = std::fs::remove_file(&temp);
-        return respond_text(request, 400, &format!("snapshot rejected: {e}"));
-    }
-    if let Err(e) = ctx.replace_catalogue_file(&temp) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e.into());
-    }
-    let generation = ctx.catalog().bump_generation()?;
-    respond_generation(request, 200, generation)
 }
-
-/// Copy a bounded request body to `path`; reject anything over the cap.
-fn read_body_to_file(request: &mut Request, path: &std::path::Path) -> Result<u64> {
-    if let Some(len) = request.body_length() {
-        if len as u64 > MAX_SNAPSHOT_BYTES {
-            return Err(SyncError::Http(format!(
-                "body is {len} bytes, over the cap"
-            )));
+/// Validate the complete batch first; apply non-conflicting entities in one transaction.
+/// Retrying an already-applied value succeeds without changing its revision.
+pub fn apply_edits(ctx: &Context, id: &str, changes: &[Change]) -> Result<(i64, Vec<String>)> {
+    delta::validate(changes)?;
+    if ctx.catalog().is_replica()? || ctx.catalog().catalogue()?.is_none_or(|r| r.id != id) {
+        return Err(SyncError::Protocol(
+            "wrong catalogue id or server is a replica".into(),
+        ));
+    }
+    let c = ctx.catalog();
+    c.connection()
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(CatalogError::from)?;
+    let result = (|| -> Result<(i64, Vec<String>)> {
+        let current: BTreeMap<_, _> = delta::current(c)?
+            .into_iter()
+            .map(|r| (r.key(), r))
+            .collect();
+        let mut conflicts = Vec::new();
+        for change in changes {
+            let key = change.key();
+            let previous = current.get(&key);
+            if previous.is_some_and(|p| change.same_value(p)) {
+                continue;
+            }
+            let matches = match previous {
+                Some(p) => change.base_revision == Some(p.revision()),
+                None => {
+                    matches!(change.value, Value::Collection(_)) && change.base_revision.is_none()
+                }
+            };
+            let mut missing_member = false;
+            if let Value::Collection(v) = &change.value {
+                for uid in &v.members {
+                    if c.asset_by_uid(uid)?.is_none() {
+                        missing_member = true;
+                        break;
+                    }
+                }
+            }
+            let converted = matches!((&change.value, previous.map(|p| &p.value)), (Value::Collection(new), Some(Value::Collection(old))) if new.rules.is_some()!=old.rules.is_some());
+            if !matches || missing_member || converted {
+                conflicts.push(key);
+                continue;
+            }
+            match &change.value {
+                Value::Annotation(a) => {
+                    c.apply_annotation_state(a, &icatalog_engine::utc_now_iso8601())?
+                }
+                Value::Collection(a) => c.apply_collection_state(a)?,
+            }
         }
+        let generation = c
+            .generation()?
+            .ok_or_else(|| SyncError::Protocol("uninitialised catalogue".into()))?;
+        c.connection()
+            .execute_batch("COMMIT")
+            .map_err(CatalogError::from)?;
+        Ok((generation, conflicts))
+    })();
+    if result.is_err() && !c.connection().is_autocommit() {
+        c.connection()
+            .execute_batch("ROLLBACK")
+            .map_err(CatalogError::from)?;
     }
-    let mut file = std::fs::File::create(path)?;
-    let limit = MAX_SNAPSHOT_BYTES.saturating_add(1);
-    let mut body = std::io::Read::take(request.as_reader(), limit);
-    let written = std::io::copy(&mut body, &mut file)?;
-    if written > MAX_SNAPSHOT_BYTES {
-        return Err(SyncError::Http("body exceeded the cap".into()));
-    }
-    Ok(written)
+    result
 }
-
-fn respond_generation(request: Request, status: u16, generation: i64) -> Result<()> {
-    let mut resp = Response::empty(status);
-    add_header(&mut resp, HEADER_GENERATION, &generation.to_string());
-    request.respond(resp).map_err(SyncError::Io)?;
-    Ok(())
-}
-
 fn respond_text(request: Request, status: u16, body: &str) -> Result<()> {
-    let mut resp = Response::from_string(body.to_owned()).with_status_code(status);
-    add_header(&mut resp, "Content-Type", "text/plain; charset=utf-8");
-    request.respond(resp).map_err(SyncError::Io)?;
+    respond_bytes(
+        request,
+        status,
+        body.as_bytes().to_vec(),
+        None,
+        "text/plain; charset=utf-8",
+    )
+}
+fn respond_bytes(
+    request: Request,
+    status: u16,
+    body: Vec<u8>,
+    info: Option<(&str, i64)>,
+    content_type: &str,
+) -> Result<()> {
+    let mut response = Response::from_data(body).with_status_code(status);
+    if let Some((id, generation)) = info {
+        add_header(&mut response, HEADER_ID, id);
+        add_header(&mut response, HEADER_GENERATION, &generation.to_string());
+    }
+    add_header(&mut response, "Content-Type", content_type);
+    request.respond(response).map_err(SyncError::Io)?;
     Ok(())
 }
-
-fn add_header<R: std::io::Read>(resp: &mut Response<R>, name: &str, value: &str) {
-    if let Ok(header) = Header::from_bytes(name, value) {
-        resp.add_header(header);
+fn add_header<R: Read>(response: &mut Response<R>, name: &str, value: &str) {
+    if let Ok(h) = Header::from_bytes(name, value) {
+        response.add_header(h);
     }
 }

@@ -149,6 +149,44 @@ fn settle(h: &mut Harness<'_, App>) {
     h.run();
 }
 
+#[test]
+fn replica_browsing_keeps_user_edits_available_and_disables_media_import_update() {
+    let fixture = Fixture::new();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .set_replica_base(0, b"synthetic baseline")
+        .unwrap();
+    drop(ctx);
+    let mut h = fixture.harness([1100.0, 720.0]);
+    assert!(h.state().replica);
+    h.get_by_label("File").click();
+    settle(&mut h);
+    assert!(h.get_by_label("Import…").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Update").accesskit_node().is_disabled());
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    h.get(
+        By::new()
+            .label("Red.bmp")
+            .role(egui::accesskit::Role::Button),
+    )
+    .click();
+    settle(&mut h);
+    h.get_by_label("Rating 5").click();
+    settle(&mut h);
+    h.get_by_label("New Collection…").click();
+    settle(&mut h);
+    h.get_by_label("Name").type_text("Replica album");
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let reopened = open_catalogue(&fixture.path()).unwrap();
+    assert_eq!(reopened.catalog().annotation(1).unwrap().unwrap().rating, 5);
+    assert_eq!(
+        reopened.catalog().all_collections().unwrap()[0].name,
+        "Replica album"
+    );
+}
+
 fn seed_folder_tree(fixture: &Fixture, device_name: &str) {
     let ctx = open_catalogue(&fixture.path()).unwrap();
     ctx.catalog()

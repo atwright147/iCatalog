@@ -1,0 +1,208 @@
+# Using iCatalog sync
+
+Use sync to share a catalogue between computers while keeping a local copy on each one. One machine—usually your NAS—holds the main catalogue and original media. Other computers browse their local copies and send back ratings, labels, keywords and Collection edits.
+
+Sync currently runs from the command line. The desktop app can browse and edit a synced copy, but opening it does not sync automatically. Close the desktop app before running sync, then reopen the local catalogue afterward.
+
+## Before you start
+
+Use builds containing protocol v2 (D20/D44) on both server and clients, and the new client-side `clone` command (D45) for the recommended setup below. Older builds cannot sync with this protocol. If running from this repository, `task build` creates the CLI and desktop binaries under `target/debug/`; use `task run --` in place of `icatalog`, and `task gui --` in place of `icatalog-ui` in the examples below. Installed binaries are assumed to be on your PATH.
+
+The examples use macOS/Linux shell paths. Replace the catalogue paths, media path and `nas` hostname with your own. On Windows, use the corresponding local paths and installed executables.
+
+The service currently uses HTTP without authentication or encryption. Make it reachable only by trusted computers on your local network. The `0.0.0.0` example below listens on every IPv4 interface; you can instead bind to the server's specific LAN address.
+
+## 1. Prepare the main catalogue on the server
+
+For a new shared catalogue, run these commands on the machine that can read the original media. Create a new catalogue filename in a directory you can write to:
+
+```sh
+mkdir -p "$HOME/iCatalog"
+icatalog init "$HOME/iCatalog/Library.sqlite"
+icatalog import "$HOME/iCatalog/Library.sqlite" --path "/path/to/photos"
+```
+
+Replace `/path/to/photos` with the actual media directory on that machine. Import scans its subfolders too.
+
+If you already have the main catalogue, use its existing file instead of creating another one. Its stored media paths must be accessible on the server for Import, Update and preview generation; moving the catalogue alone does not rewrite those paths.
+
+Optionally, prepare larger previews on the server:
+
+```sh
+icatalog previews "$HOME/iCatalog/Library.sqlite" external
+icatalog previews "$HOME/iCatalog/Library.sqlite" generate
+```
+
+External storage keeps these previews in a `previews` directory beside the catalogue, so clients can download them individually. Small grid thumbnails remain inside SQLite. Preview generation is optional for normal desktop browsing, which currently displays those small thumbnails.
+
+## 2. Start the service on the server
+
+Run this on the server and leave that terminal open:
+
+```sh
+icatalog serve "$HOME/iCatalog/Library.sqlite" --bind 0.0.0.0 --port 8080
+```
+
+Clients will use `http://nas:8080`, replacing `nas` with the server's hostname or LAN IP address. If you omit `--bind`, the default is `127.0.0.1`, which accepts connections only from the server itself. Allow the chosen port through the server's firewall for trusted LAN clients.
+
+The service runs until stopped with Ctrl-C. Docker packaging and a supplied NAS service-installation recipe are not available yet.
+
+## 3. Clone a local catalogue on each client
+
+On the client, create the parent directory and choose a **new** local filename:
+
+```sh
+mkdir -p "$HOME/Pictures/iCatalog"
+icatalog clone "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080
+```
+
+From this repository, the equivalent is `task clone -- local.sqlite --url http://nas:8080`.
+
+Clone downloads a consistent copy while the server remains running, verifies it, preserves its catalogue identity and records the starting point for your future edits. It reports the catalogue ID, generation and download size. The resulting local replica is ready to use immediately: **do not run `init` or copy a file first, and no separate first sync is required.** Your first edits after cloning will be uploaded by your next ordinary sync.
+
+The destination directory must already exist. Clone refuses an existing destination, including an empty file, symlink or existing SQLite sidecar. Choose another filename if you already have local work; use `sync` to update an established replica. A failed download or validation leaves no new destination file, so you can correct the reported problem and retry. Clone does not upload anything or modify the server catalogue. An unreachable server makes clone fail rather than reporting a successful deferred sync.
+
+Open the cloned catalogue:
+
+```sh
+icatalog-ui "$HOME/Pictures/iCatalog/Library.sqlite"
+```
+
+Repeat this section for each additional client. Each computer uses its own local SQLite file; clients do not open the main file over SMB/NFS. With an external preview store, the download includes catalogue data and small thumbnails; larger previews can be fetched later. Embedded preview bytes travel inside the catalogue.
+
+Supply the server URL again when running ordinary `sync`; clone does not save a remembered connection setting. Desktop clone/connect controls are not available yet.
+
+## 4. Alternative: copy an existing server catalogue, then sync
+
+You can still seed a client by copying the main `Library.sqlite` using your usual file manager or file-transfer tool. Close all writers, including the server service, before making an ordinary file copy; restart the service afterward. Copy to a separate local filename, not over a client with unsynced edits. Do not create an unrelated empty catalogue with `init`: sync requires the server's catalogue identity.
+
+Before editing a manually copied catalogue, close the desktop app and run:
+
+```sh
+icatalog sync "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080
+```
+
+This first sync establishes the server's current state and saves the previous local file in a timestamped backup, for example `Library.rejected-20261031T120000Z.sqlite`. **Existing edits made before this first sync stay in that backup; they are not uploaded automatically.** This also applies when upgrading a client previously synced with the older protocol. Review and reapply wanted edits using the recovery steps below.
+
+This backup-first setup applies to manual copies. A catalogue created by `clone` already has its starting point recorded and can be edited straight away.
+
+## Everyday use
+
+1. Close the desktop app and run the same `icatalog sync … --url …` command to fetch the latest catalogue.
+2. Open the local copy in the desktop app. Browse, rate, label, add/remove keywords, and create or edit manual and Smart Collections.
+3. Close the desktop app and run sync again to send your edits and receive the latest server state.
+
+Supply `--url` on every sync invocation; it is not saved as a desktop sync setting. Sync is explicit, so other computers see your changes after they run their own sync.
+
+| Change | Where to make it |
+|---|---|
+| Rating, label, keywords | Any established client copy or the server |
+| Collection creation, rename, Smart rules, manual membership | Any established client copy or the server |
+| Import new media, rescan files, refresh extracted metadata | Server |
+| Generate larger previews or change their storage mode | Server |
+
+Import and Update are disabled on client copies. Original media is not copied by sync. Collection deletion and conversion between manual and Smart Collections are not supported.
+
+You can also make user edits through the CLI. First inspect your local asset and Collection IDs:
+
+```sh
+icatalog list "$HOME/Pictures/iCatalog/Library.sqlite"
+icatalog collection "$HOME/Pictures/iCatalog/Library.sqlite" list
+```
+
+For example, if the chosen asset has ID `3`:
+
+```sh
+icatalog edit "$HOME/Pictures/iCatalog/Library.sqlite" --id 3 --rating 5 --keyword Favourite
+icatalog collection "$HOME/Pictures/iCatalog/Library.sqlite" create --name "To print"
+icatalog sync "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080
+```
+
+Use the IDs from the current local catalogue, including when editing Collection membership. Full CLI examples are in the [development guide](development.md#4-driving-the-cli).
+
+## Read the sync result
+
+| Output | Meaning and next action |
+|---|---|
+| `cloned catalogue …` | New local replica created and ready to edit. Subsequent updates use `sync`. |
+| `initial sync: …` | Starting state established. Keep the printed backup if the old local copy contained edits. |
+| `already up to date …` | Nothing needed sending or downloading. |
+| `push: accepted …` | Your supported edits were accepted and the local catalogue refreshed. |
+| `pull: local copy updated …` | A newer server catalogue was downloaded; the previous copy was backed up. |
+| `conflicting user edits preserved in backup …` and `conflict: …` | Some edits need reconciliation. Read the recovery steps below. |
+| `sync deferred: …` | The server could not be reached. Keep working locally and run sync again when it is available. |
+
+Read the output even when the command exits successfully: deferred sync and reported conflicts are normal results, not proof that every edit reached the server. Keep the backup paths printed by sync until you have checked the result.
+
+Uploads contain user edits, but refreshing a catalogue currently downloads the whole SQLite catalogue. A small rating change can therefore be followed by a much larger download, particularly with an embedded preview store.
+
+## Working offline
+
+After cloning, or the first successful sync of a manual copy, your local catalogue remains usable without the server. You can browse stored thumbnails and metadata and edit annotations and Collections. Run the same sync command when connected again; pending edits survive closing and reopening the app.
+
+Two clients can work independently offline. Edits to different assets or Collections normally both succeed. Changes to the same asset's rating/label/keyword set can conflict, even when the two people changed different fields. Name, rules and membership changes within one Collection are also treated as one unit for conflict detection.
+
+## Recovering conflicting edits or pre-first-sync work
+
+When a conflict occurs, the active local catalogue is refreshed from the server. Your draft survives in the backup identified by the output. Other non-conflicting edits from the same sync can still be accepted.
+
+1. Keep the backup file and note the reported conflict keys. They are stable identities, which may differ from the numeric IDs shown by `list`.
+2. Open the backup as a separate catalogue in the desktop app to inspect the ratings, keywords, Collection names, rules and memberships you wanted. Avoid editing the backup while reviewing it.
+3. Close the backup, open the current local catalogue, and reapply the values you decide should win. Use filenames and Collection details to find the relevant entries.
+4. Close the desktop app and sync the current local catalogue again.
+
+These steps also work for local edits preserved by the first v2 sync. Reapplying them to the refreshed catalogue gives them a current starting point. Simply replacing the active copy with a stale backup can reproduce the same conflict. Reconciliation is manual; iCatalog does not offer an automatic conflict-resolution dialog yet.
+
+If you need to map a reported conflict key to a filename or Collection name, these optional read-only queries require the separate `sqlite3` command. Replace `ASSET_UID` with the part after `asset:` or `COLLECTION_UID` with the part after `collection:` in the reported key; replace the backup path too:
+
+```sh
+sqlite3 -readonly "/path/to/Library.rejected-TIMESTAMP.sqlite" \
+  "SELECT id, name, path FROM asset WHERE uid='ASSET_UID';"
+sqlite3 -readonly "/path/to/Library.rejected-TIMESTAMP.sqlite" \
+  "SELECT id, name FROM collection WHERE uid='COLLECTION_UID';"
+```
+
+If a UID contains a single quote, double that quote inside the SQL string. The `sqlite3` tool is only needed for this lookup; ordinary iCatalog use does not require it.
+
+## Updating the server's media
+
+On the server, rescan its catalogue after adding or changing media:
+
+```sh
+icatalog update "$HOME/iCatalog/Library.sqlite"
+```
+
+Import an additional media directory with `icatalog import … --path …`. If you use larger previews, regenerate them after updating:
+
+```sh
+icatalog previews "$HOME/iCatalog/Library.sqlite" generate
+```
+
+Clients receive the catalogue changes on their next sync. Generate reports unavailable, changed or unsupported source files; make sure the originals are accessible and run Update before retrying changed files.
+
+## Larger previews
+
+Use `icatalog previews <catalogue> status` on the server to see its storage mode and count. `external` stores JPEG files beside the catalogue; `embed` copies referenced preview bytes back inside SQLite for a portable file. Conversion verifies the bytes before committing and retains external files afterward.
+
+The desktop full-size preview viewer is not built yet. For CLI/API use, a client can fetch one known preview hash:
+
+```sh
+icatalog sync "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080 --preview "<64-character SHA-256>"
+```
+
+Replace the placeholder with the desired preview's hash; in an external server store, it is the filename without `.jpg`. Run ordinary catalogue sync first so the local copy knows that preview. This command fetches that preview only—it does not send pending edits or refresh the catalogue. Valid cached bytes are reused. Generating and converting previews happens on the server, where the originals are available.
+
+## Troubleshooting
+
+| Problem | What to check |
+|---|---|
+| Clone cannot install the downloaded file | Ensure the parent directory is writable and the local filesystem supports hard links; check whether a completed catalogue already exists before retrying. |
+| Clone destination already exists | Choose a new filename, or use `sync` for an existing replica. Do not delete a catalogue or its sidecars to force clone over local work. |
+| Server unreachable / sync deferred | Service still running, correct hostname/IP and port, firewall access, and a LAN `--bind` address rather than the default localhost-only listener. |
+| Catalogue ID mismatch | The client must start from the server's catalogue. Preserve the existing file and use `clone` at a separate local path. Do not change IDs to force two unrelated catalogues to match. |
+| Protocol version error | Upgrade both server and client to builds supporting protocol v2. |
+| Database locked or old-connection error | Close the desktop app and other tools using that local catalogue, then retry and reopen the app. |
+| Import/Update unavailable on a client | Run those commands against the main server catalogue. |
+| Backup, disk-space or download verification error | Keep the current local file and existing backups, resolve the reported problem, then retry sync. Avoid copying an unverified download over your catalogue. |
+
+For implementation details, transfer limits and exact recovery guarantees, see the [sync protocol reference](sync.md).

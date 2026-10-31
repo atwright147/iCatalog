@@ -130,10 +130,47 @@ impl Catalog {
     }
 
     pub fn smart_rules(&self, id: i64) -> Result<Option<SmartRules>> {
-        let rules = self.conn.query_row(
-            "SELECT format,captured_from,captured_to,camera,lens,min_rating,label,keyword,text FROM smart_collection WHERE collection_id=?1",
-            [id], |r| Ok(SmartRules {format:r.get(0)?,captured_from:r.get(1)?,captured_to:r.get(2)?,camera:r.get(3)?,lens:r.get(4)?,min_rating:r.get(5)?,label:r.get(6)?,keyword:r.get(7)?,text:r.get(8)?})
-        ).optional()?;
+        // A corrupt database must not allocate arbitrary text before validation.
+        // Oversized text becomes an invalid empty rule, never an omitted rule.
+        let columns = [
+            "format",
+            "captured_from",
+            "captured_to",
+            "camera",
+            "lens",
+            "min_rating",
+            "label",
+            "keyword",
+            "text",
+        ]
+        .map(|name| {
+            if matches!(name, "min_rating" | "label") {
+                name.to_owned()
+            } else {
+                format!("CASE WHEN length(CAST({name} AS BLOB))>1024 THEN '' ELSE {name} END")
+            }
+        })
+        .join(",");
+        let rules = self
+            .conn
+            .query_row(
+                &format!("SELECT {columns} FROM smart_collection WHERE collection_id=?1"),
+                [id],
+                |r| {
+                    Ok(SmartRules {
+                        format: r.get(0)?,
+                        captured_from: r.get(1)?,
+                        captured_to: r.get(2)?,
+                        camera: r.get(3)?,
+                        lens: r.get(4)?,
+                        min_rating: r.get(5)?,
+                        label: r.get(6)?,
+                        keyword: r.get(7)?,
+                        text: r.get(8)?,
+                    })
+                },
+            )
+            .optional()?;
         if let Some(rules) = &rules {
             rules.validate()?;
         }

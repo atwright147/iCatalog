@@ -463,12 +463,12 @@ fn migrations_apply_once_and_idempotent() {
     let p = tmp("mig");
     {
         let c = Catalog::open(&p).unwrap();
-        assert_eq!(c.schema_version().unwrap(), 6);
-        assert_eq!(count(&c, "schema_migrations"), 6);
+        assert_eq!(c.schema_version().unwrap(), 7);
+        assert_eq!(count(&c, "schema_migrations"), 7);
     }
     let c = Catalog::open(&p).unwrap();
-    assert_eq!(c.schema_version().unwrap(), 6);
-    assert_eq!(count(&c, "schema_migrations"), 6);
+    assert_eq!(c.schema_version().unwrap(), 7);
+    assert_eq!(count(&c, "schema_migrations"), 7);
     drop(c);
     let _ = std::fs::remove_file(&p);
 }
@@ -495,7 +495,7 @@ fn invalid_and_newer_versions_refused() {
         let c = Catalog::open(&p).unwrap();
         c.connection()
             .execute(
-                "INSERT INTO schema_migrations (version, applied_utc) VALUES (7, 'x')",
+                "INSERT INTO schema_migrations (version, applied_utc) VALUES (8, 'x')",
                 [],
             )
             .unwrap();
@@ -506,14 +506,14 @@ fn invalid_and_newer_versions_refused() {
     assert!(matches!(
         error,
         CatalogError::NewerSchema {
-            found: 7,
-            supported: 6
+            found: 8,
+            supported: 7
         }
     ));
     assert_eq!(
         error.to_string(),
         format!(
-            "catalogue schema version 7 is newer than supported version 6; update {}",
+            "catalogue schema version 8 is newer than supported version 7; update {}",
             icatalog_catalog::APP_NAME
         )
     );

@@ -15,6 +15,7 @@ mod commands;
 mod context;
 mod error;
 mod params;
+pub mod previews;
 mod registry;
 mod time;
 

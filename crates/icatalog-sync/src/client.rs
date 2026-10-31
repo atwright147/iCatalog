@@ -1,243 +1,213 @@
-//! The sync client: decide pull or push from the generation, verify downloads,
-//! swap atomically and keep a timestamped backup before any overwrite.
-//! Implements the conflict policy in `docs/sync.md` sections 4-6.
-
-use std::path::{Path, PathBuf};
-
+//! Push revision-checked user edits, then verify/back up/replace the replica.
+use crate::{
+    delta,
+    protocol::{CatalogueInfo, PATH_CATALOGUE, PATH_INFO},
+    transport::Transport,
+    util, Result, SyncError,
+};
+use icatalog_catalog::CatalogError;
 use icatalog_engine::Context;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
-use crate::error::{Result, SyncError};
-use crate::protocol::{CatalogueInfo, HEADER_GENERATION, HEADER_ID, PATH_CATALOGUE, PATH_INFO};
-use crate::transport::{HttpResponse, Transport};
-use crate::util;
-
-/// What a sync run did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
-    /// Local and server were level and the local copy was unchanged since the
-    /// last sync: nothing was sent and the server generation did not move.
     UpToDate,
-    /// Local and server were level: the local copy was published.
     Pushed,
-    /// The server was ahead: the local copy was replaced (backed up first).
     Pulled { backup: Option<PathBuf> },
-    /// A push was refused (the generation moved): the local copy was backed up
-    /// and resynced from the server.
     Resynced { backup: Option<PathBuf> },
 }
-
-/// The outcome of one sync run.
 #[derive(Debug, Clone)]
 pub struct SyncReport {
     pub action: SyncAction,
     pub local_generation: i64,
     pub server_generation: i64,
     pub bytes: u64,
+    pub sent_bytes: u64,
+    pub conflicts: Vec<String>,
+    pub backup: Option<PathBuf>,
+    pub initial: bool,
 }
-
-/// `GET /info`: the server's catalogue id and generation.
-pub fn info(transport: &dyn Transport, base: &str) -> Result<CatalogueInfo> {
-    let resp = transport.get(&join(base, PATH_INFO))?;
-    if resp.status != 200 {
-        return Err(SyncError::Http(format!(
-            "GET /info returned {}",
-            resp.status
-        )));
-    }
-    let body = std::str::from_utf8(&resp.body)
-        .map_err(|_| SyncError::Protocol("info body is not UTF-8".into()))?;
-    CatalogueInfo::parse(body)
+fn join(base: &str, path: &str) -> String {
+    format!("{}{}", base.trim_end_matches('/'), path)
 }
-
-/// Download the server snapshot to a verified temp file next to `local`,
-/// returning the temp path, the server info and the byte count. The caller
-/// performs the atomic swap so a failure leaves the local copy untouched.
-pub fn download(
-    transport: &dyn Transport,
-    base: &str,
-    local: &Path,
-    expect_id: &str,
-) -> Result<(PathBuf, CatalogueInfo, u64)> {
-    let resp = transport.get(&join(base, PATH_CATALOGUE))?;
-    if resp.status != 200 {
-        return Err(SyncError::Http(format!(
-            "GET /catalogue returned {}",
-            resp.status
-        )));
+pub fn info(t: &dyn Transport, base: &str) -> Result<CatalogueInfo> {
+    let resp = t.get(&join(base, PATH_INFO))?;
+    if resp.status != 200 || resp.body.len() > 8192 {
+        return Err(SyncError::Protocol("invalid GET /info response".into()));
     }
-    let id = resp
-        .header(HEADER_ID)
-        .ok_or_else(|| SyncError::Protocol("snapshot is missing X-Catalogue-Id".into()))?;
-    if id != expect_id {
-        return Err(SyncError::Protocol(format!(
-            "server catalogue id '{id}' does not match local '{expect_id}'"
-        )));
-    }
-    let generation = header_generation(&resp)?;
-    let temp = util::temp_path(&util::parent_dir(local), "download");
-    std::fs::write(&temp, &resp.body)?;
-    if let Err(e) = util::verify_catalogue(&temp, expect_id) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok((
-        temp,
-        CatalogueInfo {
-            id: id.to_string(),
-            generation,
-        },
-        resp.body.len() as u64,
-    ))
+    CatalogueInfo::parse(
+        std::str::from_utf8(&resp.body)
+            .map_err(|_| SyncError::Protocol("info is not UTF-8".into()))?,
+    )
 }
-
-/// The result of pushing.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PushOutcome {
-    /// Accepted; the server generation is now this value.
-    Accepted { generation: i64 },
-    /// Refused; the server is at this generation.
-    Refused { generation: i64 },
-}
-
-/// `POST /catalogue?expected=<base>` with the local snapshot.
-pub fn push(
-    transport: &dyn Transport,
-    base: &str,
-    expected: i64,
-    body: &[u8],
-) -> Result<PushOutcome> {
-    let resp = transport.post(
-        &format!("{}?expected={expected}", join(base, PATH_CATALOGUE)),
-        body,
-    )?;
-    match resp.status {
-        200 => Ok(PushOutcome::Accepted {
-            generation: header_generation(&resp)?,
-        }),
-        409 => Ok(PushOutcome::Refused {
-            generation: header_generation(&resp)?,
-        }),
-        other => Err(SyncError::Http(format!("POST /catalogue returned {other}"))),
+/// The SQLite write reservation prevents another local writer from changing
+/// the state being uploaded/backed up while network requests are in flight.
+pub fn sync_once(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncReport> {
+    let mode: String = ctx
+        .catalog()
+        .connection()
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .map_err(CatalogError::from)?;
+    if mode != "delete" {
+        return Err(SyncError::Protocol(
+            "sync requires SQLite DELETE journal mode".into(),
+        ));
     }
+    ctx.catalog()
+        .connection()
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(CatalogError::from)?;
+    let result = sync_locked(ctx, t, base);
+    if !ctx.catalog().connection().is_autocommit() {
+        ctx.catalog()
+            .connection()
+            .execute_batch("ROLLBACK")
+            .map_err(CatalogError::from)?;
+    }
+    result
 }
-
-/// One sync run against `base`, per `docs/sync.md` sections 4-6.
-pub fn sync_once(ctx: &mut Context, transport: &dyn Transport, base: &str) -> Result<SyncReport> {
+fn sync_locked(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncReport> {
     let row = ctx
         .catalog()
         .catalogue()?
         .ok_or_else(|| SyncError::Protocol("local catalogue is not initialised".into()))?;
-    let local = ctx.path().to_path_buf();
-
-    let info = info(transport, base)?;
-    if info.id != row.id {
-        return Err(SyncError::Protocol(format!(
-            "server catalogue id '{}' does not match local '{}'",
-            info.id, row.id
-        )));
+    let remote = info(t, base)?;
+    if remote.id != row.id {
+        return Err(SyncError::Protocol(
+            "server catalogue id does not match the local catalogue".into(),
+        ));
     }
-
-    use std::cmp::Ordering;
-    match info.generation.cmp(&row.generation) {
-        // Server ahead: replace the local copy (backed up first).
-        Ordering::Greater => {
-            let backup = util::backup_local(&local)?;
-            pull(
-                ctx,
-                transport,
-                base,
-                &row.id,
-                SyncAction::Pulled { backup },
-                row.generation,
-            )
+    let baseline = ctx.catalog().replica_base()?;
+    let mut changes = Vec::new();
+    let base_generation = if let Some((generation, bytes)) = &baseline {
+        let (id, previous) = delta::decode(bytes)?;
+        if id != row.id {
+            return Err(SyncError::Integrity(
+                "replica baseline belongs to another catalogue".into(),
+            ));
         }
-        // Level: publish local state unless nothing changed since the last
-        // sync (then a push would only bump the generation for no reason).
-        Ordering::Equal => {
-            let bytes = std::fs::read(&local)?;
-            let fingerprint = util::fingerprint(&bytes);
-            if util::read_state(&local).as_deref() == Some(fingerprint.as_str()) {
-                return Ok(SyncReport {
-                    action: SyncAction::UpToDate,
-                    local_generation: row.generation,
-                    server_generation: info.generation,
-                    bytes: 0,
-                });
-            }
-            match push(transport, base, row.generation, &bytes)? {
-                PushOutcome::Accepted { generation } => {
-                    ctx.catalog().set_generation(generation)?;
-                    record_state(&local);
-                    Ok(SyncReport {
-                        action: SyncAction::Pushed,
-                        local_generation: row.generation,
-                        server_generation: generation,
-                        bytes: bytes.len() as u64,
-                    })
-                }
-                PushOutcome::Refused { .. } => {
-                    let backup = util::backup_local(&local)?;
-                    pull(
-                        ctx,
-                        transport,
-                        base,
-                        &row.id,
-                        SyncAction::Resynced { backup },
-                        row.generation,
-                    )
-                }
+        let old: BTreeMap<_, _> = previous.into_iter().map(|r| (r.key(), r)).collect();
+        let current = delta::current(ctx.catalog())?;
+        let keys: BTreeSet<_> = current.iter().map(|r| r.key()).collect();
+        if old.keys().any(|k| !keys.contains(k)) {
+            return Err(SyncError::Protocol("local server-managed data was deleted; restore it or recover from a backup before syncing".into()));
+        }
+        for mut value in current {
+            let previous = old.get(&value.key());
+            if previous.is_none_or(|p| !p.same_value(&value)) {
+                value.base_revision = previous.map(|p| p.revision());
+                changes.push(value);
             }
         }
-        // Should never happen with a well-behaved server; never overwrite it.
-        Ordering::Less => Err(SyncError::Protocol(format!(
-            "local generation {} is ahead of the server ({}); refusing to overwrite",
-            row.generation, info.generation
-        ))),
+        *generation
+    } else {
+        0
+    };
+    if baseline.is_some() && remote.generation < base_generation {
+        return Err(SyncError::Protocol(
+            "server generation moved backwards; refusing to replace the local catalogue".into(),
+        ));
     }
-}
-
-/// Download, verify and atomically swap in a server snapshot.
-fn pull(
-    ctx: &mut Context,
-    transport: &dyn Transport,
-    base: &str,
-    expect_id: &str,
-    action: SyncAction,
-    local_generation: i64,
-) -> Result<SyncReport> {
-    let local = ctx.path().to_path_buf();
-    let (temp, info, bytes) = download(transport, base, &local, expect_id)?;
-    if let Err(e) = ctx.replace_catalogue_file(&temp) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e.into());
+    if baseline.is_some() && remote.generation == base_generation && changes.is_empty() {
+        return Ok(SyncReport {
+            action: SyncAction::UpToDate,
+            local_generation: base_generation,
+            server_generation: remote.generation,
+            bytes: 0,
+            sent_bytes: 0,
+            conflicts: Vec::new(),
+            backup: None,
+            initial: false,
+        });
     }
-    // We are now in sync with the server: remember this exact state.
-    record_state(&local);
+    let mut sent_bytes = 0;
+    let mut conflicts = Vec::new();
+    let mut minimum_generation = remote.generation;
+    if !changes.is_empty() {
+        let body = delta::encode(&row.id, &changes)?;
+        let resp = t.post(&join(base, "/annotations"), &body)?;
+        if resp.status != 200 {
+            return Err(SyncError::Http(format!(
+                "POST /annotations returned {}",
+                resp.status
+            )));
+        }
+        let (generation, returned) = delta::decode_reply(&resp.body)?;
+        if generation < remote.generation {
+            return Err(SyncError::Protocol(
+                "edit response generation moved backwards".into(),
+            ));
+        }
+        let sent: BTreeSet<_> = changes.iter().map(|c| c.key()).collect();
+        let mut seen = BTreeSet::new();
+        if returned
+            .iter()
+            .any(|k| !sent.contains(k) || !seen.insert(k.clone()))
+        {
+            return Err(SyncError::Protocol(
+                "invalid conflict list in edit response".into(),
+            ));
+        }
+        sent_bytes = body.len() as u64;
+        conflicts = returned;
+        minimum_generation = generation;
+    }
+    let download = crate::download::prepare(
+        t,
+        &join(base, PATH_CATALOGUE),
+        ctx.path(),
+        &row.id,
+        minimum_generation,
+    )?;
+    // No writes were made to the locked local catalogue. Its committed main
+    // file is a consistent backup in DELETE journal mode.
+    let backup = util::backup_local(ctx.path())?;
+    ctx.replace_catalogue_file(download.temp.path())?;
+    util::sync_parent(ctx.path())?;
+    let action = if !conflicts.is_empty() {
+        SyncAction::Resynced {
+            backup: backup.clone(),
+        }
+    } else if sent_bytes > 0 {
+        SyncAction::Pushed
+    } else {
+        SyncAction::Pulled {
+            backup: backup.clone(),
+        }
+    };
     Ok(SyncReport {
         action,
-        local_generation,
-        server_generation: info.generation,
-        bytes,
+        local_generation: base_generation,
+        server_generation: download.generation,
+        bytes: download.bytes,
+        sent_bytes,
+        conflicts,
+        backup,
+        initial: baseline.is_none(),
     })
 }
 
-/// Record the current local file's fingerprint in its sync marker, so an
-/// unchanged copy can skip the next push. Best effort (see `util::write_state`).
-fn record_state(local: &Path) {
-    if let Ok(bytes) = std::fs::read(local) {
-        util::write_state(local, &util::fingerprint(&bytes));
+/// On-demand, pull-only preview cache. Already verified local bytes need no HTTP request.
+pub fn fetch_preview(ctx: &Context, t: &dyn Transport, base: &str, hash: &str) -> Result<bool> {
+    if !icatalog_catalog::valid_preview_hash(hash) {
+        return Err(SyncError::Protocol("invalid preview hash".into()));
     }
-}
-
-fn header_generation(resp: &HttpResponse) -> Result<i64> {
-    resp.header(HEADER_GENERATION)
-        .ok_or_else(|| SyncError::Protocol("response is missing X-Generation".into()))?
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| SyncError::Protocol("bad X-Generation header".into()))
-}
-
-/// Join a base URL and a protocol path, tolerating a trailing slash.
-fn join(base: &str, path: &str) -> String {
-    format!("{}{}", base.trim_end_matches('/'), path)
+    if icatalog_engine::previews::read(ctx.catalog(), ctx.path(), hash)?.is_some() {
+        return Ok(false);
+    }
+    if !ctx.catalog().is_replica()? || !ctx.catalog().preview_is_referenced(hash)? {
+        return Err(SyncError::Protocol(
+            "sync the catalogue before fetching a referenced preview".into(),
+        ));
+    }
+    let response = t.get(&join(base, &format!("/preview/{hash}")))?;
+    if response.status != 200 {
+        return Err(SyncError::Http(format!(
+            "preview GET returned {}",
+            response.status
+        )));
+    }
+    icatalog_engine::previews::cache(ctx.catalog(), ctx.path(), hash, &response.body)?;
+    Ok(true)
 }

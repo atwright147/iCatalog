@@ -19,6 +19,7 @@ Web/wasm build: **a goal, like PhotoCraft** (trunk + wasm-bindgen, Rust only). T
 | `docs/architecture.md` | EXISTS | Crate map, layers, engine/UI seam |
 | `docs/development.md` | EXISTS | Build, test, run, drive the CLI, debug tricks |
 | `docs/sync.md` | EXISTS | Full protocol and conflict policy (summary in section 5 below) |
+| `docs/sync-user-guide.md` | EXISTS | User setup, everyday sync, offline work, conflict recovery and previews |
 | `docs/schema.md` | EXISTS | SQLite catalogue schema and migrations |
 | `docs/roadmap.md` | EXISTS | Milestones and **current focus** |
 
@@ -35,8 +36,8 @@ crates/
   icatalog-catalog           EXISTS. L1 SQLite schema + model (rusqlite, "bundled" feature: the chosen dependency)
   icatalog-media             EXISTS. L1 media decode, thumbnails, metadata extraction (only crate allowed media deps)
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
-  icatalog-sync              EXISTS. L3 whole-snapshot sync: NAS-side HTTP `serve` + client `sync` (D18; deps tiny_http, ureq)
-  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/collection/sync/serve/status)
+  icatalog-sync              EXISTS. L3 server-authoritative sync: revision-checked annotation/Collection uploads, catalogue/preview pulls (D20/D44; tiny_http, ureq)
+  icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/collection/previews/clone/sync/serve/status)
   icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
@@ -65,7 +66,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 ### Other rules
 
-1. **Everything is a command.** New user-visible behaviour = a command with id, label, params doc, `enabled` and `run`, plus tests. Engine commands live in `icatalog-engine` (EXISTS); the sync commands `sync`/`serve` live in `icatalog-sync` (L3, D18) because the engine (L2) may not depend on it. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers, and the L4 shells merge the engine and sync registries. Only pure view/window state belongs to the shell.
+1. **Everything is a command.** New user-visible behaviour = a command with id, label, params doc, `enabled` and `run`, plus tests. Engine commands live in `icatalog-engine` (EXISTS); the sync commands `clone`/`sync`/`serve` live in `icatalog-sync` (L3, D18) because the engine (L2) may not depend on it. The CLI and the GUI both dispatch commands by id; the CLI subcommands are thin wrappers, and the L4 shells merge the engine and sync registries. Only pure view/window state belongs to the shell.
 2. **Clean-room.** Implement from observation and `ivc-file-research/docs/ivc-format.md`. Third-party assets need a permissive licence and a row in `ATTRIBUTION.md` (PLANNED).
 3. **Tests are the gate.** Every change comes with tests. Add synthetic and round-trip tests for the catalogue and sync. Demo/test images must be public-domain and **never personal photos**; never put personal details in URLs or User-Agents.
 4. **The UI is thin and data-driven.** `icatalog-ui` holds no logic; all actions go through engine commands.
@@ -78,7 +79,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). The CLI and the `serve` service EXIST (D18); the musl build and Docker packaging are PLANNED.
 
-`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|collection|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
+`icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|collection|previews|clone|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
 
 | Subcommand | Purpose |
 |---|---|
@@ -89,7 +90,9 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
 | `collection <catalogue> <action>` | EXISTS (D25/D35/D36/D37/D38): manual and Smart Collections; `list`, `create --name <name>`, `create-smart --name <name> <rules>`, `preview-smart <rules>` (read-only count/summary, D37), `rename --id <collection> --name <name>`, `rules --id <collection>`, `set-rules --id <collection> [--name <name>] <rules>`, `show --id <collection>`, `add/remove --id <collection> --asset <asset>` (manual only); `list`/`find --collection <id>` browse members |
-| `sync` | EXISTS (D18): pull/push against the NAS catalogue over HTTP (section 5) |
+| `previews <catalogue> status\|generate\|external\|embed` | EXISTS (D20/D44): generate oriented 1920-pixel JPEG previews and convert embedded/external storage |
+| `clone <catalogue> --url <server>` | EXISTS (D45): download and validate a new local replica, ready for edits; refuses existing destinations |
+| `sync` | EXISTS (D20/D44): push user-edit deltas and pull the NAS catalogue; `--preview <sha>` fetches one referenced preview |
 | `serve` | EXISTS (D18): run the NAS-side HTTP sync service |
 | `status` / `info` | Catalogue stats, generation, sync state, missing files |
 
@@ -99,18 +102,17 @@ Deployment on a NAS:
 - **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
 - Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag builds that commit's app code with the dispatched workflow revision's `packaging/` and `Taskfile.yml`, then uploads after checks pass. Go is explicitly installed before Task. Hosted v0.1.0 recovery passed all four platform builds, all three Linux installation checks and final upload; all six assets and checksums are published. Arch constraints are guarded by a generated-metadata regression check. Musl NAS builds and Docker remain PLANNED.
 
-## 5. Local copies + startup sync
+## 5. Local copies + sync
 
-Model chosen by the human: **each computer keeps a local SQLite copy; it syncs with the NAS copy at startup.** The transport is an **HTTP(S) API** served by `icatalog serve`; clients (CLI, desktop GUI and the wasm browser build) pull and push over that same API.
+Each computer keeps a local SQLite copy; `icatalog serve` owns the canonical NAS catalogue. HTTP protocol v2 (D20/D44) pushes only rating/label/keyword and Collection edits keyed by stable UIDs, never media, thumbnails or previews. Catalogue and SHA-256-addressed previews are pull-only. Plain HTTP exists; TLS/auth and desktop automatic startup/GUI sync are not built.
 
-- The NAS holds the canonical catalogue, served by `icatalog serve` over HTTP(S). Chosen over a shared-file, single-writer SQLite on SMB/NFS because SQLite locking over network shares is unreliable and corrupts databases; a service owns the file and serialises writes.
-- Each client opens only its local copy; the app is fully usable offline. Startup and explicit `icatalog sync` pull newer generations and push local changes. If the NAS is unreachable, sync is deferred and reported, never fatal.
-- The catalogue carries a **generation counter**, bumped on every accepted push, plus a per-catalogue id.
-- A client keeps a **local change marker** (`name.sqlite.sync-state`) so an unchanged copy is not re-pushed: an idle sync is a no-op, and any local edit is still pushed (D19, `docs/sync.md`).
-- **Conflict policy:** a push is refused if the server generation moved since the client's base generation (refuse-and-resync, never silent last-writer-wins). On refusal the client saves its rejected local state as a timestamped backup (e.g. `name.rejected-<UTC timestamp>.sqlite`) before resyncing from the server. Merging local changes (per-item, by stable item id) is a later improvement and must keep the same safety guarantees; until then conflicts are surfaced to the user with the backup path.
-- **"Everyone sees the same thing" means sync points, not live co-editing.** Two machines edited between syncs can conflict; the user is told, and nothing is lost.
-- **Decided target (D20; not built):** the push direction changes — a client pushes only an **annotation delta** (rating/label/keywords, keyed by stable asset uid), never media, thumbnails or previews; previews come from the server **content-addressed and pull-only** (`GET /preview/<sha>`); and the preview store is chosen per catalogue (**embedded** for a portable single-file `~/Pictures` catalogue, **external** for the NAS). Until that slice is built, the whole-snapshot push and the conflict policy above are what exists. A standalone local catalogue simply never runs `sync`, so it is never affected by any of this.
-- Sync is a command (in `icatalog-sync`, D18), so CLI and GUI dispatch the same code. Details (endpoints, auth, TLS) are in `docs/sync.md`.
+- Generation advances transactionally on catalogue-data writes, including server imports/updates and direct CRUD. Per-asset annotation revisions and per-Collection revisions prevent silent last-writer-wins; independent entities sync independently. Conflicting drafts survive in a timestamped backup and conflict keys are reported.
+- `clone <new-local-file> --url <server>` creates a replica directly from a live server with its baseline established (D45). No init/manual copy/extra first sync is needed. Existing destinations and SQLite sidecars are refused; verified staged downloads are published without overwriting a racing destination. Parent directories must exist.
+- A replica baseline is stored inside SQLite. For manually copied catalogues, first v2 sync downloads server state and backs up unknown local edits without uploading them; this also applies to D18/D19 copies whose old fingerprint sidecars cannot supply per-item history. Subsequent sync pushes pending edits before pulling. Idle sync is a no-op; offline catalogue sync is deferred.
+- Collection deltas include creation, names, Smart rules and manual membership using stable member UIDs. Deletion/manual-to-Smart conversion remain unsupported. Established replicas reject media-derived writes; desktop Import/Update disable while annotation/Collection edits remain available.
+- Downloaded files undergo integrity, foreign-key, ID, generation and user-state checks, then receive a new baseline. The local SQLite writer is reserved during sync. A flushed, exclusively created backup precedes atomic replacement; failed transfers/backups leave local work intact. The server uses consistent SQLite snapshots. Whole-snapshot uploads are retired (405).
+- `previews status|generate|external|embed` exists. Explicit generation uses original media on the server/standalone machine, creating oriented JPEGs (quality 80, long edge at most 1920, no upscaling). Storage is per-catalogue: embedded by default for a portable single file, external in `previews/<sha>.jpg` for NAS use. Grid thumbnails always stay embedded. Conversion verifies every blob before committing. `sync --preview <sha>` lazily fetches verified bytes using GET only; desktop full-size preview viewing remains unbuilt.
+- Standalone catalogues simply never run sync. SQLite stays in DELETE journal mode, without WAL sidecars. Protocol details, bounds and recovery behavior are in `docs/sync.md`.
 
 ## 6. Current focus / picking work
 
@@ -161,7 +163,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 - Don't claim sync, schema or wasm behaviour that isn't built and tested; keep EXISTS vs PLANNED honest.
 - **Keep the docs true — same change, same commit.** Docs are part of the definition of done, not an afterthought. If a change alters what EXISTS vs PLANNED, the crate map, the schema, the CLI surface or a design decision, update the matching doc in the same change: `docs/roadmap.md` (milestone status), `docs/architecture.md` (crate map and layers), `docs/schema.md` (SQLite schema), `docs/decisions.md` (add a new D-numbered entry when you choose an approach), the root `Taskfile.yml` (see the next bullet) and this file. A reader must be able to trust that "EXISTS" means built and tested and "PLANNED" means not yet built; if code and docs disagree the doc is the bug — fix it before you finish, and never claim behaviour a doc still lists as PLANNED until a crate and its tests back it.
 - Append a terse entry to `log/devlog.md` (what landed, what's still open).
-- **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ui:test` runs headless UI checks (also included in workspace tests); `task ui:visual` compares reviewed screenshot baselines, `task ui:visual:update` explicitly regenerates them for review, and `task ui:smoke` runs native macOS checks with desktop permissions (D24). `task scale` is the opt-in 10,000-image workflow and large sync validation (requires a localhost listener). `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
+- **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `clone`, `previews`, `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ui:test` runs headless UI checks (also included in workspace tests); `task ui:visual` compares reviewed screenshot baselines, `task ui:visual:update` explicitly regenerates them for review, and `task ui:smoke` runs native macOS checks with desktop permissions (D24). `task scale` is the opt-in 10,000-image workflow and large sync validation (requires a localhost listener). `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
 - `task release:build -- --target <triple>` builds the locked release CLI and desktop app; `task release:package -- <triple>` packages them under `target/release-assets`; `task release:test` runs archive/version and Arch metadata regression tests (also included in workspace tests). Linux packaging requires FPM 1.17.0, rpm, bsdtar and zstd; Windows packaging uses PowerShell. See `docs/development.md` for the release matrix and prerequisites.
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
@@ -176,6 +178,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 9. Where things are tracked
 
-- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync` (whole-snapshot `serve`/`sync`, D18), the `icatalog` CLI and the `icatalog-ui` desktop shell; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
+- Real today: app-side, `icatalog-catalog`, `icatalog-media`, `icatalog-engine`, `icatalog-sync` (revision-checked user-edit uploads and catalogue/preview pulls, D20/D44), the `icatalog` CLI and the `icatalog-ui` desktop shell; `ivc-file-research/docs/ivc-format.md` and `ivc-file-research/crates/ivc/tests/samples.rs` back the import path.
 - EXISTS: `log/devlog.md` (local, gitignored; append a terse entry per task).
 - Open question: whether the sync service is mandatory or also offers a simple share-file mode. (Samples corpus: resolved, see `ivc-file-research/samples/fetch.sh`.)

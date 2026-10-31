@@ -39,7 +39,7 @@ impl Command for Import {
         ]
     }
     fn enabled(&self, ctx: &Context) -> bool {
-        is_initialised(ctx)
+        is_initialised(ctx) && matches!(ctx.catalog().is_replica(), Ok(false))
     }
     fn run(&self, ctx: &mut Context, params: &Params) -> Result<Outcome> {
         let root = params.require("path")?;

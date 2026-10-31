@@ -1,5 +1,5 @@
 //! iCatalog sync: the NAS-side HTTP service (`serve`) and the client (`sync`).
-//! Whole-snapshot transfer with a generation guard; see `docs/sync.md`.
+//! Revision-checked user-edit uploads and pull-only catalogues/previews (D20).
 #![forbid(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
@@ -11,12 +11,16 @@
 )]
 
 pub mod client;
+mod clone;
 mod commands;
+pub mod delta;
+mod download;
 mod error;
 pub mod protocol;
 pub mod server;
 pub mod transport;
 pub mod util;
 
+pub use clone::{clone_catalogue, CloneReport};
 pub use commands::{command_ids, commands, dispatch_guarded, find_command};
 pub use error::{Result, SyncError};

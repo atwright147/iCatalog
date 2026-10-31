@@ -54,7 +54,8 @@ fn ids() {
             "import",
             "update",
             "edit",
-            "collection"
+            "collection",
+            "previews"
         ]
     );
 }

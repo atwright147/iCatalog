@@ -136,6 +136,7 @@ struct App {
     detail_for: Option<i64>,
     status: String,
     dirty: bool,
+    replica: bool,
     search: String,
     /// Native (macOS) menu bar; kept alive for the app's lifetime. `None` when
     /// it could not be installed, in which case the in-app menu bar is shown.
@@ -279,6 +280,7 @@ impl App {
             detail_for: None,
             status: String::new(),
             dirty: true,
+            replica: false,
             search: String::new(),
             menu,
             menu_events,
@@ -287,6 +289,7 @@ impl App {
             visible_thumbnails: HashSet::new(),
         };
         app.refresh();
+        app.set_menu_enabled(true);
         app
     }
 
@@ -297,6 +300,7 @@ impl App {
     }
 
     fn try_refresh(&mut self) -> icatalog_engine::Result<()> {
+        let replica = self.ctx.catalog().is_replica()?;
         let folders = self.ctx.catalog().all_folders()?;
         let sources = self.ctx.catalog().all_sources()?;
         let collections = self.ctx.catalog().all_collections()?;
@@ -344,6 +348,7 @@ impl App {
         self.collections = collections;
         self.collection_counts = collection_counts;
         self.assets = assets;
+        self.replica = replica;
         self.list_metadata.clear();
         self.selection.retain(&self.assets);
         self.selection_membership_for = None;
@@ -372,6 +377,7 @@ impl App {
     }
 
     fn set_menu_enabled(&self, enabled: bool) {
+        let enabled = enabled && !self.replica;
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.menu {
             menu.import.set_enabled(enabled);
@@ -1598,7 +1604,7 @@ impl eframe::App for App {
         // Native macOS menu clicks arrive through the handler installed in
         // `install_native_menu`; drain them before drawing.
         while let Ok(id) = self.menu_events.try_recv() {
-            if self.worker.is_some() || self.create_collection.is_some() {
+            if self.worker.is_some() || self.create_collection.is_some() || self.replica {
                 continue;
             }
             match id.as_str() {
@@ -1619,7 +1625,9 @@ impl eframe::App for App {
                     ui.menu_button("File", |ui| {
                         if ui
                             .add_enabled(
-                                self.worker.is_none() && self.create_collection.is_none(),
+                                self.worker.is_none()
+                                    && self.create_collection.is_none()
+                                    && !self.replica,
                                 egui::Button::new("Import…"),
                             )
                             .clicked()
@@ -1631,7 +1639,9 @@ impl eframe::App for App {
                         }
                         if ui
                             .add_enabled(
-                                self.worker.is_none() && self.create_collection.is_none(),
+                                self.worker.is_none()
+                                    && self.create_collection.is_none()
+                                    && !self.replica,
                                 egui::Button::new("Update"),
                             )
                             .clicked()

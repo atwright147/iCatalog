@@ -8,6 +8,15 @@ pub struct Context {
 }
 
 impl Context {
+    /// Prepare a destination session without opening, creating or migrating
+    /// its file. Used by commands that install a verified new catalogue.
+    pub fn for_destination(path: impl AsRef<Path>) -> Result<Self> {
+        Ok(Context {
+            path: path.as_ref().to_path_buf(),
+            catalog: icatalog_catalog::Catalog::open_in_memory()?,
+        })
+    }
+
     /// Open (creating if absent) the catalogue at `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
