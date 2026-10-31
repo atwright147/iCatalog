@@ -860,3 +860,77 @@ fn clone_does_not_overwrite_a_destination_created_during_download() {
     );
     assert!(temp_files(&dir).is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn moved_server_folder_returns_actionable_download_error_and_clone_can_retry() {
+    let dir = temp_dir("moved-server-folder");
+    let live = dir.join("live");
+    let moved = dir.join("moved");
+    std::fs::create_dir(&live).unwrap();
+    let source = make_catalogue(&live, "server.sqlite", "test", 0);
+    let url = format!("http://127.0.0.1:{}", start_server(source.clone()));
+    let transport = UreqTransport::new();
+    // Wait for the serving context to be opened before moving its directory.
+    assert_eq!(client::info(&transport, &url).unwrap().id, "test");
+    std::fs::rename(&live, &moved).unwrap();
+    let response = transport.get(&format!("{url}/catalogue")).unwrap();
+    assert_eq!(response.status, 500);
+    let message = String::from_utf8(response.body).unwrap();
+    assert!(message.contains("server catalogue and its folder") && message.contains("restart"));
+    let destination = dir.join("client.sqlite");
+    let mut ctx = Context::for_destination(&destination).unwrap();
+    let error = icatalog_sync::clone_catalogue(&mut ctx, &transport, &url)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("HTTP 500") && error.contains("restart"),
+        "{error}"
+    );
+    assert!(!destination.exists());
+    assert!(temp_files(&dir).is_empty());
+    assert!(temp_files(&moved).is_empty());
+    std::fs::rename(&moved, &live).unwrap();
+    icatalog_sync::clone_catalogue(&mut ctx, &transport, &url).unwrap();
+    assert!(ctx.catalog().is_replica().unwrap());
+    assert_eq!(ctx.catalog().catalogue().unwrap().unwrap().id, "test");
+}
+
+#[test]
+fn failed_download_reports_status_including_empty_legacy_server_errors() {
+    let dir = temp_dir("download-http-errors");
+    for (index, (status, body)) in [
+        (500, Vec::new()),
+        (503, b"Catalogue temporarily unavailable".to_vec()),
+        (404, vec![b'x'; 8192]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let destination = dir.join(format!("failed-{index}.sqlite"));
+        let mut ctx = Context::for_destination(&destination).unwrap();
+        let t = ScriptedTransport {
+            queue: RefCell::new(
+                vec![
+                    info_response("test", 0),
+                    HttpResponse {
+                        status,
+                        headers: Default::default(),
+                        body,
+                    },
+                ]
+                .into(),
+            ),
+        };
+        let message = icatalog_sync::clone_catalogue(&mut ctx, &t, "http://example")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains(&format!("HTTP {status}")) && message.contains("server's terminal"),
+            "{message}"
+        );
+        assert!(message.len() < 2300);
+        assert!(!destination.exists());
+    }
+    assert!(temp_files(&dir).is_empty());
+}

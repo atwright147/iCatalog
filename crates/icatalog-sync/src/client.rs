@@ -33,7 +33,10 @@ fn join(base: &str, path: &str) -> String {
 }
 pub fn info(t: &dyn Transport, base: &str) -> Result<CatalogueInfo> {
     let resp = t.get(&join(base, PATH_INFO))?;
-    if resp.status != 200 || resp.body.len() > 8192 {
+    if resp.status != 200 {
+        return Err(resp.status_error("GET /info"));
+    }
+    if resp.body.len() > 8192 {
         return Err(SyncError::Protocol("invalid GET /info response".into()));
     }
     CatalogueInfo::parse(

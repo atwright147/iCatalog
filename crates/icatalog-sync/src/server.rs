@@ -68,6 +68,44 @@ fn handle(request: Request, ctx: &mut Context) -> Result<()> {
     }
 }
 fn respond_snapshot(request: Request, ctx: &Context) -> Result<()> {
+    match prepare_snapshot(ctx) {
+        Ok(Snapshot::TooLarge) => respond_text(request, 413, "snapshot exceeds transfer limit"),
+        Ok(Snapshot::Ready {
+            bytes,
+            id,
+            generation,
+        }) => respond_bytes(
+            request,
+            200,
+            bytes,
+            Some((&id, generation)),
+            "application/octet-stream",
+        ),
+        Err(error) => {
+            let message = format!("Cannot prepare catalogue download. Check that the server catalogue and its folder still exist and are writable. If they were moved, stop the service and restart it with the correct catalogue path. Server detail: {error}");
+            eprintln!("{} serve: {message}", icatalog_catalog::APP_NAME);
+            respond_text(request, 500, &message)
+        }
+    }
+}
+
+enum Snapshot {
+    TooLarge,
+    Ready {
+        bytes: Vec<u8>,
+        id: String,
+        generation: i64,
+    },
+}
+
+fn prepare_snapshot(ctx: &Context) -> Result<Snapshot> {
+    // An open SQLite handle can outlive a catalogue moved to another folder
+    // or the Trash. Do not serve it as though its original location were valid.
+    if !std::fs::metadata(ctx.path())?.is_file() {
+        return Err(SyncError::Protocol(
+            "server catalogue path is not a file".into(),
+        ));
+    }
     let temp = util::TempPath::reserve(ctx.path(), "snapshot")?;
     let path = temp
         .path()
@@ -80,20 +118,18 @@ fn respond_snapshot(request: Request, ctx: &Context) -> Result<()> {
         .execute("VACUUM INTO ?1", [path])
         .map_err(CatalogError::from)?;
     if std::fs::metadata(temp.path())?.len() > protocol::MAX_SNAPSHOT_BYTES {
-        return respond_text(request, 413, "snapshot exceeds transfer limit");
+        return Ok(Snapshot::TooLarge);
     }
     let c = icatalog_catalog::Catalog::open(temp.path())?;
     let row = c
         .catalogue()?
         .ok_or_else(|| SyncError::Protocol("server catalogue is not initialised".into()))?;
     let bytes = std::fs::read(temp.path())?;
-    respond_bytes(
-        request,
-        200,
+    Ok(Snapshot::Ready {
         bytes,
-        Some((&row.id, row.generation)),
-        "application/octet-stream",
-    )
+        id: row.id,
+        generation: row.generation,
+    })
 }
 fn handle_edits(mut request: Request, ctx: &mut Context) -> Result<()> {
     if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {

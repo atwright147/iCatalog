@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 icatalog-catalog = { path = "../icatalog-catalog" }
 icatalog-engine = { path = "../icatalog-engine" }
+icatalog-sync = { path = "../icatalog-sync" }
 icatalog-media = { path = "../icatalog-media" }
 eframe = "0.36"
 rfd = "0.17"

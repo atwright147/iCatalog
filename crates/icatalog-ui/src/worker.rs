@@ -12,8 +12,16 @@ impl Worker {
         let handle = std::thread::Builder::new()
             .name("icatalog-command".into())
             .spawn(move || {
-                let mut context = Context::open(path)?;
-                dispatch_guarded(&mut context, &id, &params)
+                let mut context = if id == "clone" {
+                    Context::for_destination(path)?
+                } else {
+                    Context::open(path)?
+                };
+                if icatalog_engine::find_command(&id).is_some() {
+                    dispatch_guarded(&mut context, &id, &params)
+                } else {
+                    icatalog_sync::dispatch_guarded(&mut context, &id, &params)
+                }
             })?;
         Ok(Self {
             handle: Some(handle),

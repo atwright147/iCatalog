@@ -13,6 +13,8 @@ use support::bmp;
 mod rename_tests;
 #[path = "smart_tests.rs"]
 mod smart_tests;
+#[path = "sync_tests.rs"]
+mod sync_tests;
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -65,6 +67,7 @@ impl Fixture {
     ) -> Harness<'static, App> {
         let path = self.path();
         Harness::builder()
+            .with_max_steps(20)
             .with_size(size)
             .with_pixels_per_point(pixels_per_point)
             .with_theme(theme)
@@ -2070,6 +2073,41 @@ fn visual_snapshots() {
     smart.run();
     smart.snapshot("catalogue-rename-collection");
     results.extend(smart.take_snapshot_results());
+
+    let sync_fixture = Fixture::new();
+    let mut sync = sync_fixture.harness([800.0, 600.0]);
+    sync.state_mut().open_sync_dialog(true);
+    {
+        let d = sync.state_mut().sync_dialog.as_mut().unwrap();
+        d.url = "http://nas:8080".into();
+        d.destination = Some("Library.sqlite".into());
+    }
+    settle(&mut sync);
+    sync.snapshot("catalogue-connect");
+    results.extend(sync.take_snapshot_results());
+    sync.get_by_label("Cancel").click();
+    settle(&mut sync);
+    sync.state_mut().open_sync_dialog(false);
+    settle(&mut sync);
+    sync.snapshot("catalogue-sync-first");
+    results.extend(sync.take_snapshot_results());
+    sync.get_by_label("Cancel").click();
+    settle(&mut sync);
+    sync.state_mut().replica = true;
+    sync.state_mut().sync_url = "http://nas:8080".into();
+    sync.state_mut().open_sync_dialog(false);
+    sync.state_mut().sync_dialog.as_mut().unwrap().result = Some(
+        "conflicting user edits preserved in backup; local copy resynced at generation 42\nbackup: /catalogues/Library.rejected-20261031T120000Z.sqlite (your local edits before the resync)\nconflict: asset:example-photo\nuser-edit upload: 128 bytes\nsnapshot: 2097152 bytes".into());
+    settle(&mut sync);
+    sync.snapshot("catalogue-sync-conflict");
+    results.extend(sync.take_snapshot_results());
+    let mut light = sync_fixture.harness_with_display([800.0, 600.0], 1.0, egui::Theme::Light);
+    light.state_mut().replica = true;
+    light.state_mut().sync_url = "http://nas:8080".into();
+    light.state_mut().open_sync_dialog(false);
+    settle(&mut light);
+    light.snapshot("catalogue-sync-light");
+    results.extend(light.take_snapshot_results());
 }
 
 #[test]

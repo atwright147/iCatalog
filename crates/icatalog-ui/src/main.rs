@@ -16,6 +16,7 @@ mod interaction;
 mod list_row;
 mod selection;
 mod smart_collection;
+mod sync_ui;
 mod typography;
 #[cfg(test)]
 mod ui_tests;
@@ -101,6 +102,8 @@ struct NativeMenu {
     _menu: muda::Menu,
     import: muda::MenuItem,
     update: muda::MenuItem,
+    connect: muda::MenuItem,
+    sync: muda::MenuItem,
 }
 #[cfg(not(target_os = "macos"))]
 type NativeMenu = ();
@@ -144,6 +147,10 @@ struct App {
     /// Menu-item ids delivered from the native menu.
     menu_events: std::sync::mpsc::Receiver<String>,
     worker: Option<worker::Worker>,
+    sync_dialog: Option<sync_ui::SyncDialog>,
+    sync_job: Option<sync_ui::SyncJob>,
+    sync_url: String,
+    catalogue_error: Option<String>,
     attempted_thumbnails: HashSet<i64>,
     visible_thumbnails: HashSet<i64>,
 }
@@ -187,11 +194,20 @@ fn install_native_menu(
         let file_menu = Submenu::new("File", true);
         let import = MenuItem::with_id("file.import", "Import…", true, None::<Accelerator>);
         let update = MenuItem::with_id("file.update", "Update", true, None::<Accelerator>);
+        let connect = MenuItem::with_id(
+            "file.connect",
+            "Connect to Server…",
+            true,
+            None::<Accelerator>,
+        );
+        let sync = MenuItem::with_id("file.sync", "Sync…", true, None::<Accelerator>);
 
         // Keep the standard app menu (Quit/⌘Q): installing our menu replaces
         // NSApp's main menu wholesale.
         let built = app_menu.append(&PredefinedMenuItem::quit(None)).is_ok()
-            && file_menu.append_items(&[&import, &update]).is_ok()
+            && file_menu
+                .append_items(&[&import, &update, &connect, &sync])
+                .is_ok()
             && menu.append_items(&[&app_menu, &file_menu]).is_ok();
         if !built {
             return None;
@@ -225,6 +241,8 @@ fn install_native_menu(
             _menu: menu,
             import,
             update,
+            connect,
+            sync,
         })
     }
     #[cfg(not(target_os = "macos"))]
@@ -249,6 +267,7 @@ impl App {
         menu: Option<NativeMenu>,
         menu_events: std::sync::mpsc::Receiver<String>,
     ) -> Self {
+        let saved_url = sync_ui::load_url(&path);
         let mut app = App {
             ctx,
             path,
@@ -285,10 +304,17 @@ impl App {
             menu,
             menu_events,
             worker: None,
+            sync_dialog: None,
+            sync_job: None,
+            sync_url: saved_url.as_ref().cloned().unwrap_or_default(),
+            catalogue_error: None,
             attempted_thumbnails: HashSet::new(),
             visible_thumbnails: HashSet::new(),
         };
         app.refresh();
+        if let Err(error) = saved_url {
+            app.status = format!("Cannot read saved sync server: {error}");
+        }
         app.set_menu_enabled(true);
         app
     }
@@ -349,6 +375,9 @@ impl App {
         self.collection_counts = collection_counts;
         self.assets = assets;
         self.replica = replica;
+        self.set_menu_enabled(
+            self.worker.is_none() && self.create_collection.is_none() && self.sync_dialog.is_none(),
+        );
         self.list_metadata.clear();
         self.selection.retain(&self.assets);
         self.selection_membership_for = None;
@@ -377,11 +406,16 @@ impl App {
     }
 
     fn set_menu_enabled(&self, enabled: bool) {
-        let enabled = enabled && !self.replica;
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.menu {
-            menu.import.set_enabled(enabled);
-            menu.update.set_enabled(enabled);
+            menu.import
+                .set_enabled(enabled && !self.replica && self.catalogue_error.is_none());
+            menu.update
+                .set_enabled(enabled && !self.replica && self.catalogue_error.is_none());
+            menu.connect
+                .set_enabled(enabled && self.catalogue_error.is_none());
+            menu.sync
+                .set_enabled(enabled && self.catalogue_error.is_none());
         }
         #[cfg(not(target_os = "macos"))]
         let _ = enabled;
@@ -392,6 +426,10 @@ impl App {
             return;
         };
         self.worker = None;
+        if self.sync_job.is_some() {
+            self.finish_sync(result);
+            return;
+        }
         if let Some(dialog) = self
             .create_collection
             .as_mut()
@@ -1586,6 +1624,22 @@ impl eframe::App for App {
                 self.status = "A command is running; wait for it to finish before closing.".into();
             }
         }
+        if self.sync_job.is_some() || self.catalogue_error.is_some() {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.heading(APP_NAME);
+                if let Some(error) = self.catalogue_error.clone() {
+                    ui.label(error);
+                    if ui.button("Reopen catalogue").clicked() {
+                        self.reopen_after_sync();
+                    }
+                } else {
+                    ui.spinner();
+                    ui.label("Working with the sync server…");
+                }
+            });
+            self.sync_modal(ui.ctx());
+            return;
+        }
         if self.dirty && self.worker.is_none() {
             self.refresh();
             self.dirty = false;
@@ -1604,16 +1658,21 @@ impl eframe::App for App {
         // Native macOS menu clicks arrive through the handler installed in
         // `install_native_menu`; drain them before drawing.
         while let Ok(id) = self.menu_events.try_recv() {
-            if self.worker.is_some() || self.create_collection.is_some() || self.replica {
+            if self.worker.is_some()
+                || self.create_collection.is_some()
+                || self.sync_dialog.is_some()
+            {
                 continue;
             }
             match id.as_str() {
-                "file.import" => {
+                "file.import" if !self.replica => {
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                         action = Some(Action::Import(dir));
                     }
                 }
-                "file.update" => action = Some(Action::Update),
+                "file.update" if !self.replica => action = Some(Action::Update),
+                "file.connect" => self.open_sync_dialog(true),
+                "file.sync" => self.open_sync_dialog(false),
                 _ => {}
             }
         }
@@ -1623,6 +1682,24 @@ impl eframe::App for App {
             egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
+                        let available = self.worker.is_none()
+                            && self.create_collection.is_none()
+                            && self.sync_dialog.is_none();
+                        if ui
+                            .add_enabled(available, egui::Button::new("Connect to Server…"))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_sync_dialog(true);
+                        }
+                        if ui
+                            .add_enabled(available, egui::Button::new("Sync…"))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_sync_dialog(false);
+                        }
+                        ui.separator();
                         if ui
                             .add_enabled(
                                 self.worker.is_none()
@@ -1910,6 +1987,7 @@ impl eframe::App for App {
             self.run_command("collection", &params);
         }
         self.create_collection_modal(&ctx);
+        self.sync_modal(&ctx);
         if let Some(asset) = egui::DragAndDrop::payload::<DraggedAsset>(&ctx) {
             if let Some(pointer) = ctx.pointer_hover_pos() {
                 egui::Area::new(egui::Id::new("dragged_asset"))

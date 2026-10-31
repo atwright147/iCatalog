@@ -204,6 +204,35 @@ fn native_menu_dialog_update_and_quit() {
         end repeat
         if (exists sheet 1 of window 1) or (count of windows > 1) then error "Escape did not dismiss the picker"
         log "Picker dismissed"
+        if not (exists menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1) then error "No File → Connect to Server menu"
+        if not (exists menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1) then error "No File → Sync menu"
+        click menu bar item "File" of menu bar 1
+        click menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1
+        repeat 200 times
+            if not (enabled of menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1) then exit repeat
+            delay 0.05
+        end repeat
+        if enabled of menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1 then error "Connect did not open its modal"
+        key code 53
+        repeat 200 times
+            if enabled of menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1 then exit repeat
+            delay 0.05
+        end repeat
+        if not (enabled of menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1) then error "Escape did not dismiss Connect"
+        click menu bar item "File" of menu bar 1
+        click menu item "Sync…" of menu "File" of menu bar item "File" of menu bar 1
+        repeat 200 times
+            if not (enabled of menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1) then exit repeat
+            delay 0.05
+        end repeat
+        if enabled of menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1 then error "Sync did not open its modal"
+        key code 53
+        repeat 200 times
+            if enabled of menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1 then exit repeat
+            delay 0.05
+        end repeat
+        if not (enabled of menu item "Connect to Server…" of menu "File" of menu bar item "File" of menu bar 1) then error "Escape did not dismiss Sync"
+        log "Native Connect and Sync menus verified without transfers"
         keystroke "q" using command down
     "#,
     );

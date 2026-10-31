@@ -136,7 +136,7 @@ tasks:
       - cargo test -p icatalog-sync --test sync large_snapshot_round_trip -- --ignored --nocapture
 
   ui:test:
-    desc: Headless UI interaction, persistence and viewport tests (also in task ci)
+    desc: Headless UI interaction, persistence, viewport and HTTP sync tests (localhost access; also in task ci)
     cmds:
       - cargo test -p icatalog-ui
 

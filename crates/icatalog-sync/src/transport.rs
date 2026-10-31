@@ -17,6 +17,30 @@ pub struct HttpResponse {
 }
 
 impl HttpResponse {
+    /// Bounded, single-line diagnostics from an HTTP error response. A legacy
+    /// server may send an empty 500, so always include the status and next step.
+    pub(crate) fn status_error(&self, request: &str) -> SyncError {
+        let prefix = self
+            .body
+            .get(..self.body.len().min(2048))
+            .unwrap_or_default();
+        let detail: String = String::from_utf8_lossy(prefix)
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        let detail = detail.trim();
+        SyncError::Http(format!(
+            "{request} returned HTTP {}. Check the sync server's terminal for details.{}{}",
+            self.status,
+            if detail.is_empty() {
+                ""
+            } else {
+                " Server message: "
+            },
+            detail
+        ))
+    }
+
     /// Case-insensitive header lookup.
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers

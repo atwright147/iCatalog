@@ -38,7 +38,7 @@ crates/
   icatalog-engine            EXISTS. L2 session + command registry (every action is a command)
   icatalog-sync              EXISTS. L3 server-authoritative sync: revision-checked annotation/Collection uploads, catalogue/preview pulls (D20/D44; tiny_http, ureq)
   icatalog-cli               EXISTS. L4 binary `icatalog` (init/open/import/list/find/update/edit/collection/previews/clone/sync/serve/status)
-  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions); wasm PLANNED
+  icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions plus Connect/Clone/Sync dialogs, D46); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
 packaging/          EXISTS: desktop release scripts/launcher (D34); Docker image + compose example PLANNED
@@ -104,7 +104,7 @@ Deployment on a NAS:
 
 ## 5. Local copies + sync
 
-Each computer keeps a local SQLite copy; `icatalog serve` owns the canonical NAS catalogue. HTTP protocol v2 (D20/D44) pushes only rating/label/keyword and Collection edits keyed by stable UIDs, never media, thumbnails or previews. Catalogue and SHA-256-addressed previews are pull-only. Plain HTTP exists; TLS/auth and desktop automatic startup/GUI sync are not built.
+Each computer keeps a local SQLite copy; `icatalog serve` owns the canonical NAS catalogue. HTTP protocol v2 (D20/D44) pushes only rating/label/keyword and Collection edits keyed by stable UIDs, never media, thumbnails or previews. Catalogue and SHA-256-addressed previews are pull-only. Plain HTTP exists; Desktop Connect/Clone and explicit Sync dialogs exist (D46); TLS/auth and automatic startup sync are not built.
 
 - Generation advances transactionally on catalogue-data writes, including server imports/updates and direct CRUD. Per-asset annotation revisions and per-Collection revisions prevent silent last-writer-wins; independent entities sync independently. Conflicting drafts survive in a timestamped backup and conflict keys are reported.
 - `clone <new-local-file> --url <server>` creates a replica directly from a live server with its baseline established (D45). No init/manual copy/extra first sync is needed. Existing destinations and SQLite sidecars are refused; verified staged downloads are published without overwriting a racing destination. Parent directories must exist.
@@ -112,6 +112,7 @@ Each computer keeps a local SQLite copy; `icatalog serve` owns the canonical NAS
 - Collection deltas include creation, names, Smart rules and manual membership using stable member UIDs. Deletion/manual-to-Smart conversion remain unsupported. Established replicas reject media-derived writes; desktop Import/Update disable while annotation/Collection edits remain available.
 - Downloaded files undergo integrity, foreign-key, ID, generation and user-state checks, then receive a new baseline. The local SQLite writer is reserved during sync. A flushed, exclusively created backup precedes atomic replacement; failed transfers/backups leave local work intact. The server uses consistent SQLite snapshots. Whole-snapshot uploads are retired (405).
 - `previews status|generate|external|embed` exists. Explicit generation uses original media on the server/standalone machine, creating oriented JPEGs (quality 80, long edge at most 1920, no upscaling). Storage is per-catalogue: embedded by default for a portable single file, external in `previews/<sha>.jpg` for NAS use. Grid thumbnails always stay embedded. Conversion verifies every blob before committing. `sync --preview <sha>` lazily fetches verified bytes using GET only; desktop full-size preview viewing remains unbuilt.
+- Desktop File → Connect to Server… clones into a new local file; File → Sync… runs explicit sync on a worker and refreshes the open catalogue. The URL is remembered in a local `<catalogue>.sync-url` preference file; CLI commands still require `--url`. First sync of an untracked copy requires acknowledging backup-first replacement. Offline/conflict/backup results stay visible; automatic sync remains unbuilt (D46).
 - Standalone catalogues simply never run sync. SQLite stays in DELETE journal mode, without WAL sidecars. Protocol details, bounds and recovery behavior are in `docs/sync.md`.
 
 ## 6. Current focus / picking work

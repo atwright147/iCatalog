@@ -22,5 +22,6 @@ pub mod transport;
 pub mod util;
 
 pub use clone::{clone_catalogue, CloneReport};
+pub use commands::validate_base as validate_server_url;
 pub use commands::{command_ids, commands, dispatch_guarded, find_command};
 pub use error::{Result, SyncError};

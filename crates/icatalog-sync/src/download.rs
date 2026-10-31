@@ -29,9 +29,12 @@ pub(crate) fn prepare(
     minimum_generation: i64,
 ) -> Result<PreparedDownload> {
     let resp = transport.get(url)?;
-    if resp.status != 200 || resp.body.len() as u64 > MAX_SNAPSHOT_BYTES {
+    if resp.status != 200 {
+        return Err(resp.status_error("GET /catalogue"));
+    }
+    if resp.body.len() as u64 > MAX_SNAPSHOT_BYTES {
         return Err(SyncError::Protocol(
-            "invalid catalogue download response".into(),
+            "catalogue download exceeds the snapshot limit".into(),
         ));
     }
     if resp.header(HEADER_ID) != Some(expect_id) {

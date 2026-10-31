@@ -247,3 +247,5 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 ## 5. Test requirements
 
 **Decided:** synthetic and round-trip tests for the catalogue; public-domain images only. **Proposed:** import tests built from the `ivc` sample oracles; migration tests from every prior version; hostile-input tests (truncated or mutated bytes into import must return `Err`).
+
+D46 desktop sync uses the same v7 replica baseline and L3 commands without a migration. Remembered desktop server addresses live outside SQLite in optional local `<catalogue>.sync-url` preferences; they are not catalogue data or uploaded state.

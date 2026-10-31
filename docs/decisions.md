@@ -446,6 +446,16 @@ Clone requires an existing parent directory and rejects existing destinations (i
 
 `task clone` is the matching Taskfile shortcut. The user guide now recommends starting the service and cloning each client, preserving the manual-copy alternative and first-sync recovery instructions. Tests cover actual CLI creation/idle sync/first-edit upload, missing/bad URL/offline behavior without file creation, preserving arbitrary existing files, malformed/stale/mismatched/replica downloads, retry and staging cleanup, existing sidecars and symlinks, destination races, and filesystem-dependent non-UTF-8 path behavior. GUI clone/connect controls remain planned.
 
+## D46. Desktop client Connect/Clone and explicit Sync (2026-10-31)
+
+The owner requested a client sync UI. Add File → Connect to Server… and File → Sync… to native macOS and fallback menus. Connect selects a new local filename and dispatches the existing L3 clone command, then opens the verified replica. Sync dispatches the existing L3 sync command on the background worker. The UI gains a lower-layer `icatalog-sync` dependency and merges registry dispatch engine-first; no transfer/conflict logic is duplicated. No new command id, third-party dependency, endpoint, protocol or schema migration.
+
+Release the desktop SQLite connection before ordinary sync and block reads/writes while the worker runs, so replacement works on Windows and the desktop cannot keep displaying the replaced inode. Reopen afterward even on failure, clear caches and refresh the active catalogue. A reopen failure blocks catalogue actions and offers retry. The worker uses destination-only context for cloning; failure never opens or migrates an existing target. Closing the window is prevented during a running operation; transfer cancellation and automatic startup/background sync remain deferred.
+
+Require acknowledgement of first-sync backup behaviour for manually copied/untracked catalogues. Preserve dialog inputs on error, show progress without invented percentages, and keep complete selectable/scrollable command results including offline deferrals, backups and conflict keys. Save local server addresses in optional bounded UTF-8 `<catalogue>.sync-url` preferences using a flushed staged write and atomic rename. Preferences are outside synced SQLite; successful clones and sync attempts remember addresses, failed clones preserve the active connection. Preference errors remain visible separately from transfer outcomes. CLI commands still require `--url` and do not read these UI settings.
+
+Tests exercise the actual widgets and HTTP commands for cloning, first edits, incoming changes, idle sync, settings/restart, refusal/retry, first-sync acknowledgement/backups, offline retry and conflicts. Existing UI interaction/visual and workspace gates remain the validation surface; native smoke checks cover File entries and Connect cancellation. Full-size previews, TLS/auth and NAS packaging remain separate work.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

@@ -202,6 +202,14 @@ impl Catalog {
             .optional()?)
     }
 
+    /// Stable identity for restoring a local view after a replica refresh.
+    pub fn collection_uid_by_id(&self, id: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT uid FROM collection WHERE id=?1", [id], |r| r.get(0))
+            .optional()?)
+    }
+
     pub fn apply_collection_state(&self, state: &CollectionState) -> Result<()> {
         let id = match self.collection_id_by_uid(&state.uid)? {
             Some(id) => {

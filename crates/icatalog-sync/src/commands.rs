@@ -154,7 +154,7 @@ impl Command for Serve {
     }
 }
 
-pub(crate) fn validate_base(base: &str) -> EngineResult<()> {
+pub fn validate_base(base: &str) -> EngineResult<()> {
     if base.is_empty() {
         return Err(EngineError::BadParam("url must not be empty".into()));
     }
