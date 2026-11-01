@@ -16,6 +16,7 @@ mod interaction;
 mod list_row;
 mod selection;
 mod smart_collection;
+mod spacing;
 mod sync_ui;
 mod typography;
 #[cfg(test)]
@@ -785,83 +786,111 @@ impl App {
         };
         let mut submit = false;
         let mut cancel = false;
-        let response = egui::Modal::new(egui::Id::new("create_collection")).show(ctx, |ui| {
-            ui.set_width(if dialog.smart { 440.0 } else { 300.0 });
-            ui.heading(if dialog.rename_id.is_some() {
-                "Rename Collection"
-            } else if dialog.editing_id.is_some() {
-                "Edit Smart Collection"
-            } else {
-                "New Collection"
-            });
-            ui.add_enabled_ui(!dialog.pending, |ui| {
-                let label = ui.label("Name");
-                let name = ui
-                    .add(
-                        egui::TextEdit::singleline(&mut dialog.name)
-                            .desired_width(f32::INFINITY)
-                            .char_limit(1024),
-                    )
-                    .labelled_by(label.id);
-                if dialog.focus_name {
-                    name.request_focus();
-                    if dialog.rename_id.is_some() {
-                        if let Some(mut state) =
-                            egui::text_edit::TextEditState::load(ui.ctx(), name.id)
-                        {
-                            state
-                                .cursor
-                                .set_char_range(Some(egui::text::CCursorRange::two(
-                                    egui::text::CCursor::new(0),
-                                    egui::text::CCursor::new(dialog.name.chars().count()),
-                                )));
-                            state.store(ui.ctx(), name.id);
-                        }
-                    }
-                    dialog.focus_name = false;
-                }
-                let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if dialog.editing_id.is_none() && dialog.rename_id.is_none() {
-                    ui.checkbox(&mut dialog.smart, "Smart Collection");
-                }
-                if dialog.smart {
-                    dialog.rules.show(ui);
-                    dialog.preview.show(ui, &self.path, &dialog.rules);
-                }
-                if let Some(error) = &dialog.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
-                }
-                ui.horizontal(|ui| {
-                    cancel = ui.button("Cancel").clicked();
-                    let valid = !dialog.name.trim().is_empty();
-                    submit = ui
-                        .add_enabled(
-                            valid,
-                            egui::Button::new(if dialog.rename_id.is_some() {
-                                "Rename"
-                            } else if dialog.editing_id.is_some() {
-                                "Save"
-                            } else {
-                                "Create"
-                            }),
-                        )
-                        .clicked()
-                        || (valid && enter);
+        let response = egui::Modal::new(egui::Id::new("create_collection"))
+            .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(12))
+            .show(ctx, |ui| {
+                spacing::dialog(ui);
+                ui.set_width(if dialog.smart { 440.0 } else { 300.0 });
+                ui.heading(if dialog.rename_id.is_some() {
+                    "Rename Collection"
+                } else if dialog.editing_id.is_some() {
+                    "Edit Smart Collection"
+                } else {
+                    "New Collection"
                 });
-            });
-            if dialog.pending {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(if dialog.rename_id.is_some() {
-                        "Renaming collection…"
-                    } else if dialog.editing_id.is_some() {
-                        "Saving collection…"
+                ui.add_enabled_ui(!dialog.pending, |ui| {
+                    let name = if dialog.rename_id.is_some() || dialog.editing_id.is_some() {
+                        let label_width = if dialog.editing_id.is_some() {
+                            smart_collection::RuleInputs::label_column_width(ui)
+                        } else {
+                            0.0
+                        };
+                        egui::Grid::new("collection_name")
+                            .num_columns(2)
+                            .min_col_width(label_width)
+                            .spacing(egui::vec2(16.0, 6.0))
+                            .show(ui, |ui| {
+                                let label = ui.label("Name");
+                                let name = ui
+                                    .add(
+                                        egui::TextEdit::singleline(&mut dialog.name)
+                                            .desired_width(240.0)
+                                            .char_limit(1024),
+                                    )
+                                    .labelled_by(label.id);
+                                ui.end_row();
+                                name
+                            })
+                            .inner
                     } else {
-                        "Creating collection…"
+                        let label = ui.label("Name");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut dialog.name)
+                                .desired_width(f32::INFINITY)
+                                .char_limit(1024),
+                        )
+                        .labelled_by(label.id)
+                    };
+                    if dialog.focus_name {
+                        name.request_focus();
+                        if dialog.rename_id.is_some() {
+                            if let Some(mut state) =
+                                egui::text_edit::TextEditState::load(ui.ctx(), name.id)
+                            {
+                                state
+                                    .cursor
+                                    .set_char_range(Some(egui::text::CCursorRange::two(
+                                        egui::text::CCursor::new(0),
+                                        egui::text::CCursor::new(dialog.name.chars().count()),
+                                    )));
+                                state.store(ui.ctx(), name.id);
+                            }
+                        }
+                        dialog.focus_name = false;
+                    }
+                    let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if dialog.editing_id.is_none() && dialog.rename_id.is_none() {
+                        ui.checkbox(&mut dialog.smart, "Smart Collection");
+                    }
+                    if dialog.smart {
+                        dialog.rules.show(ui);
+                        dialog.preview.show(ui, &self.path, &dialog.rules);
+                    }
+                    if let Some(error) = &dialog.error {
+                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        cancel = ui.button("Cancel").clicked();
+                        let valid = !dialog.name.trim().is_empty();
+                        submit = ui
+                            .add_enabled(
+                                valid,
+                                egui::Button::new(if dialog.rename_id.is_some() {
+                                    "Rename"
+                                } else if dialog.editing_id.is_some() {
+                                    "Save"
+                                } else {
+                                    "Create"
+                                }),
+                            )
+                            .clicked()
+                            || (valid && enter);
                     });
                 });
-            }
-        });
+                if dialog.pending {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(if dialog.rename_id.is_some() {
+                            "Renaming collection…"
+                        } else if dialog.editing_id.is_some() {
+                            "Saving collection…"
+                        } else {
+                            "Creating collection…"
+                        });
+                    });
+                }
+            });
         if !dialog.pending && (cancel || response.should_close()) {
             self.create_collection = None;
             self.set_menu_enabled(self.worker.is_none());
@@ -1271,7 +1300,7 @@ impl App {
         } else {
             ui.label("(no thumbnail)");
         }
-        ui.separator();
+        spacing::section(ui);
         ui.label(format!("Path: {}", asset.path));
         if let Some(src) = asset
             .folder_id
@@ -1299,7 +1328,7 @@ impl App {
             ui.colored_label(egui::Color32::RED, "missing from disk (run Update)");
         }
         if let Some(m) = &self.meta {
-            ui.separator();
+            spacing::section(ui);
             ui.heading("Metadata");
             if let Some(v) = &m.captured_local {
                 ui.label(format!("Captured: {v}"));
@@ -1358,11 +1387,11 @@ impl App {
                 ));
             }
         }
-        ui.separator();
+        spacing::section(ui);
         ui.heading("Annotations");
         let rating = self.annotation.as_ref().map(|a| a.rating).unwrap_or(0);
         let label = self.annotation.as_ref().map(|a| a.label).unwrap_or(0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Rating");
             for r in 0..=5 {
                 let response = ui.selectable_label(rating == r, r.to_string());
@@ -1379,7 +1408,7 @@ impl App {
                 }
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Label");
             for l in 0..=7 {
                 let response = ui.selectable_label(label == l, l.to_string());
@@ -1396,7 +1425,7 @@ impl App {
                 }
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let keyword_label = ui.label("Keyword");
             ui.add(
                 egui::TextEdit::singleline(&mut self.keyword_input)
@@ -1417,7 +1446,7 @@ impl App {
         });
         let keywords = self.keywords.clone();
         for kw in &keywords {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(kw);
                 if ui.small_button("remove").clicked() {
                     edit = Some(edit_params(id, "remove-keyword", kw));
@@ -1917,8 +1946,16 @@ impl eframe::App for App {
             egui::Panel::right("details")
                 .default_size(320.0)
                 .show(ui, |ui| {
-                    ui.add_enabled_ui(self.worker.is_none(), |ui| {
-                        edit = self.details_panel(ui);
+                    egui::Frame::NONE.inner_margin(6).show(ui, |ui| {
+                        spacing::inspector(ui);
+                        egui::ScrollArea::vertical()
+                            .id_salt("details_content")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.add_enabled_ui(self.worker.is_none(), |ui| {
+                                    edit = self.details_panel(ui);
+                                });
+                            });
                     });
                 });
         }

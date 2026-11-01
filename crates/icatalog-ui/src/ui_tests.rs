@@ -13,6 +13,8 @@ use support::bmp;
 mod rename_tests;
 #[path = "smart_tests.rs"]
 mod smart_tests;
+#[path = "spacing_tests.rs"]
+mod spacing_tests;
 #[path = "sync_tests.rs"]
 mod sync_tests;
 
@@ -1985,6 +1987,37 @@ fn visual_snapshots() {
 
     let rich_fixture = Fixture::new();
     seed_list_metadata(&rich_fixture);
+    for (name, theme, scroll) in [
+        ("catalogue-inspector-metadata", egui::Theme::Dark, false),
+        (
+            "catalogue-inspector-scrolled-light",
+            egui::Theme::Light,
+            true,
+        ),
+    ] {
+        let size = if scroll {
+            [800.0, 480.0]
+        } else {
+            [800.0, 600.0]
+        };
+        let mut inspector = rich_fixture.harness_with_display(size, 1.0, theme);
+        inspector
+            .get(
+                By::new()
+                    .label("Red.bmp")
+                    .role(egui::accesskit::Role::Button),
+            )
+            .click();
+        settle(&mut inspector);
+        if scroll {
+            inspector.get_by_label("Add").scroll_to_me();
+            settle(&mut inspector);
+        }
+        inspector.event(egui::Event::PointerGone);
+        inspector.run();
+        inspector.snapshot(name);
+        results.extend(inspector.take_snapshot_results());
+    }
     let mut rich = rich_fixture.harness([1100.0, 720.0]);
     rich.get_by_label("List").click();
     settle(&mut rich);

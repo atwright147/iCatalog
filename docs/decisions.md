@@ -456,6 +456,16 @@ Require acknowledgement of first-sync backup behaviour for manually copied/untra
 
 Tests exercise the actual widgets and HTTP commands for cloning, first edits, incoming changes, idle sync, settings/restart, refusal/retry, first-sync acknowledgement/backups, offline retry and conflicts. Existing UI interaction/visual and workspace gates remain the validation surface; native smoke checks cover File entries and Connect cancellation. Full-size previews, TLS/auth and NAS packaging remain separate work.
 
+## D47. Roomier Details inspector and app dialogs (2026-11-01)
+
+The owner requested more padding in the Details inspector and dialogs, excluding the thumbnail pane. Keep spacing local in a UI-only `spacing` module rather than changing egui's global style. Inspector content gains a 6-point inset, 8-point vertical/10-point horizontal item gaps and additional space around section separators. Wrap annotation control rows and scroll the inspector vertically so short windows retain access to editing.
+
+Collection creation/rename, Smart rule editing and Connect/Sync modals use 12-point inner margins, 8-point vertical/12-point horizontal item gaps, 8×4-point button padding and extra separation before actions. Smart rule grids use 16-point column/6-point row gaps to keep the full form and actions within 800×600. Connect/Sync separates the address from the operation description. Native OS file/folder pickers retain system spacing. Font sizes, sidebar and grid/List density, commands, catalogue schema and sync behavior are unchanged.
+
+Rename and Edit Smart Collection place Name beside its field. Edit Rules shares the measured rule-label column width so Name and the rule inputs align; New Collection keeps its existing stacked Name layout. Focus, selected-name replacement and save/cancel behavior are preserved.
+
+Real-widget checks cover both themes at 1×/1.5×/2×, inspector row gaps and persisted keyword edits after scrolling a short window, Smart rule columns and complete form bounds, and long first-sync diagnostics with reachable actions. Reviewed screenshots cover inspector metadata/scrolled content and the affected dialogs. The existing Taskfile command and gate surface is unchanged.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

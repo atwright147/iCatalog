@@ -105,7 +105,10 @@ impl App {
         let modal_id = egui::Id::new("client_sync");
         let area = egui::Modal::default_area(modal_id)
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 32.0));
-        let response = egui::Modal::new(modal_id).area(area).show(ctx, |ui| {
+        let response = egui::Modal::new(modal_id).area(area)
+            .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(12))
+            .show(ctx, |ui| {
+            super::spacing::dialog(ui);
             ui.set_width(430.0);
             ui.heading(if dialog.clone { "Connect to Server" } else { "Sync catalogue" });
             ui.add_enabled_ui(!dialog.pending, |ui| {
@@ -123,6 +126,7 @@ impl App {
                 }
                 let enter = address.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.small("Use your trusted local network. The server currently supports HTTP.");
+                super::spacing::section(ui);
                 if dialog.clone {
                     ui.label("Download a new local catalogue, ready for browsing and edits.");
                     ui.label("Local catalogue");
@@ -161,6 +165,7 @@ impl App {
                             }
                         });
                 }
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     close = ui.button(if dialog.result.is_some() { "Close" } else { "Cancel" }).clicked();
                     let valid = !dialog.url.trim().is_empty()

@@ -148,6 +148,8 @@ List view uses thumbnail rows with filename/rating/dates/filesize, document/came
 
 Desktop typography uses 15 pt interface/caption text, 14 pt List metadata and 13 pt small text, with stronger contrast in both themes (D33). Font hinting stays enabled and fractional glyph variants are disabled; eframe's native monitor scale is preserved. Headless layout checks cover 1×/1.5×/2× scales; visual baselines also cover light and Retina List views.
 
+Details inspector and app dialogs use local, roomier text spacing (D47), leaving sidebar and grid/List browsing density unchanged. The inspector has inset content, larger section gaps, wrapping annotation controls and vertical scrolling for short windows. Collection/Smart rules/Connect/Sync dialogs have wider margins and field/button gaps; Smart rule fields retain a compact 6-point row gap so all fields and actions fit at 800×600. Rename/Edit Rules place Name beside its field, aligned with rule inputs in Edit Rules; creation keeps its stacked Name layout. Native OS pickers keep system spacing.
+
 Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, the two 800×600 snapshots with a clipped thumbnail (`catalogue-narrow`, `catalogue-collection-counts`) use a measured YIQ colour tolerance of 1.0 rather than 0.6 for Mesa/Metal rounding (D24). Other snapshots/platforms retain 0.6; baselines are not regenerated to hide CI differences. The adjusted comparisons passed hosted Linux CI.
 
 Native macOS smoke tests isolate the production binary in a temporary app bundle with a unique executable name and bundle identifier, guard the target PID, and wait for menu/picker readiness (D24). Diagnostics are `target/ui-smoke/native-stderr.log` and `native-automation.log`.

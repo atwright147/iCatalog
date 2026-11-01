@@ -103,6 +103,18 @@ impl RulePreview {
 }
 
 impl RuleInputs {
+    pub(super) fn label_column_width(ui: &egui::Ui) -> f32 {
+        // Share the widest rule caption with the separate Name row.
+        ui.painter()
+            .layout_no_wrap(
+                "Filename or Path Contains".into(),
+                egui::TextStyle::Body.resolve(ui.style()),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x
+    }
+
     pub(super) fn from_rules(r: &SmartRules) -> Self {
         Self {
             format: r.format.clone().unwrap_or_default(),
@@ -121,6 +133,8 @@ impl RuleInputs {
         ui.label("Match all filled rules. Blank fields match any value.");
         egui::Grid::new("smart_rule_fields")
             .num_columns(2)
+            .min_col_width(Self::label_column_width(ui))
+            .spacing(egui::vec2(16.0, 6.0))
             .show(ui, |ui| {
                 for (label, value, hint) in [
                     ("Format", &mut self.format, "JPEG, NEF, PNG, …"),
