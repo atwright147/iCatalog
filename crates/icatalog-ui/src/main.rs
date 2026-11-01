@@ -12,6 +12,7 @@
     clippy::unreachable
 )]
 
+mod fieldset;
 mod interaction;
 mod list_row;
 mod selection;
@@ -790,7 +791,13 @@ impl App {
             .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(12))
             .show(ctx, |ui| {
                 spacing::dialog(ui);
-                ui.set_width(if dialog.smart { 440.0 } else { 300.0 });
+                ui.set_width(if dialog.editing_id.is_some() {
+                    464.0
+                } else if dialog.smart {
+                    440.0
+                } else {
+                    300.0
+                });
                 ui.heading(if dialog.rename_id.is_some() {
                     "Rename Collection"
                 } else if dialog.editing_id.is_some() {
@@ -802,6 +809,7 @@ impl App {
                     let name = if dialog.rename_id.is_some() || dialog.editing_id.is_some() {
                         let label_width = if dialog.editing_id.is_some() {
                             smart_collection::RuleInputs::label_column_width(ui)
+                                + f32::from(fieldset::HORIZONTAL_MARGIN)
                         } else {
                             0.0
                         };
@@ -853,7 +861,11 @@ impl App {
                         ui.checkbox(&mut dialog.smart, "Smart Collection");
                     }
                     if dialog.smart {
-                        dialog.rules.show(ui);
+                        if dialog.editing_id.is_some() {
+                            fieldset::show(ui, "Rules", |ui| dialog.rules.show(ui));
+                        } else {
+                            dialog.rules.show(ui);
+                        }
                         dialog.preview.show(ui, &self.path, &dialog.rules);
                     }
                     if let Some(error) = &dialog.error {

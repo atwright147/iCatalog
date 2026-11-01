@@ -37,8 +37,33 @@ fn rename_and_edit_rules_put_name_beside_its_field_and_align_rule_columns() {
                 assert!(field.right() < 800.0 && field.top() >= 0.0);
                 if edit_rules {
                     assert!((field.left() - h.get_by_label("Format").rect().left()).abs() < 0.5);
+                    let rules = h.get(By::new().label("Rules").role(egui::accesskit::Role::Group));
+                    let bounds = rules.rect();
+                    assert!(field.bottom() < bounds.top());
+                    for caption in [
+                        "Match all filled rules. Blank fields match any value.",
+                        "Format",
+                        "Captured From",
+                        "Captured To",
+                        "Camera Contains",
+                        "Lens Contains",
+                        "Minimum Rating",
+                        "Label Number",
+                        "Keyword",
+                        "Filename or Path Contains",
+                    ] {
+                        let child = rules.get_by_label(caption);
+                        assert!(bounds.contains_rect(child.rect()), "{caption}");
+                    }
+                    assert!(rules.query_by_label("Name").is_none());
+                    assert!(rules.query_by_label("Save").is_none());
+                    assert!(rules.query_by_label("0 matching items").is_none());
+                    assert!(h.get_by_label("Save").rect().top() > bounds.bottom());
                     assert!(h.get_by_label("Save").rect().bottom() < 600.0);
                 } else {
+                    assert!(h
+                        .query(By::new().label("Rules").role(egui::accesskit::Role::Group))
+                        .is_none());
                     // Opening Rename must still focus and select the old name.
                     h.get_by_label("Name").type_text("Replacement");
                     h.run_steps(2);

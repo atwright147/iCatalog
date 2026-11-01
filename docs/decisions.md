@@ -466,6 +466,14 @@ Rename and Edit Smart Collection place Name beside its field. Edit Rules shares 
 
 Real-widget checks cover both themes at 1×/1.5×/2×, inspector row gaps and persisted keyword edits after scrolling a short window, Smart rule columns and complete form bounds, and long first-sync diagnostics with reachable actions. Reviewed screenshots cover inspector metadata/scrolled content and the affected dialogs. The existing Taskfile command and gate surface is unchanged.
 
+## D48. Reusable Rules fieldset in Edit Rules (2026-11-01)
+
+The owner requested a fieldset around the Edit Rules instructions and nine rule inputs, with a Rules legend. Add a UI-only `fieldset::show` component: a non-collapsing, theme-styled outline interrupted behind a real legend label, inset contents, an accessible labelled Group, and the usual inner value/response returned to the caller. Draw the open outline without painting over the parent's background. No dependency, engine command or catalogue change.
+
+Use the component only in Edit Smart Collection. Name remains above the fieldset; the live match count/summary and actions remain below it. Widen the editor's content from 440 to 464 logical points to accommodate the horizontal insets while preserving input widths and Name/rule input alignment. Creation and Rename retain their existing layouts. Keep the complete editor and actions within 800×600.
+
+Real-widget checks cover the accessible group containing exactly the instructions and rule controls, Name/preview/actions outside it, input alignment and viewport bounds in both themes at 1×/1.5×/2×. Existing rule editing/validation/save/cancel checks exercise the grouped inputs. Screenshots cover dark and light editors and a live empty-match preview. Taskfile commands and gates are unchanged.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

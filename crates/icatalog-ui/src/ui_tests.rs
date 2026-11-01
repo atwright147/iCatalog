@@ -2077,6 +2077,18 @@ fn visual_snapshots() {
     smart.run();
     smart.snapshot("catalogue-smart-rules");
     results.extend(smart.take_snapshot_results());
+    let mut rules_light =
+        smart_fixture.harness_with_display([800.0, 600.0], 1.0, egui::Theme::Light);
+    rules_light
+        .get_by_label("Highly rated (Smart)")
+        .click_secondary();
+    settle(&mut rules_light);
+    rules_light.get_by_label("Edit Rules…").click();
+    settle(&mut rules_light);
+    rules_light.event(egui::Event::PointerGone);
+    rules_light.run();
+    rules_light.snapshot("catalogue-smart-rules-light");
+    results.extend(rules_light.take_snapshot_results());
     let mut preview = smart_fixture.harness([800.0, 600.0]);
     preview
         .get_by_label("Highly rated (Smart)")

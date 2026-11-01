@@ -94,6 +94,8 @@ Desktop typography (D33) is configured once for both egui themes in the UI-only 
 
 Inspector/dialog spacing (D47) is scoped to those UI children through the UI-only `spacing` module. The inspector uses an inset scrolling region and wrapping annotation rows; collection and sync modals set their own frame margins and field/button spacing. Smart rule grids use explicit column/row gaps to preserve the 800×600 form layout. Sidebar, grid and List spacing stay independent. Native OS pickers are unchanged; no new command, layer, dependency or schema is involved.
 
+The UI-only `fieldset::show` component (D48) groups related controls with inset content, a theme-styled outline with a legend gap, a real label and an accessible Group. Edit Rules wraps only its instructions/rule inputs; Name, preview and actions remain outside. The editor reserves the inset when aligning Name and widens its content to 464 logical points. No layer, command, dependency or schema change.
+
 D20/D44 adds v7 catalogue revision/replica/preview tables without a new crate or dependency. Catalogue triggers track generations and entity revisions; the sync layer owns the bounded binary wire codec and baseline comparisons. Collection UIDs and asset UIDs identify wire state; local row IDs remain local. Preview byte decoding/hashing stays in `icatalog-media`; the engine's shared `previews` module manages embedded/external files and verification, and the `previews` command generates/converts them. Sync calls that same storage seam to serve/cache referenced previews using GET only. GUI full-size viewing and automatic startup sync remain unbuilt. Desktop media commands disable on established replicas; Collection and annotation commands remain editable.
 
 ## 6. `ivc` seam and clean-room boundary
