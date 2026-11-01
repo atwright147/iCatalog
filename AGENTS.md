@@ -138,6 +138,8 @@ Double-clicking a normal Collection opens Rename with its name focused and selec
 
 Asset selections support ranges, toggles and rectangle selection with wheel scrolling. Their Collections context submenu uses cached tri-state membership checkboxes (D29), and each sidebar collection shows a member count with space reserved beside its truncated name (D30).
 
+Collections use all remaining sidebar height below the Folders tree, heading and New Collection button (D49). The standalone asset-total footer and separator are removed; long lists scroll and each Collection retains its own member count.
+
 Folders navigation fills the available sidebar width (D42): All and Unassigned span the content area; device headers and folder names extend to its right edge while retaining disclosure arrows and tree indentation. Long names truncate with full-name hover text.
 
 Selecting a folder includes assets in that folder and all descendants in grid/list (D43), even when the branch is collapsed. Search narrows the entire selected subtree. The shared `AssetQuery::folder_recursive` option follows catalogue parent links with cycle-safe SQL before paging; exact-folder queries remain available by default. No schema or CLI change.

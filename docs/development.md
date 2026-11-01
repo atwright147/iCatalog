@@ -221,6 +221,8 @@ Details inspector and app dialogs (D47): `spacing.rs` applies local layout setti
 
 Edit Rules (D48) uses the reusable `fieldset::show` component for the instructions and nine rule fields, with a Rules legend and an accessible Group. Name, preview and action buttons remain outside. Editor content is 464 logical points wide so fieldset padding preserves input widths/alignment; all fields/actions fit 800×600. Creation and Rename layouts are unchanged. Headless checks cover group membership, alignment and bounds in both themes/scales; visual checks include a light editor.
 
+Collections sidebar (D49): the scroll area uses all remaining sidebar height below the Folders tree, Collections heading and New Collection button. There is no standalone asset-total footer or 180-point list cap; per-Collection member counts remain. Headless checks cover rows near the bottom of short/tall windows and scrolling/selecting later Collections; screenshots include an expanded populated list.
+
 ## Automated UI checks
 
 - `task ui:test`: headless interaction tests against the real eframe App using `egui_kittest` 0.36.2. Included in `task ci` through the workspace test suite. Exercises folder selection, search/Enter/clear, grid selection, rating/label/keyword edits and reopened database state, disabled controls during a blocked write, failed-edit recovery, collection modal submission/cancellation/input blocking/error retry, membership/filtering/reopen and failed-write recovery, drag/drop and context-menu targeting/cancellation/busy/error behaviour, collection Shift ranges and Ctrl/⌘ toggles with combined search in grid/list, and scrolling through 10,000 assets with bounded thumbnail caching.

@@ -226,6 +226,57 @@ fn click_position(h: &mut Harness<'_, App>, pos: egui::Pos2) {
 }
 
 #[test]
+fn collections_use_remaining_sidebar_height_and_scroll_to_later_rows() {
+    let fixture = Fixture::new();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    let mut last_id = 0;
+    for index in 0..40 {
+        last_id = ctx
+            .catalog()
+            .insert_collection(&format!("Collection {index:02}"))
+            .unwrap();
+    }
+    ctx.catalog().add_to_collection(last_id, 1).unwrap();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        for (size, scale) in [([800.0, 600.0], 1.0), ([1100.0, 900.0], 2.0)] {
+            let mut h = fixture.harness_with_display(size, scale, theme);
+            let button = h.get_by_label("New Collection…").rect();
+            let row = h.get_by_label("Collection 10").rect();
+            assert!(row.bottom() > button.bottom() + 180.0);
+            assert!(
+                row.bottom() < size[1],
+                "row should use the old footer's space: {row:?}"
+            );
+            assert!(h.query_by_label("3 assets").is_none());
+            let row_above_bottom = if size[1] > 600.0 {
+                "Collection 22"
+            } else {
+                "Collection 12"
+            };
+            let lower = h.get_by_label(row_above_bottom).rect();
+            assert!(
+                lower.bottom() < size[1] && lower.bottom() > size[1] - 60.0,
+                "{lower:?}"
+            );
+
+            h.get_by_label("Collection 39").scroll_to_me();
+            settle(&mut h);
+            let last = h.get_by_label("Collection 39").rect();
+            assert!(last.top() > button.bottom() && last.bottom() < size[1]);
+            h.get_by_label("Collection 39").click();
+            settle(&mut h);
+            assert_eq!(
+                h.state().folder_sel,
+                FolderSelection::Collections(vec![last_id])
+            );
+            assert_eq!(h.state().assets.len(), 1);
+            assert_eq!(h.state().collection_counts.get(&last_id), Some(&1));
+            assert!(h.query_by_label("1 assets").is_none());
+        }
+    }
+}
+
+#[test]
 fn recursive_folder_browsing_includes_collapsed_descendants_and_scopes_search_and_edits() {
     let fixture = Fixture::new();
     seed_folder_tree(&fixture, "Demo device");
@@ -1815,6 +1866,29 @@ fn visual_snapshots() {
     narrow.snapshot_options("catalogue-narrow", &clipped_thumbnail_options);
     let mut results = h.take_snapshot_results();
     results.extend(narrow.take_snapshot_results());
+    let expanded_fixture = Fixture::new();
+    let expanded_ctx = open_catalogue(&expanded_fixture.path()).unwrap();
+    for index in 0..40 {
+        let id = expanded_ctx
+            .catalog()
+            .insert_collection(&format!("Collection {index:02}"))
+            .unwrap();
+        if index == 39 {
+            expanded_ctx.catalog().add_to_collection(id, 1).unwrap();
+        }
+    }
+    let mut expanded = expanded_fixture.harness([800.0, 600.0]);
+    settle(&mut expanded);
+    expanded.event(egui::Event::PointerGone);
+    expanded.run();
+    expanded.snapshot("catalogue-collections-expanded");
+    results.extend(expanded.take_snapshot_results());
+    expanded.get_by_label("Collection 39").scroll_to_me();
+    settle(&mut expanded);
+    expanded.event(egui::Event::PointerGone);
+    expanded.run();
+    expanded.snapshot("catalogue-collections-scrolled");
+    results.extend(expanded.take_snapshot_results());
     let folders_fixture = Fixture::new();
     let device_name = "A very long device name that should truncate inside the sidebar";
     seed_folder_tree(&folders_fixture, device_name);

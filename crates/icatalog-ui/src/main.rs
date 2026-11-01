@@ -621,8 +621,8 @@ impl App {
         }
         egui::ScrollArea::vertical()
             .id_salt("collection_list")
-            .auto_shrink([false, true])
-            .max_height(180.0)
+            .auto_shrink([false, false])
+            .max_height(ui.available_height())
             .show(ui, |ui| {
                 for collection in &self.collections {
                     ui.push_id(collection.id, |ui| {
@@ -1912,8 +1912,6 @@ impl eframe::App for App {
                     self.dirty = true;
                 }
                 collection_command = self.collections_panel(ui);
-                ui.separator();
-                ui.label(format!("{} assets", self.assets.len()));
             });
 
         egui::Panel::bottom("status").show(ui, |ui| {

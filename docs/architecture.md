@@ -84,6 +84,8 @@ Folders rows (D42) use selectable buttons filling the remaining sidebar width, w
 
 Folder browsing (D43) sets `AssetQuery::folder_recursive` for desktop selections. The catalogue query follows `folder.parent_id` with a recursive CTE using `UNION` to deduplicate visited ids and terminate cycles. It filters the selected folder and descendants before ordering/paging, composing with search and other filters. Expansion state does not affect membership. Exact-folder queries remain the API default; the shell holds only selection/expansion state. No schema, command or dependency change.
 
+The Collections scroll area fills the remaining sidebar height (D49), replacing its former 180-point cap. The standalone asset-total footer/separator is removed. The New Collection button remains above the scrolling rows, which retain per-Collection counts and selection behavior. This is shell layout only.
+
 Collection renaming (D36) uses `collection rename --id … --name …` for both manual and Smart Collections. Every sidebar row offers Rename…; the shared collection modal and worker submit the same engine action as the CLI. Catalogue CRUD updates only `collection.name`; collection ids, membership and rules remain stable. No migration or dependency is needed.
 
 Visual comparisons allow no failed pixels. Two Linux 800×600 screenshots with a clipped thumbnail use a per-pixel YIQ colour tolerance of 1.0, based on inspected Mesa/Metal differences of at most two red-channel levels in two pixels. Other snapshots/platforms keep the library's 0.6 tolerance; reviewed baselines remain unchanged.

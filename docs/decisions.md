@@ -474,6 +474,12 @@ Use the component only in Edit Smart Collection. Name remains above the fieldset
 
 Real-widget checks cover the accessible group containing exactly the instructions and rule controls, Name/preview/actions outside it, input alignment and viewport bounds in both themes at 1×/1.5×/2×. Existing rule editing/validation/save/cancel checks exercise the grouped inputs. Screenshots cover dark and light editors and a live empty-match preview. Taskfile commands and gates are unchanged.
 
+## D49. Collections fill the remaining sidebar (2026-11-01)
+
+The owner requested removal of the standalone n assets footer beneath Collections and use of the remaining sidebar height for Collections. Remove that label and its separator. The collection scroll area fills its available width/height instead of shrinking to content or stopping at the former 180-point cap. Keep the New Collection button above the scrolling rows; per-Collection member counts, selection and scrolling behavior remain intact.
+
+This changes only shell layout, with no engine/command/schema/dependency or Taskfile surface change. Real-widget checks cover shorter/taller windows, both themes/display scales, rows beyond the old cap near the sidebar bottom, scrolling to and selecting a later Collection and retained member counts. Reviewed screenshots cover the removed footer and an expanded populated list.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
