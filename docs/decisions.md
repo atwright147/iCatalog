@@ -488,6 +488,40 @@ The X takes the existing Cancel/Close dismissal path, discarding unsaved drafts 
 
 Real-widget checks cover top-right placement in both themes/scales, pointer and accessibility activation, discarded names/rules, reopening, Connect/Sync drafts/errors/results and unchanged preferences/catalogues. Existing blocked-worker tests also attempt the disabled X during creation, rename, rule saving and sync. Reviewed screenshots cover each modal. No command, schema, dependency or Taskfile surface change.
 
+## D51. Shared middle-truncating path label (2026-11-01)
+
+The owner requested middle truncation for the right-hand Details path and a shared component. Add the UI-only `middle_ellipsis::label`: a single-line label fitted to the available width using actual font measurements, retaining both ends around … when necessary. Short text stays complete. Split only at UTF-8 character boundaries; if even the ellipsis cannot fit, leave the row empty instead of expanding the panel. Keep the complete value in its hover tooltip and accessible label.
+
+Use it for the asset path in the Details inspector in Grid and List. This is presentation only: no engine command, catalogue/schema, dependency or Taskfile surface change. Headless checks cover Unix/Windows/Unicode paths, empty/tiny/large widths, single-line layout, full accessibility and hover text, and real inspector bounds in both themes at 1×/1.5×/2×. Reviewed screenshots cover long paths in both themes.
+
+## D52. Shared human-readable desktop file sizes (2026-11-01)
+
+The owner requested a friendlier size display in Details. Move List's existing file-size formatter into the UI-only `formatting::file_size` helper and use it in both views. Keep the existing binary units: B below 1024, then one decimal place with KiB, MiB, GiB and larger units through EiB. For example, 1572864 bytes displays as 1.5 MiB. Missing or negative sizes display — instead of implying an empty file; known zero displays 0 B.
+
+This changes presentation only, with no command, schema, dependency or Taskfile surface change. Tests cover unit boundaries, rounding, missing/hostile values and Details geometry in both themes at 1×/1.5×/2×; reviewed screenshots cover the new inspector text. Stored byte counts and CLI output remain unchanged.
+
+## D53. Regional date/time display shared by Details and List (2026-11-01)
+
+The owner requested readable Modified/Captured dates using the system's regional settings. Add a UI-only `dates::DateFormatter` shared by both views. The initial macOS styling used the existing safe Foundation bindings with current locale and medium date/time styles (date styling superseded by D54); Windows uses its native user short-date/long-time formatters. Linux reads LC_ALL, LC_TIME and LANG in that order and uses Chrono's matching regional date/time data and system local zone. Unknown Linux locales fall back to POSIX. Reference APIs: [Apple DateFormatter](https://developer.apple.com/documentation/foundation/dateformatter), [Windows DateTimeFormatter](https://learn.microsoft.com/en-us/uwp/api/windows.globalization.datetimeformatting.datetimeformatter), [Chrono locale formatting](https://docs.rs/chrono/latest/chrono/struct.DateTime.html#method.format_localized).
+
+Modified is a UTC epoch instant rendered in the viewer's local time zone, including daylight saving. Captured remains the stored Gregorian camera-local wall-clock time; do not infer a time zone, shift it, or reject a valid capture time merely because it falls in a viewer-local DST gap. Regional formatting may use the user's preferred calendar. Validate inputs with Chrono, bound date strings/ranges, and display — for missing/invalid values. Native formatter failures use ISO text, marking UTC on Modified. Preserve stored data and CLI/filter/sort behavior.
+
+Cache at most 512 formatted values, re-reading preferences after 30 seconds of use. Use fallible RefCell borrows rather than risking a reentrant borrow panic. Tests inject fixed regional settings without altering the machine/process locale; screenshot fixtures use en_GB and UTC for reproducibility. Tests cover date order, 12/24-hour clocks, offsets/date rollover, DST gaps, malformed/extreme values, cache bounds/expiry and real Grid/List labels. Native macOS checks compare current system output and explicit regions/London DST. Windows/Linux native runtime checks require those platforms. No command, schema migration or Taskfile surface change; Chrono and the existing Windows bindings are UI-only dependencies.
+
+## D54. Numeric regional dates with an at separator (2026-11-01)
+
+The owner prefers 06/10/2026 at 22:30:05 over a month-name date, with the corresponding regional order/clock in the US and elsewhere. Keep D53's shared formatter and timestamp semantics, but require numeric dates with two-digit day/month and four-digit year, joined to the regionally formatted time by the English UI separator at. For US 12-hour settings the same camera-local value displays 10/06/2026 at 10:30:05 PM. Retain regional separators, calendar and 12/24-hour settings rather than hard-coding British order or a clock convention.
+
+On macOS request the localized ddMMyyyy date template and format time separately with the native medium style. On Windows normalize day/month/year fields in the native short-date pattern, keeping its order/separators and native long-time style. On Linux normalize the regional date tokens to padded numeric fields/full year while keeping the locale's ordering/separators and time format. ISO fallbacks also use at. Modified/local-zone and Captured/camera-clock behavior, invalid handling, cache bounds, storage and CLI output stay unchanged.
+
+Tests cover the exact British/US examples, Windows pattern normalization, native macOS numeric dates, existing regional/DST cases and real Details/List labels. Reviewed screenshots cover the longer date/at text in both themes and Retina/narrow views. No new dependency, schema, command or Taskfile surface change.
+
+## D55. Concise exposure seconds in Details (2026-11-01)
+
+The owner requested a shorter exposure value beneath Lens, giving 0.16666666666666666s → 0.16s. Match that example by trimming decimal seconds rather than rounding upward. Add UI-only shared `formatting::exposure_time`: at most two fractional places at or above 0.01s, two significant digits below that threshold so short exposures never display as 0s, and no redundant trailing zeros. Nonfinite/nonpositive values display —. Keep the original floating-point metadata unchanged.
+
+Operate on the bounded decimal representation of a finite float, avoiding arithmetic scaling overflow or input-derived indexing/casts. Real-widget checks cover the full focal-length/aperture/exposure/ISO line in both themes at 1×/1.5×/2× and preserved stored precision; unit checks cover fractional/short/long/extreme and invalid values. Reviewed inspector screenshots include the shortened exposure. No dependency, engine command, schema or Taskfile surface change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

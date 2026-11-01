@@ -74,7 +74,7 @@ CREATE TABLE asset (
   width       INTEGER,
   height      INTEGER,
   color_space INTEGER,
-  mtime       INTEGER,                 -- epoch seconds
+  mtime       INTEGER,                 -- Unix epoch seconds (UTC instant)
   content_hash TEXT,
   missing     INTEGER NOT NULL DEFAULT 0  -- v3 (D14): 1 when the last rescan did not find the file
 );
@@ -107,7 +107,7 @@ CREATE TABLE metadata_raw (
 -- PROPOSED: normalised 1:1 side table derived from metadata_raw
 CREATE TABLE asset_meta (
   asset_id       INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,
-  captured_local TEXT,         -- capture date/time
+  captured_local TEXT,         -- ISO Gregorian camera-local wall-clock date/time
   tz_offset_min  INTEGER,
   make TEXT, model TEXT, lens TEXT,
   focal_length_mm REAL, f_number REAL, exposure_s REAL, iso INTEGER,

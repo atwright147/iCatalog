@@ -2,6 +2,112 @@
 use super::*;
 
 #[test]
+fn inspector_exposure_is_concise_and_preserves_stored_precision() {
+    let fixture = Fixture::new();
+    seed_list_metadata(&fixture);
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute(
+            "UPDATE asset_meta SET focal_length_mm=39.4 WHERE asset_id=1",
+            [],
+        )
+        .unwrap();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        for scale in [1.0, 1.5, 2.0] {
+            let mut h = fixture.harness_with_display([800.0, 600.0], scale, theme);
+            h.get(
+                By::new()
+                    .label("Red.bmp")
+                    .role(egui::accesskit::Role::Button),
+            )
+            .click();
+            settle(&mut h);
+            let lens = h.get_by_label("Lens: 24–70 mm f/2.8").rect();
+            let exposure = h.get_by_label("39.4mm  f/2.8  0.16s  ISO12800").rect();
+            assert!(exposure.top() - lens.bottom() >= 7.5);
+            assert!(exposure.left() >= 480.0 && exposure.right() < 800.0);
+        }
+    }
+    assert_eq!(
+        ctx.catalog().asset_meta(1).unwrap().unwrap().exposure_s,
+        Some(1.0 / 6.0)
+    );
+}
+
+#[test]
+fn inspector_path_truncates_in_the_middle_and_reveals_the_full_value_on_hover() {
+    fn path_galleys(shape: &egui::Shape, paths: &mut Vec<std::sync::Arc<egui::Galley>>) {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text().starts_with("Path: ") => {
+                paths.push(text.galley.clone());
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    path_galleys(shape, paths);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let fixture = Fixture::new();
+    let path = "/synthetic/Photos/a long folder name/旅行の写真/another long folder/Red.bmp";
+    let full = format!("Path: {path}");
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute("UPDATE asset SET path=?1 WHERE id=1", [path])
+        .unwrap();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        for scale in [1.0, 1.5, 2.0] {
+            for list in [false, true] {
+                let mut h = fixture.harness_with_display([800.0, 600.0], scale, theme);
+                h.get(
+                    By::new()
+                        .label("Red.bmp")
+                        .role(egui::accesskit::Role::Button),
+                )
+                .click();
+                settle(&mut h);
+                if list {
+                    h.get_by_label("List").click();
+                    settle(&mut h);
+                    h.get_by_label("Details").click();
+                    settle(&mut h);
+                }
+                h.event(egui::Event::PointerGone);
+                h.run();
+                let bounds = h.get_by_label(&full).rect();
+                assert!(bounds.left() >= 480.0 && bounds.right() < 800.0);
+                let mut paths = Vec::new();
+                for shape in &h.output().shapes {
+                    path_galleys(&shape.shape, &mut paths);
+                }
+                assert_eq!(paths.len(), 1);
+                let galley = &paths[0];
+                assert_eq!(galley.rows.len(), 1);
+                assert!(galley.text().starts_with("Path: /synthetic/"));
+                assert!(galley.text().contains('…'));
+                assert!(galley.text().ends_with("/Red.bmp"));
+                assert!(bounds.height() < 25.0);
+
+                h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 0.0);
+                h.get_by_label(&full).hover();
+                h.run_steps(3);
+                let mut hovered = Vec::new();
+                for shape in &h.output().shapes {
+                    path_galleys(&shape.shape, &mut hovered);
+                }
+                assert!(hovered.iter().any(|galley| galley.text() == full));
+                assert_eq!(h.state().selection.primary, Some(1));
+            }
+        }
+    }
+    assert_eq!(ctx.catalog().asset(1).unwrap().unwrap().path, path);
+}
+
+#[test]
 fn rename_and_edit_rules_put_name_beside_its_field_and_align_rule_columns() {
     let fixture = Fixture::new();
     let ctx = open_catalogue(&fixture.path()).unwrap();
@@ -98,6 +204,8 @@ fn inspector_rows_have_room_and_scrolled_annotations_still_save() {
             let path = h.get_by_label("Path: /synthetic/Photos/Red.bmp").rect();
             let format = h.get_by_label("Format: BMP  64x32").rect();
             assert!(format.top() - path.bottom() >= 7.5);
+            let size = h.get_by_label("Size: 1.5 MiB").rect();
+            assert!(size.top() - format.bottom() >= 7.5);
             let camera = h.get_by_label("Camera: Example Camera 1").rect();
             let lens = h.get_by_label("Lens: 24–70 mm f/2.8").rect();
             assert!(lens.top() - camera.bottom() >= 7.5);

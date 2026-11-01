@@ -1,6 +1,8 @@
 //! Interaction and image tests drive the real eframe App through AccessKit.
 #![allow(clippy::unwrap_used, clippy::panic)]
 use super::*;
+#[path = "date_tests.rs"]
+mod date_tests;
 #[path = "dialog_tests.rs"]
 mod dialog_tests;
 #[path = "../tests/support/mod.rs"]
@@ -82,7 +84,9 @@ impl Fixture {
             .build_eframe(move |cc| {
                 typography::configure(&cc.egui_ctx);
                 let (_, receiver) = std::sync::mpsc::channel();
-                App::with_menu(open_catalogue(&path).unwrap(), path, None, receiver)
+                let mut app = App::with_menu(open_catalogue(&path).unwrap(), path, None, receiver);
+                app.dates = dates::DateFormatter::fixed(chrono::Locale::en_GB, 0);
+                app
             })
     }
 }
@@ -102,8 +106,8 @@ fn readable_text_fits_rows_at_native_display_scales_in_both_themes() {
             for label in [
                 "Red.bmp",
                 "Rating: ★★★★☆",
-                "Captured: 2000-02-28 14:30:00",
-                "Modified: 2000-02-29 00:00:00 UTC",
+                "Captured: 28/02/2000 at 14:30:00",
+                "Modified: 29/02/2000 at 00:00:00",
                 "Size: 1.5 MiB",
             ] {
                 let rect = h
@@ -481,8 +485,8 @@ fn seed_list_metadata(fixture: &Fixture) {
         .execute_batch(
             "UPDATE asset SET file_size=1572864,mtime=951782400 WHERE id=1;
          INSERT INTO annotation(asset_id,rating) VALUES(1,4);
-         INSERT INTO asset_meta(asset_id,captured_local,make,model,lens,focal_length_mm) VALUES
-         (1,'2000-02-28T14:30:00','Example','Camera 1','24–70 mm f/2.8',50);
+         INSERT INTO asset_meta(asset_id,captured_local,make,model,lens,focal_length_mm,f_number,exposure_s,iso) VALUES
+         (1,'2000-02-28T14:30:00','Example','Camera 1','24–70 mm f/2.8',50,2.8,0.16666666666666666,12800);
          INSERT INTO metadata_raw(asset_id,scheme,key,seq,value) VALUES
          (1,'image_info','color_model',0,CAST('RGB' AS BLOB)),
          (1,'image_info','icc_profile',0,CAST('Synthetic RGB profile' AS BLOB)),
@@ -518,8 +522,8 @@ fn list_rows_present_metadata_columns_and_refresh_after_edit() {
     assert!(color.left() > camera.right());
     for label in [
         "Rating: ★★★★☆",
-        "Captured: 2000-02-28 14:30:00",
-        "Modified: 2000-02-29 00:00:00 UTC",
+        "Captured: 28/02/2000 at 14:30:00",
+        "Modified: 29/02/2000 at 00:00:00",
         "Size: 1.5 MiB",
         "Type: BMP",
         "Lens: 24–70 mm f/2.8",
@@ -2070,6 +2074,34 @@ fn visual_snapshots() {
 
     let rich_fixture = Fixture::new();
     seed_list_metadata(&rich_fixture);
+    let path_fixture = Fixture::new();
+    let path_ctx = open_catalogue(&path_fixture.path()).unwrap();
+    path_ctx
+        .catalog()
+        .connection()
+        .execute(
+            "UPDATE asset SET path=?1 WHERE id=1",
+            ["/synthetic/Photos/a long folder name/旅行の写真/another long folder/Red.bmp"],
+        )
+        .unwrap();
+    for (name, theme) in [
+        ("catalogue-inspector-path", egui::Theme::Dark),
+        ("catalogue-inspector-path-light", egui::Theme::Light),
+    ] {
+        let mut inspector = path_fixture.harness_with_display([800.0, 600.0], 1.0, theme);
+        inspector
+            .get(
+                By::new()
+                    .label("Red.bmp")
+                    .role(egui::accesskit::Role::Button),
+            )
+            .click();
+        settle(&mut inspector);
+        inspector.event(egui::Event::PointerGone);
+        inspector.run();
+        inspector.snapshot(name);
+        results.extend(inspector.take_snapshot_results());
+    }
     for (name, theme, scroll) in [
         ("catalogue-inspector-metadata", egui::Theme::Dark, false),
         (

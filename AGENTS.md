@@ -156,6 +156,14 @@ Edit Rules groups its instructions and nine rule inputs in a reusable, accessibl
 
 App dialogs have a shared top-right X close button (D50), exposed as Close dialog for accessibility. It follows Cancel/Close behavior and discards unsaved inputs; it is disabled during pending collection saves or clone/sync, matching existing cancellation guards. Native OS pickers keep their own controls.
 
+The Details inspector path uses the shared UI-only `middle_ellipsis::label` component (D51). It stays on one line, measures the available width and replaces the middle with … while retaining both ends. Short values stay complete; hover and accessibility retain the full path. Unicode paths are shortened at character boundaries.
+
+Details and List share human-readable file sizes through `formatting::file_size` (D52): bytes below 1024, then one decimal place with KiB/MiB/GiB and larger binary units. Unknown or invalid sizes show —; a known empty file shows 0 B.
+
+Details exposure times use shared `formatting::exposure_time` (D55): trim to at most two decimal places (0.1666…s → 0.16s), retaining two significant digits below 0.01s so short exposures never become 0s. Redundant trailing zeros are removed; invalid/nonpositive values show —. Stored metadata keeps its original precision.
+
+Details and List share regional date/time formatting through `dates::DateFormatter` (D53/D54). Dates use numeric regional order/separators, padded day/month and four-digit years, followed by at and the system-format time (for example, 06/10/2026 at 22:30:05 in Britain). macOS uses a localized numeric date template and native time style; Windows normalizes its user short-date pattern while retaining native time formatting; Linux follows LC_ALL/LC_TIME/LANG and the local time zone. Modified timestamps display in local time; Captured keeps the camera's stored wall-clock time, without inventing a time zone. Invalid values show —. A bounded display cache refreshes after 30 seconds of use; stored values and CLI output are unchanged. Deterministic UI fixtures inject explicit regional settings without changing the machine's preferences.
+
 Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, the two 800×600 snapshots with a clipped thumbnail (`catalogue-narrow`, `catalogue-collection-counts`) use a measured YIQ colour tolerance of 1.0 rather than 0.6 for Mesa/Metal rounding (D24). Other snapshots/platforms retain 0.6; baselines are not regenerated to hide CI differences. The adjusted comparisons passed hosted Linux CI.
 
 Native macOS smoke tests isolate the production binary in a temporary app bundle with a unique executable name and bundle identifier, guard the target PID, and wait for menu/picker readiness (D24). Diagnostics are `target/ui-smoke/native-stderr.log` and `native-automation.log`.

@@ -2,6 +2,8 @@
 use eframe::egui;
 use icatalog_catalog::{Annotation, Asset, AssetMeta, Catalog};
 
+use crate::formatting::file_size;
+
 pub const HEIGHT: f32 = 136.0;
 pub const MIN_WIDTH: f32 = 840.0;
 
@@ -36,6 +38,7 @@ pub fn draw(
     asset: &Asset,
     texture: Option<&egui::TextureHandle>,
     metadata: Option<&Metadata>,
+    dates: &crate::dates::DateFormatter,
     selected: bool,
     index: usize,
 ) -> egui::Response {
@@ -97,15 +100,12 @@ pub fn draw(
         .map_or(0, |a| a.rating)
         .clamp(0, 5);
     let stars: String = (0..5).map(|i| if i < rating { '★' } else { '☆' }).collect();
-    let captured = meta
-        .and_then(|m| m.captured_local.as_deref())
-        .unwrap_or("—")
-        .replace('T', " ");
+    let captured = dates.captured(meta.and_then(|m| m.captured_local.as_deref()));
     let filename = vec![
         asset.name.clone(),
         format!("Rating: {stars}"),
         format!("Captured: {captured}"),
-        format!("Modified: {}", modified_date(asset.mtime)),
+        format!("Modified: {}", dates.modified(asset.mtime)),
         format!(
             "Size: {}{}",
             file_size(asset.file_size),
@@ -208,64 +208,4 @@ pub fn draw(
         )
     });
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-fn file_size(size: Option<i64>) -> String {
-    let Some(size) = size.filter(|s| *s >= 0) else {
-        return "—".into();
-    };
-    if size < 1024 {
-        return format!("{size} B");
-    }
-    let mut value = size as f64;
-    let mut unit = "B";
-    for next in ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"] {
-        if value < 1024.0 {
-            break;
-        }
-        value /= 1024.0;
-        unit = next;
-    }
-    format!("{value:.1} {unit}")
-}
-
-fn modified_date(seconds: Option<i64>) -> String {
-    let Some(seconds) = seconds.filter(|s| (-62_135_596_800..=253_402_300_799).contains(s)) else {
-        return "—".into();
-    };
-    let z = seconds.div_euclid(86_400) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    let rem = seconds.rem_euclid(86_400);
-    format!(
-        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC",
-        rem / 3600,
-        rem % 3600 / 60,
-        rem % 60
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn sizes_and_dates_handle_missing_and_hostile_values() {
-        assert_eq!(file_size(None), "—");
-        assert_eq!(file_size(Some(-1)), "—");
-        assert_eq!(file_size(Some(0)), "0 B");
-        assert_eq!(file_size(Some(1_572_864)), "1.5 MiB");
-        assert_eq!(modified_date(Some(0)), "1970-01-01 00:00:00 UTC");
-        assert_eq!(modified_date(Some(-1)), "1969-12-31 23:59:59 UTC");
-        assert_eq!(modified_date(Some(951_782_400)), "2000-02-29 00:00:00 UTC");
-        for seconds in [None, Some(i64::MIN), Some(i64::MAX)] {
-            assert_eq!(modified_date(seconds), "—");
-        }
-    }
 }

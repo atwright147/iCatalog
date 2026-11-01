@@ -16,12 +16,20 @@ icatalog-sync = { path = "../icatalog-sync" }
 icatalog-media = { path = "../icatalog-media" }
 eframe = "0.36"
 rfd = "0.17"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.21.2"
 objc2-app-kit = "0.3.2"
 objc2-foundation = "0.3.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "unstable-locales"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Foundation", "Globalization_DateTimeFormatting"] }
+
 [dev-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["std", "unstable-locales"] }
 egui_kittest = { version = "=0.36.2", features = ["wgpu", "snapshot", "eframe"] }
 tempfile = "3"

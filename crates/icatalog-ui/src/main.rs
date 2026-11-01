@@ -12,10 +12,13 @@
     clippy::unreachable
 )]
 
+mod dates;
 mod dialog;
 mod fieldset;
+mod formatting;
 mod interaction;
 mod list_row;
+mod middle_ellipsis;
 mod selection;
 mod smart_collection;
 mod spacing;
@@ -113,6 +116,7 @@ type NativeMenu = ();
 
 struct App {
     ctx: Context,
+    dates: dates::DateFormatter,
     path: PathBuf,
     assets: Vec<Asset>,
     folders: Vec<Folder>,
@@ -273,6 +277,7 @@ impl App {
         let saved_url = sync_ui::load_url(&path);
         let mut app = App {
             ctx,
+            dates: dates::DateFormatter::system(),
             path,
             assets: Vec::new(),
             folders: Vec::new(),
@@ -1079,6 +1084,7 @@ impl App {
                             &asset,
                             self.textures.get(&id),
                             self.list_metadata.get(&id).and_then(Option::as_ref),
+                            &self.dates,
                             self.selection.ids.contains(&id),
                             index,
                         );
@@ -1318,7 +1324,7 @@ impl App {
             ui.label("(no thumbnail)");
         }
         spacing::section(ui);
-        ui.label(format!("Path: {}", asset.path));
+        middle_ellipsis::label(ui, &format!("Path: {}", asset.path));
         if let Some(src) = asset
             .folder_id
             .and_then(|fid| self.folders.iter().find(|f| f.id == fid))
@@ -1337,9 +1343,9 @@ impl App {
             asset.format.as_deref().unwrap_or("?"),
             dims
         ));
-        ui.label(format!("Size: {} bytes", asset.file_size.unwrap_or(0)));
+        ui.label(format!("Size: {}", formatting::file_size(asset.file_size)));
         if let Some(mtime) = asset.mtime {
-            ui.label(format!("Modified: {}", mtime));
+            ui.label(format!("Modified: {}", self.dates.modified(Some(mtime))));
         }
         if asset.missing {
             ui.colored_label(egui::Color32::RED, "missing from disk (run Update)");
@@ -1348,7 +1354,7 @@ impl App {
             spacing::section(ui);
             ui.heading("Metadata");
             if let Some(v) = &m.captured_local {
-                ui.label(format!("Captured: {v}"));
+                ui.label(format!("Captured: {}", self.dates.captured(Some(v))));
             }
             let cam = match (&m.make, &m.model) {
                 (Some(a), Some(b)) => format!("{a} {b}"),
@@ -1381,7 +1387,7 @@ impl App {
                     if !s.is_empty() {
                         s.push_str("  ");
                     }
-                    s.push_str(&format!("{e}s"));
+                    s.push_str(&formatting::exposure_time(e));
                 }
                 if let Some(iso) = m.iso {
                     if !s.is_empty() {
