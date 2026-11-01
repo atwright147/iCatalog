@@ -362,6 +362,13 @@ fn pending_sync_disables_controls_and_blocks_escape_and_other_commands() {
     h.run_steps(3);
     assert!(h.state().worker.is_some());
     assert!(h.state().sync_dialog.as_ref().unwrap().pending);
+    assert!(h
+        .get_by_label("Close dialog")
+        .accesskit_node()
+        .is_disabled());
+    h.get_by_label("Close dialog").click();
+    h.run_steps(2);
+    assert!(h.state().sync_dialog.as_ref().unwrap().pending);
     assert!(h.get_by_label("Sync now").accesskit_node().is_disabled());
     assert!(h
         .get_by_label("Server address")

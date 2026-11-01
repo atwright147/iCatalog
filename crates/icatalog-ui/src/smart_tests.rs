@@ -707,6 +707,13 @@ fn smart_save_rules_failure_retry_and_busy_controls() {
     assert!(h.get_by_label("Name").accesskit_node().is_disabled());
     assert!(h.get_by_label("Cancel").accesskit_node().is_disabled());
     assert!(h.get_by_label("Save").accesskit_node().is_disabled());
+    assert!(h
+        .get_by_label("Close dialog")
+        .accesskit_node()
+        .is_disabled());
+    h.get_by_label("Close dialog").click();
+    h.run_steps(2);
+    assert!(h.state().create_collection.as_ref().unwrap().pending);
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(h.state().create_collection.is_some());

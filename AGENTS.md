@@ -154,6 +154,8 @@ Details inspector and app dialogs use local, roomier text spacing (D47), leaving
 
 Edit Rules groups its instructions and nine rule inputs in a reusable, accessible fieldset with the legend Rules (D48). Name, live match preview and actions stay outside. The editor preserves Name/input alignment and fits at 800×600; creation and Rename keep their existing layouts.
 
+App dialogs have a shared top-right X close button (D50), exposed as Close dialog for accessibility. It follows Cancel/Close behavior and discards unsaved inputs; it is disabled during pending collection saves or clone/sync, matching existing cancellation guards. Native OS pickers keep their own controls.
+
 Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, the two 800×600 snapshots with a clipped thumbnail (`catalogue-narrow`, `catalogue-collection-counts`) use a measured YIQ colour tolerance of 1.0 rather than 0.6 for Mesa/Metal rounding (D24). Other snapshots/platforms retain 0.6; baselines are not regenerated to hide CI differences. The adjusted comparisons passed hosted Linux CI.
 
 Native macOS smoke tests isolate the production binary in a temporary app bundle with a unique executable name and bundle identifier, guard the target PID, and wait for menu/picker readiness (D24). Diagnostics are `target/ui-smoke/native-stderr.log` and `native-automation.log`.

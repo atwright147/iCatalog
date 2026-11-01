@@ -480,6 +480,14 @@ The owner requested removal of the standalone n assets footer beneath Collection
 
 This changes only shell layout, with no engine/command/schema/dependency or Taskfile surface change. Real-widget checks cover shorter/taller windows, both themes/display scales, rows beyond the old cap near the sidebar bottom, scrolling to and selecting a later Collection and retained member counts. Reviewed screenshots cover the removed footer and an expanded populated list.
 
+## D50. Dialog title-bar close controls (2026-11-01)
+
+The owner requested an X at the top right of dialogs. Add a UI-only shared `dialog::header` with the existing title and a right-aligned 24-point button. Paint the X using strokes so it does not depend on font glyph coverage; expose the accessible name and tooltip Close dialog. Use it in New Collection (manual/Smart), Rename, Edit Smart Collection, Connect and Sync.
+
+The X takes the existing Cancel/Close dismissal path, discarding unsaved drafts without dispatching an engine/sync command. Combine header/footer close clicks so the footer cannot overwrite a header click. Like Cancel/Escape, closing is disabled while a collection write or clone/sync is pending; the X does not imply transfer cancellation. Result/error dialogs can close normally. Native OS file/folder pickers retain their system controls.
+
+Real-widget checks cover top-right placement in both themes/scales, pointer and accessibility activation, discarded names/rules, reopening, Connect/Sync drafts/errors/results and unchanged preferences/catalogues. Existing blocked-worker tests also attempt the disabled X during creation, rename, rule saving and sync. Reviewed screenshots cover each modal. No command, schema, dependency or Taskfile surface change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

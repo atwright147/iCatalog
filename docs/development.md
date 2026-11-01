@@ -223,6 +223,8 @@ Edit Rules (D48) uses the reusable `fieldset::show` component for the instructio
 
 Collections sidebar (D49): the scroll area uses all remaining sidebar height below the Folders tree, Collections heading and New Collection button. There is no standalone asset-total footer or 180-point list cap; per-Collection member counts remain. Headless checks cover rows near the bottom of short/tall windows and scrolling/selecting later Collections; screenshots include an expanded populated list.
 
+App dialog close controls (D50): `dialog::header` adds a 24-point X at the top right of collection creation/rename/rule editing and Connect/Sync. Close dialog is its accessible name/tooltip. Clicking discards drafts via the existing Cancel/Close path; pending saves/transfers disable it. Headless checks cover placement, activation, draft/result/error dismissal, reopening and blocked workers. Native file/folder pickers keep system controls.
+
 ## Automated UI checks
 
 - `task ui:test`: headless interaction tests against the real eframe App using `egui_kittest` 0.36.2. Included in `task ci` through the workspace test suite. Exercises folder selection, search/Enter/clear, grid selection, rating/label/keyword edits and reopened database state, disabled controls during a blocked write, failed-edit recovery, collection modal submission/cancellation/input blocking/error retry, membership/filtering/reopen and failed-write recovery, drag/drop and context-menu targeting/cancellation/busy/error behaviour, collection Shift ranges and Ctrl/⌘ toggles with combined search in grid/list, and scrolling through 10,000 assets with bounded thumbnail caching.

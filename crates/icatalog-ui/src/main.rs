@@ -12,6 +12,7 @@
     clippy::unreachable
 )]
 
+mod dialog;
 mod fieldset;
 mod interaction;
 mod list_row;
@@ -798,13 +799,17 @@ impl App {
                 } else {
                     300.0
                 });
-                ui.heading(if dialog.rename_id.is_some() {
-                    "Rename Collection"
-                } else if dialog.editing_id.is_some() {
-                    "Edit Smart Collection"
-                } else {
-                    "New Collection"
-                });
+                cancel = dialog::header(
+                    ui,
+                    if dialog.rename_id.is_some() {
+                        "Rename Collection"
+                    } else if dialog.editing_id.is_some() {
+                        "Edit Smart Collection"
+                    } else {
+                        "New Collection"
+                    },
+                    !dialog.pending,
+                );
                 ui.add_enabled_ui(!dialog.pending, |ui| {
                     let name = if dialog.rename_id.is_some() || dialog.editing_id.is_some() {
                         let label_width = if dialog.editing_id.is_some() {
@@ -873,7 +878,7 @@ impl App {
                     }
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        cancel = ui.button("Cancel").clicked();
+                        cancel |= ui.button("Cancel").clicked();
                         let valid = !dialog.name.trim().is_empty();
                         submit = ui
                             .add_enabled(

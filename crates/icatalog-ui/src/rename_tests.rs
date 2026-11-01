@@ -272,9 +272,12 @@ fn rename_invalid_text_failed_save_retry_and_pending_controls() {
         .unwrap();
     h.get_by_label("Rename").click();
     h.run_steps(3);
-    for label in ["Name", "Cancel", "Rename"] {
+    for label in ["Name", "Cancel", "Rename", "Close dialog"] {
         assert!(h.get_by_label(label).accesskit_node().is_disabled());
     }
+    h.get_by_label("Close dialog").click();
+    h.run_steps(2);
+    assert!(h.state().create_collection.as_ref().unwrap().pending);
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(h.state().create_collection.is_some());

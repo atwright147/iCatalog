@@ -110,7 +110,9 @@ impl App {
             .show(ctx, |ui| {
             super::spacing::dialog(ui);
             ui.set_width(430.0);
-            ui.heading(if dialog.clone { "Connect to Server" } else { "Sync catalogue" });
+            close = super::dialog::header(ui,
+                if dialog.clone { "Connect to Server" } else { "Sync catalogue" },
+                !dialog.pending);
             ui.add_enabled_ui(!dialog.pending, |ui| {
                 let label = ui.label("Server address");
                 let address = ui.add(egui::TextEdit::singleline(&mut dialog.url)
@@ -167,7 +169,7 @@ impl App {
                 }
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    close = ui.button(if dialog.result.is_some() { "Close" } else { "Cancel" }).clicked();
+                    close |= ui.button(if dialog.result.is_some() { "Close" } else { "Cancel" }).clicked();
                     let valid = !dialog.url.trim().is_empty()
                         && if dialog.clone { dialog.destination.is_some() && dialog.result.is_none() }
                            else { self.replica || dialog.acknowledge };

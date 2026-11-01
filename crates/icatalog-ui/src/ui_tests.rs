@@ -1,6 +1,8 @@
 //! Interaction and image tests drive the real eframe App through AccessKit.
 #![allow(clippy::unwrap_used, clippy::panic)]
 use super::*;
+#[path = "dialog_tests.rs"]
+mod dialog_tests;
 #[path = "../tests/support/mod.rs"]
 mod support;
 use egui_kittest::{
@@ -1821,6 +1823,13 @@ fn interaction_create_collection_modal_failure_retry_and_busy_controls() {
     assert!(h.state().create_collection.as_ref().unwrap().pending);
     assert!(h.get_by_label("Create").accesskit_node().is_disabled());
     assert!(h.get_by_label("Cancel").accesskit_node().is_disabled());
+    assert!(h
+        .get_by_label("Close dialog")
+        .accesskit_node()
+        .is_disabled());
+    h.get_by_label("Close dialog").click();
+    h.run_steps(2);
+    assert!(h.state().create_collection.as_ref().unwrap().pending);
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(h.state().create_collection.is_some());

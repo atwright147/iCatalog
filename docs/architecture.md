@@ -98,6 +98,8 @@ Inspector/dialog spacing (D47) is scoped to those UI children through the UI-onl
 
 The UI-only `fieldset::show` component (D48) groups related controls with inset content, a theme-styled outline with a legend gap, a real label and an accessible Group. Edit Rules wraps only its instructions/rule inputs; Name, preview and actions remain outside. The editor reserves the inset when aligning Name and widens its content to 464 logical points. No layer, command, dependency or schema change.
 
+App modal headings use the UI-only `dialog::header` component (D50): the title and a right-aligned, accessible X button. Collection and sync shells merge its click with their existing Cancel/Close signal; pending writes/transfers disable the button. Dismissal does not dispatch a command or cancel a running worker. Native picker controls are unchanged.
+
 D20/D44 adds v7 catalogue revision/replica/preview tables without a new crate or dependency. Catalogue triggers track generations and entity revisions; the sync layer owns the bounded binary wire codec and baseline comparisons. Collection UIDs and asset UIDs identify wire state; local row IDs remain local. Preview byte decoding/hashing stays in `icatalog-media`; the engine's shared `previews` module manages embedded/external files and verification, and the `previews` command generates/converts them. Sync calls that same storage seam to serve/cache referenced previews using GET only. GUI full-size viewing and automatic startup sync remain unbuilt. Desktop media commands disable on established replicas; Collection and annotation commands remain editable.
 
 ## 6. `ivc` seam and clean-room boundary
