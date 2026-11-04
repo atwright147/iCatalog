@@ -13,6 +13,8 @@ use egui_kittest::{
 };
 use std::time::{Duration, Instant};
 use support::bmp;
+#[path = "rating_tests.rs"]
+mod rating_tests;
 #[path = "rename_tests.rs"]
 mod rename_tests;
 #[path = "smart_tests.rs"]
@@ -346,7 +348,10 @@ fn recursive_folder_browsing_includes_collapsed_descendants_and_scopes_search_an
             h.get_by_label("Details").click();
             settle(&mut h);
         }
-        h.get_by_label("Rating 5").click();
+        // Set explicitly: the second view sees the rating saved by the first.
+        h.get_by_label("Rating 5").focus();
+        h.run_steps(2);
+        h.key_press(egui::Key::Num5);
         settle(&mut h);
         assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
         assert_eq!(visible_ids(&h), vec![3]);

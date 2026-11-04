@@ -11,7 +11,7 @@ pub(super) struct RuleInputs {
     to: String,
     camera: String,
     lens: String,
-    rating: String,
+    rating: Option<i64>,
     label: String,
     keyword: String,
     text: String,
@@ -122,7 +122,7 @@ impl RuleInputs {
             to: r.captured_to.clone().unwrap_or_default(),
             camera: r.camera.clone().unwrap_or_default(),
             lens: r.lens.clone().unwrap_or_default(),
-            rating: r.min_rating.map(|v| v.to_string()).unwrap_or_default(),
+            rating: r.min_rating,
             label: r.label.map(|v| v.to_string()).unwrap_or_default(),
             keyword: r.keyword.clone().unwrap_or_default(),
             text: r.text.clone().unwrap_or_default(),
@@ -142,20 +142,18 @@ impl RuleInputs {
                     ("Captured To", &mut self.to, "YYYY-MM-DD (inclusive)"),
                     ("Camera Contains", &mut self.camera, "Camera make or model"),
                     ("Lens Contains", &mut self.lens, "Lens name"),
-                    ("Minimum Rating", &mut self.rating, "0–5"),
+                ] {
+                    field(ui, label, value, hint);
+                }
+                let label = ui.label("Minimum Rating");
+                super::rating::editor(ui, &mut self.rating, "Minimum Rating").labelled_by(label.id);
+                ui.end_row();
+                for (label, value, hint) in [
                     ("Label Number", &mut self.label, "0–7"),
                     ("Keyword", &mut self.keyword, "Exact keyword name"),
                     ("Filename or Path Contains", &mut self.text, "Text"),
                 ] {
-                    let label = ui.label(label);
-                    ui.add(
-                        egui::TextEdit::singleline(value)
-                            .hint_text(hint)
-                            .char_limit(1024)
-                            .desired_width(240.0),
-                    )
-                    .labelled_by(label.id);
-                    ui.end_row();
+                    field(ui, label, value, hint);
                 }
             });
     }
@@ -167,7 +165,6 @@ impl RuleInputs {
             ("captured-to", &self.to),
             ("camera", &self.camera),
             ("lens", &self.lens),
-            ("min-rating", &self.rating),
             ("label", &self.label),
             ("keyword", &self.keyword),
             ("text", &self.text),
@@ -176,5 +173,20 @@ impl RuleInputs {
                 params.set(key, value.trim());
             }
         }
+        if let Some(rating) = self.rating {
+            params.set("min-rating", rating.to_string());
+        }
     }
+}
+
+fn field(ui: &mut egui::Ui, caption: &str, value: &mut String, hint: &str) {
+    let label = ui.label(caption);
+    ui.add(
+        egui::TextEdit::singleline(value)
+            .hint_text(hint)
+            .char_limit(1024)
+            .desired_width(240.0),
+    )
+    .labelled_by(label.id);
+    ui.end_row();
 }

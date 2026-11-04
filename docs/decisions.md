@@ -522,6 +522,14 @@ The owner requested a shorter exposure value beneath Lens, giving 0.166666666666
 
 Operate on the bounded decimal representation of a finite float, avoiding arithmetic scaling overflow or input-derived indexing/casts. Real-widget checks cover the full focal-length/aperture/exposure/ISO line in both themes at 1×/1.5×/2× and preserved stored precision; unit checks cover fractional/short/long/extreme and invalid values. Reviewed inspector screenshots include the shortened exposure. No dependency, engine command, schema or Taskfile surface change.
 
+## D56. Shared five-star rating components (2026-11-02)
+
+The owner requested a reusable rating component in List, the right-hand Details panel and Minimum Rating in Edit Rules. Add UI-only `rating::display` and `rating::editor`, each rendering five filled/empty stars. List retains its display-only behavior and row selection/drag handling. The shared Smart rule form uses the editor in both creation and Edit Rules, keeping the two forms consistent.
+
+Use five frameless star buttons with 24-point targets, accessible per-star names and selection state, plus a labelled Group exposing the current value. Click a star to set 1–5; clicking the current star again or pressing Delete/Backspace clears. Focused-star keys 0–5, arrows and Home/End support keyboard entry with bounded values. Details maps clearing to unrated (0) through the existing edit command. RuleInputs stores an Option<i64>: clearing removes min-rating, while an explicit zero is retained and can be set using 0/Home. Existing command validation, live previews, atomic saves, cancellation and disabled pending-write behavior remain intact.
+
+Headless checks cover exactly five targets, pointer/keyboard/clear/disabled behavior, read-only/hostile-value display, all persisted asset ratings, optional/zero minimum rules, cancellation, live counts and existing failed/pending writes. Existing layout checks cover both themes/native display scales and complete 800×600 rule forms. Reviewed screenshots cover the changed inspector and Smart dialogs; List's star display remains visually unchanged. No dependency, schema, engine command or Taskfile surface change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

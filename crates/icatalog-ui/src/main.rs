@@ -19,6 +19,7 @@ mod formatting;
 mod interaction;
 mod list_row;
 mod middle_ellipsis;
+mod rating;
 mod selection;
 mod smart_collection;
 mod spacing;
@@ -1415,19 +1416,13 @@ impl App {
         let rating = self.annotation.as_ref().map(|a| a.rating).unwrap_or(0);
         let label = self.annotation.as_ref().map(|a| a.label).unwrap_or(0);
         ui.horizontal_wrapped(|ui| {
-            ui.label("Rating");
-            for r in 0..=5 {
-                let response = ui.selectable_label(rating == r, r.to_string());
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        ui.is_enabled(),
-                        rating == r,
-                        format!("Rating {r}"),
-                    )
-                });
-                if response.clicked() && rating != r {
-                    edit = Some(edit_params(id, "rating", &r.to_string()));
+            let caption = ui.label("Rating");
+            let mut value = Some(rating);
+            let response = rating::editor(ui, &mut value, "Rating").labelled_by(caption.id);
+            if response.changed() {
+                let value = value.unwrap_or(0);
+                if value != rating {
+                    edit = Some(edit_params(id, "rating", &value.to_string()));
                 }
             }
         });

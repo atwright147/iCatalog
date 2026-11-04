@@ -99,11 +99,9 @@ pub fn draw(
         .and_then(|m| m.annotation.as_ref())
         .map_or(0, |a| a.rating)
         .clamp(0, 5);
-    let stars: String = (0..5).map(|i| if i < rating { '★' } else { '☆' }).collect();
     let captured = dates.captured(meta.and_then(|m| m.captured_local.as_deref()));
     let filename = vec![
         asset.name.clone(),
-        format!("Rating: {stars}"),
         format!("Captured: {captured}"),
         format!("Modified: {}", dates.modified(asset.mtime)),
         format!(
@@ -164,7 +162,11 @@ pub fn draw(
         ),
     ];
     let mut left = x;
-    for (width, lines) in widths.into_iter().zip([filename, document, image]) {
+    for (column_index, (width, lines)) in widths
+        .into_iter()
+        .zip([filename, document, image])
+        .enumerate()
+    {
         let column = egui::Rect::from_min_size(
             egui::pos2(left, inner.top()),
             egui::vec2(width, inner.height()),
@@ -181,11 +183,15 @@ pub fn draw(
             ui.set_clip_rect(column.intersect(ui.clip_rect()));
             ui.spacing_mut().item_spacing.y = 3.0;
             for (i, line) in lines.iter().enumerate() {
-                let text = egui::RichText::new(line).size(14.0).color(if selected {
+                let color = if selected {
                     ui.visuals().selection.stroke.color
                 } else {
                     ui.visuals().text_color()
-                });
+                };
+                if column_index == 0 && i == 1 {
+                    crate::rating::display(ui, rating, 14.0, color);
+                }
+                let text = egui::RichText::new(line).size(14.0).color(color);
                 ui.add(
                     egui::Label::new(if i == 0 { text.strong() } else { text })
                         .truncate()

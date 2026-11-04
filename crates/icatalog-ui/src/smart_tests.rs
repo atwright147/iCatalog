@@ -2,6 +2,22 @@
 use super::*;
 
 fn replace_rule(h: &mut Harness<'_, App>, label: &str, text: &str) {
+    if label == "Minimum Rating" {
+        h.get_by_label("Minimum Rating 1").click();
+        h.run_steps(2);
+        h.key_press(match text {
+            "" => egui::Key::Backspace,
+            "0" => egui::Key::Num0,
+            "1" => egui::Key::Num1,
+            "2" => egui::Key::Num2,
+            "3" => egui::Key::Num3,
+            "4" => egui::Key::Num4,
+            "5" => egui::Key::Num5,
+            _ => panic!("unsupported test rating: {text}"),
+        });
+        h.run_steps(2);
+        return;
+    }
     h.get_by_label(label).click();
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
@@ -292,10 +308,11 @@ fn unsaved_rules_preview_updates_counts_summary_and_validation_without_writes() 
         .query_by_label("Camera contains \"Sony\" AND Rating is at least 4 out of 5")
         .is_some());
     replace_rule(&mut h, "Camera Contains", "");
-    replace_rule(&mut h, "Minimum Rating", "6");
+    replace_rule(&mut h, "Label Number", "8");
     settle(&mut h);
     assert!(h.query_by_label("Preview unavailable").is_some());
     assert!(h.query_by_label("0 matching items").is_none());
+    replace_rule(&mut h, "Label Number", "");
     replace_rule(&mut h, "Minimum Rating", "5");
     settle(&mut h);
     assert!(h.query_by_label("1 matching item").is_some());
@@ -374,7 +391,7 @@ fn preview_discards_an_older_in_flight_query_when_rules_change() {
 }
 
 #[test]
-fn smart_minimum_rating_can_be_entered_and_saved() {
+fn smart_minimum_rating_stars_can_be_selected_and_saved() {
     let fixture = Fixture::new();
     let c = open_catalogue(&fixture.path()).unwrap();
     c.catalog()
@@ -389,9 +406,7 @@ fn smart_minimum_rating_can_be_entered_and_saved() {
     h.get_by_label("Smart Collection").click();
     settle(&mut h);
     h.run_steps(10);
-    h.get_by_label("Minimum Rating").click();
-    h.run_steps(2);
-    h.get_by_label("Minimum Rating").type_text("4");
+    h.get_by_label("Minimum Rating 4").click();
     h.run_steps(2);
     h.get_by_label("Create").click();
     settle(&mut h);
@@ -413,15 +428,11 @@ fn smart_minimum_rating_can_be_entered_and_saved() {
     h.get_by_label("Edit Rules…").click();
     settle(&mut h);
     assert!(h.query_by_label("2 matching items").is_some());
-    h.get_by_label("Minimum Rating").click();
-    h.run_steps(2);
-    h.key_press(egui::Key::Home);
-    h.key_press(egui::Key::Delete);
-    h.get_by_label("Minimum Rating").type_text("5");
+    h.get_by_label("Minimum Rating 5").click();
     h.run_steps(2);
     assert_eq!(
         h.get_by_label("Minimum Rating").value().as_deref(),
-        Some("5")
+        Some("5 out of 5")
     );
     h.get_by_label("Save").click();
     settle(&mut h);
@@ -625,7 +636,8 @@ fn smart_live_annotation_edits_mixed_selection_search_and_membership_gestures() 
     )
     .click();
     settle(&mut h);
-    h.get_by_label("Rating 0").click();
+    // Clicking the currently selected fifth star clears the asset rating.
+    h.get_by_label("Rating 5").click();
     settle(&mut h);
     assert_eq!(
         h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
