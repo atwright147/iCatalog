@@ -530,6 +530,16 @@ Use five frameless star buttons with 24-point targets, accessible per-star names
 
 Headless checks cover exactly five targets, pointer/keyboard/clear/disabled behavior, read-only/hostile-value display, all persisted asset ratings, optional/zero minimum rules, cancellation, live counts and existing failed/pending writes. Existing layout checks cover both themes/native display scales and complete 800×600 rule forms. Reviewed screenshots cover the changed inspector and Smart dialogs; List's star display remains visually unchanged. No dependency, schema, engine command or Taskfile surface change.
 
+## D57. Inclusive maximum rating for Smart Collections (2026-11-04)
+
+The owner requested a Maximum stars field in the Rules Editor. Add Maximum Rating beside the existing minimum in the shared Create/Edit Rules form, using D56’s five-star editor. Both optional bounds accept 0–5 inclusively and may stand alone; equal bounds select an exact rating, a maximum of 0 includes absent annotations/unrated assets, and minimum above maximum is an error. Clearing removes the bound. Existing collection create/set-rules/rules/preview commands accept or expose max-rating; name/rule validation and saves remain atomic. Shared SQL drives membership, counts, browsing and preview. Ten rule rows use 4-point vertical gaps to preserve 800×600 fit.
+
+Schema v8 rebuilds smart_collection because its at-least-one-rule constraint must admit maximum-only rules. Add an integer/range constraint for max_rating and an ordered-bound constraint. Copy old rules with NULL maximum while preserving Collection UIDs/revisions, manual membership and replica baseline bytes, then restore all membership/revision/generation triggers. Migration is transactional, advances generation once, rolls back on failure and is idempotent on reopen. No dependency or new command id is needed; Taskfile’s CLI example includes both bounds.
+
+Keep HTTP protocol v2 and its existing envelope/record formats. Emit new Collection kind 3 only when a maximum is present, adding its optional number after minimum and before label. Kind 1 annotations and kind 2 Collections remain byte-compatible; new readers decode old replica baselines with no maximum. Legacy readers reject unknown kind 3 before applying a batch, so an old server cannot silently lose the bound. Update both clients and server for schema-v8 catalogues.
+
+Tests cover max-only/zero/equal/range membership, counts and previews; malformed bounds and atomic failure; v7 migration preservation/rollback; CLI; binary compatibility/adversarial input; HTTP round trips, conflicts/backups and old-server refusal preserving drafts. Real-widget checks cover create/edit/save/reopen/clear/cancel/invalid/pending states in both themes at 1×/1.5×/2×. Reviewed Smart dialog screenshots include the extra field.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

@@ -8,6 +8,54 @@ fn icatalog(args: &[&str]) -> Output {
         .unwrap()
 }
 
+#[test]
+fn maximum_rating_cli_previews_saves_and_rejects_inverted_ranges() {
+    let path =
+        std::env::temp_dir().join(format!("icat-cli-max-rating-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    {
+        let c = icatalog_engine::Context::open(&path).unwrap();
+        c.catalog().connection().execute_batch("INSERT INTO asset(id,uid,name,path) VALUES(1,'a','a','/a'),(2,'b','b','/b'); INSERT INTO annotation(asset_id,rating) VALUES(1,5);").unwrap();
+    }
+    let preview = icatalog(&["collection", p, "preview-smart", "--max-rating", "0"]);
+    assert!(preview.status.success(), "{}", s(&preview.stderr));
+    assert!(s(&preview.stdout).contains("1 matching item\nRating is at most 0 out of 5"));
+    assert!(icatalog(&[
+        "collection",
+        p,
+        "create-smart",
+        "--name",
+        "Unrated",
+        "--max-rating",
+        "0"
+    ])
+    .status
+    .success());
+    assert!(s(&icatalog(&["collection", p, "rules", "--id", "1"]).stdout).contains("max-rating"));
+    let invalid = icatalog(&[
+        "collection",
+        p,
+        "set-rules",
+        "--id",
+        "1",
+        "--name",
+        "Bad",
+        "--min-rating",
+        "4",
+        "--max-rating",
+        "3",
+    ]);
+    assert!(!invalid.status.success());
+    assert!(s(&invalid.stderr).contains("minimum rating must not exceed maximum rating"));
+    let c = icatalog_engine::Context::open(&path).unwrap();
+    assert_eq!(c.catalog().collection(1).unwrap().unwrap().name, "Unrated");
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![2]);
+    drop(c);
+    std::fs::remove_file(path).unwrap();
+}
+
 fn s(b: &[u8]) -> String {
     String::from_utf8_lossy(b).into_owned()
 }

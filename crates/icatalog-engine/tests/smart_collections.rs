@@ -25,6 +25,68 @@ fn fixture() -> Context {
 }
 
 #[test]
+fn maximum_rules_preview_save_list_and_clear_with_atomic_validation() {
+    let mut c = fixture();
+    let before = c.catalog().connection().total_changes();
+    assert_eq!(
+        run(&mut c, &[("action", "preview-smart"), ("max-rating", "0")]).render(),
+        "1 matching item\nRating is at most 0 out of 5"
+    );
+    assert_eq!(c.catalog().connection().total_changes(), before);
+    run(
+        &mut c,
+        &[
+            ("action", "create-smart"),
+            ("name", "Low ratings"),
+            ("max-rating", "4"),
+        ],
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![2]);
+    assert_eq!(
+        c.catalog().smart_rules(1).unwrap().unwrap().max_rating,
+        Some(4)
+    );
+    assert!(rows(run(&mut c, &[("action", "rules"), ("id", "1")]))
+        .contains(&vec!["max-rating".into(), "4".into()]));
+    let saved = c.catalog().collection(1).unwrap().unwrap();
+    for values in [
+        vec![("max-rating", "-1")],
+        vec![("max-rating", "6")],
+        vec![("max-rating", "NaN")],
+        vec![("min-rating", "4"), ("max-rating", "3")],
+    ] {
+        let mut params = p(&values);
+        params
+            .set("action", "set-rules")
+            .set("id", "1")
+            .set("name", "Must roll back");
+        assert!(dispatch(&mut c, "collection", &params).is_err());
+        assert_eq!(c.catalog().collection(1).unwrap().unwrap(), saved);
+        params.set("action", "preview-smart");
+        assert!(dispatch(&mut c, "collection", &params).is_err());
+    }
+    run(
+        &mut c,
+        &[
+            ("action", "set-rules"),
+            ("id", "1"),
+            ("min-rating", "5"),
+            ("max-rating", "5"),
+        ],
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1]);
+    run(
+        &mut c,
+        &[("action", "set-rules"), ("id", "1"), ("min-rating", "0")],
+    );
+    assert_eq!(
+        c.catalog().smart_rules(1).unwrap().unwrap().max_rating,
+        None
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1, 2]);
+}
+
+#[test]
 fn unsaved_preview_counts_summarizes_and_never_changes_the_catalogue() {
     let mut c = fixture();
     let before = c.catalog().connection().total_changes();

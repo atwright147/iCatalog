@@ -111,6 +111,13 @@ pub fn encode(id: &str, changes: &[Change]) -> Result<Vec<u8>> {
     for change in changes {
         out.push(match change.value {
             Value::Annotation(_) => 1,
+            // Kind 3 extends collection rules with a maximum rating. Legacy
+            // decoders reject unknown kinds rather than silently dropping it.
+            Value::Collection(ref c)
+                if c.rules.as_ref().is_some_and(|r| r.max_rating.is_some()) =>
+            {
+                3
+            }
             Value::Collection(_) => 2,
         });
         number(&mut out, change.base_revision.unwrap_or(-1));
@@ -139,6 +146,9 @@ pub fn encode(id: &str, changes: &[Change]) -> Result<Vec<u8>> {
                         opt_text(&mut out, t)?;
                     }
                     number(&mut out, r.min_rating.unwrap_or(-1));
+                    if r.max_rating.is_some() {
+                        number(&mut out, r.max_rating.unwrap_or(-1));
+                    }
                     number(&mut out, r.label.unwrap_or(-1));
                 }
                 texts(&mut out, &c.members)?;
@@ -239,7 +249,7 @@ pub fn decode(bytes: &[u8]) -> Result<(String, Vec<Change>)> {
                 label: r.number()?,
                 keywords: r.texts()?,
             }),
-            2 => {
+            2 | 3 => {
                 let name = r.text()?;
                 let rules = if r.flag()? {
                     Some(SmartRules {
@@ -251,11 +261,21 @@ pub fn decode(bytes: &[u8]) -> Result<(String, Vec<Change>)> {
                         keyword: r.opt_text()?,
                         text: r.opt_text()?,
                         min_rating: opt_number(r.number()?)?,
+                        max_rating: if kind == 3 {
+                            opt_number(r.number()?)?
+                        } else {
+                            None
+                        },
                         label: opt_number(r.number()?)?,
                     })
-                } else {
+                } else if kind == 2 {
                     None
+                } else {
+                    return Err(bad());
                 };
+                if kind == 3 && rules.as_ref().is_none_or(|r| r.max_rating.is_none()) {
+                    return Err(bad());
+                }
                 Value::Collection(Box::new(CollectionState {
                     uid,
                     revision,
@@ -366,6 +386,57 @@ pub fn decode_reply(b: &[u8]) -> Result<(i64, Vec<String>)> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::panic)]
     use super::*;
+    #[test]
+    fn maximum_rules_use_an_extended_kind_and_legacy_baselines_stay_readable() {
+        let legacy = sample();
+        let legacy_bytes = encode("catalogue", &legacy).unwrap();
+        // Frozen kind-1/kind-2 v2 bytes: no maximum field existed in this baseline.
+        let legacy_fixture = b"\x49\x43\x41\x44\x32\x00\x09\x00\x00\x00\x63\x61\x74\x61\x6c\x6f\
+            \x67\x75\x65\x02\x00\x00\x00\x01\x02\x00\x00\x00\x00\x00\x00\x00\
+            \x03\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x61\x73\x73\x65\
+            \x74\x04\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\
+            \x00\x01\x00\x00\x00\x07\x00\x00\x00\x68\x6f\x6c\x69\x64\x61\x79\
+            \x02\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x0e\x00\x00\x00\x63\x6f\x6c\x6c\x65\x63\x74\x69\x6f\x6e\x3a\
+            \x6e\x65\x77\x05\x00\x00\x00\x53\x6d\x61\x72\x74\x01\x00\x00\x00\
+            \x01\x06\x00\x00\x00\x43\x61\x6d\x65\x72\x61\x00\x00\x00\x04\x00\
+            \x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\
+            \x00\x00";
+        assert_eq!(legacy_bytes, legacy_fixture);
+        assert_eq!(decode(legacy_fixture).unwrap().1, legacy);
+        let mut changes = sample();
+        if let Value::Collection(c) = &mut changes[1].value {
+            c.rules.as_mut().unwrap().max_rating = Some(5);
+        }
+        let bytes = encode("catalogue", &changes).unwrap();
+        assert_eq!(decode(&bytes).unwrap().1, changes);
+        // The first annotation has unchanged bytes. A legacy decoder sees an
+        // unknown collection kind and rejects it before reading its fields.
+        let mut reader = Reader { b: &bytes, at: 0 };
+        reader.take(6).unwrap();
+        reader.text().unwrap();
+        reader.count(MAX_SYNC_ROWS).unwrap();
+        assert_eq!(reader.byte().unwrap(), 1);
+        reader.number().unwrap();
+        reader.number().unwrap();
+        reader.text().unwrap();
+        reader.number().unwrap();
+        reader.number().unwrap();
+        reader.texts().unwrap();
+        assert_eq!(reader.byte().unwrap(), 3);
+        for n in 0..bytes.len() {
+            assert!(decode(&bytes[..n]).is_err());
+        }
+        for index in 0..bytes.len() {
+            let mut mutated = bytes.clone();
+            mutated[index] ^= 255;
+            assert!(std::panic::catch_unwind(|| decode(&mutated)).is_ok());
+        }
+        if let Value::Collection(c) = &mut changes[1].value {
+            c.rules.as_mut().unwrap().max_rating = Some(3);
+        }
+        assert!(encode("catalogue", &changes).is_err());
+    }
     #[test]
     fn reply_can_report_conflicts_from_both_entity_types_at_the_supported_bound() {
         let conflicts = vec!["asset:key".to_owned(); MAX_SYNC_ROWS + 1];

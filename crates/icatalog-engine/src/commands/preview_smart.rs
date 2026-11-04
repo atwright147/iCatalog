@@ -19,6 +19,9 @@ pub(super) fn run(ctx: &Context, params: &Params) -> Result<Outcome> {
     if let Some(rating) = rules.min_rating {
         clauses.push(format!("Rating is at least {rating} out of 5"));
     }
+    if let Some(rating) = rules.max_rating {
+        clauses.push(format!("Rating is at most {rating} out of 5"));
+    }
     if let Some(label) = rules.label {
         clauses.push(format!("Label is {label}"));
     }

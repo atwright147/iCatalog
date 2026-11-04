@@ -13,6 +13,7 @@ pub struct SmartRules {
     pub camera: Option<String>,
     pub lens: Option<String>,
     pub min_rating: Option<i64>,
+    pub max_rating: Option<i64>,
     pub label: Option<i64>,
     /// Exact keyword name, as in AssetQuery.
     pub keyword: Option<String>,
@@ -31,7 +32,11 @@ impl SmartRules {
             &self.keyword,
             &self.text,
         ];
-        if texts.iter().all(|t| t.is_none()) && self.min_rating.is_none() && self.label.is_none() {
+        if texts.iter().all(|t| t.is_none())
+            && self.min_rating.is_none()
+            && self.max_rating.is_none()
+            && self.label.is_none()
+        {
             return Err(CatalogError::InvalidQuery(
                 "a Smart Collection needs at least one rule",
             ));
@@ -44,10 +49,16 @@ impl SmartRules {
             }
         }
         if self.min_rating.is_some_and(|v| !(0..=5).contains(&v))
+            || self.max_rating.is_some_and(|v| !(0..=5).contains(&v))
             || self.label.is_some_and(|v| !(0..=7).contains(&v))
         {
             return Err(CatalogError::InvalidQuery(
                 "rating must be 0-5 and label must be 0-7",
+            ));
+        }
+        if matches!((self.min_rating, self.max_rating), (Some(min), Some(max)) if min > max) {
+            return Err(CatalogError::InvalidQuery(
+                "minimum rating must not exceed maximum rating",
             ));
         }
         for date in [&self.captured_from, &self.captured_to]
@@ -106,6 +117,7 @@ pub(crate) const SMART_MATCH: &str = "
  AND (sc.camera IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND instr(lower(coalesce(m.make,'') || ' ' || coalesce(m.model,'')),lower(sc.camera))>0))
  AND (sc.lens IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND instr(lower(m.lens),lower(sc.lens))>0))
  AND (sc.min_rating IS NULL OR coalesce((SELECT rating FROM annotation WHERE asset_id=asset.id),0)>=sc.min_rating)
+ AND (sc.max_rating IS NULL OR coalesce((SELECT rating FROM annotation WHERE asset_id=asset.id),0)<=sc.max_rating)
  AND (sc.label IS NULL OR coalesce((SELECT label FROM annotation WHERE asset_id=asset.id),0)=sc.label)
  AND (sc.keyword IS NULL OR EXISTS (SELECT 1 FROM asset_keyword ak JOIN keyword k ON k.id=ak.keyword_id WHERE ak.asset_id=asset.id AND k.name=sc.keyword))
  AND (sc.text IS NULL OR instr(lower(asset.name),lower(sc.text))>0 OR instr(lower(asset.path),lower(sc.text))>0)";
@@ -120,11 +132,11 @@ impl Catalog {
     pub fn count_smart_matches(&self, rules: &SmartRules) -> Result<i64> {
         rules.validate()?;
         Ok(self.conn.query_row(
-            &format!("WITH sc(format,captured_from,captured_to,camera,lens,min_rating,label,keyword,text)
-                AS (VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9))
+            &format!("WITH sc(format,captured_from,captured_to,camera,lens,min_rating,max_rating,label,keyword,text)
+                AS (VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10))
                 SELECT COUNT(*) FROM asset CROSS JOIN sc WHERE {SMART_MATCH}"),
             params![rules.format,rules.captured_from,rules.captured_to,rules.camera,rules.lens,
-                rules.min_rating,rules.label,rules.keyword,rules.text],
+                rules.min_rating,rules.max_rating,rules.label,rules.keyword,rules.text],
             |row| row.get(0),
         )?)
     }
@@ -142,9 +154,10 @@ impl Catalog {
             "label",
             "keyword",
             "text",
+            "max_rating",
         ]
         .map(|name| {
-            if matches!(name, "min_rating" | "label") {
+            if matches!(name, "min_rating" | "max_rating" | "label") {
                 name.to_owned()
             } else {
                 format!("CASE WHEN length(CAST({name} AS BLOB))>1024 THEN '' ELSE {name} END")
@@ -167,6 +180,7 @@ impl Catalog {
                         label: r.get(6)?,
                         keyword: r.get(7)?,
                         text: r.get(8)?,
+                        max_rating: r.get(9)?,
                     })
                 },
             )
@@ -180,10 +194,10 @@ impl Catalog {
     /// The caller's transaction groups this with collection creation.
     pub fn set_smart_rules(&self, id: i64, rules: &SmartRules) -> Result<()> {
         rules.validate()?;
-        self.conn.execute("INSERT INTO smart_collection(collection_id,format,captured_from,captured_to,camera,lens,min_rating,label,keyword,text)
-            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-            ON CONFLICT(collection_id) DO UPDATE SET format=excluded.format,captured_from=excluded.captured_from,captured_to=excluded.captured_to,camera=excluded.camera,lens=excluded.lens,min_rating=excluded.min_rating,label=excluded.label,keyword=excluded.keyword,text=excluded.text",
-            params![id,rules.format,rules.captured_from,rules.captured_to,rules.camera,rules.lens,rules.min_rating,rules.label,rules.keyword,rules.text])?;
+        self.conn.execute("INSERT INTO smart_collection(collection_id,format,captured_from,captured_to,camera,lens,min_rating,max_rating,label,keyword,text)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+            ON CONFLICT(collection_id) DO UPDATE SET format=excluded.format,captured_from=excluded.captured_from,captured_to=excluded.captured_to,camera=excluded.camera,lens=excluded.lens,min_rating=excluded.min_rating,max_rating=excluded.max_rating,label=excluded.label,keyword=excluded.keyword,text=excluded.text",
+            params![id,rules.format,rules.captured_from,rules.captured_to,rules.camera,rules.lens,rules.min_rating,rules.max_rating,rules.label,rules.keyword,rules.text])?;
         Ok(())
     }
 }

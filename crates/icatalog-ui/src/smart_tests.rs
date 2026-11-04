@@ -2,8 +2,8 @@
 use super::*;
 
 fn replace_rule(h: &mut Harness<'_, App>, label: &str, text: &str) {
-    if label == "Minimum Rating" {
-        h.get_by_label("Minimum Rating 1").click();
+    if matches!(label, "Minimum Rating" | "Maximum Rating") {
+        h.get_by_label(&format!("{label} 1")).click();
         h.run_steps(2);
         h.key_press(match text {
             "" => egui::Key::Backspace,
@@ -320,6 +320,7 @@ fn unsaved_rules_preview_updates_counts_summary_and_validation_without_writes() 
     settle(&mut h);
     for label in [
         "Minimum Rating",
+        "Maximum Rating",
         "Filename or Path Contains",
         "Cancel",
         "Create",
@@ -467,6 +468,7 @@ fn smart_rules_fit_a_narrow_window_and_all_fields_remain_reachable() {
         "Camera Contains",
         "Lens Contains",
         "Minimum Rating",
+        "Maximum Rating",
         "Label Number",
         "Keyword",
         "Filename or Path Contains",

@@ -31,6 +31,7 @@ fn live_rules_counts_memberships_union_and_paging_share_the_same_results() {
             camera: Some("example camera".into()),
             lens: Some("70".into()),
             min_rating: Some(5),
+            max_rating: Some(5),
             label: Some(2),
             keyword: Some("Keep".into()),
             text: Some("ONE".into()),
@@ -357,7 +358,7 @@ fn migration_from_v5_preserves_manual_membership_and_asset_identity() {
         c.execute_batch("INSERT INTO catalogue VALUES ('legacy',0,'t',5); INSERT INTO asset(id,uid,name,path) VALUES(1,'stable','One','/one'); INSERT INTO collection VALUES(1,'Manual'); INSERT INTO collection_asset VALUES(1,1);").unwrap();
     }
     let c = Catalog::open(&path).unwrap();
-    assert_eq!(c.schema_version().unwrap(), 7);
+    assert_eq!(c.schema_version().unwrap(), 8);
     assert_eq!(c.collection_assets(1).unwrap(), vec![1]);
     assert_eq!(c.asset(1).unwrap().unwrap().uid, "stable");
     assert!(c.collection(1).unwrap().unwrap().rules.is_none());

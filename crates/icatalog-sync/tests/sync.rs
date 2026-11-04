@@ -69,6 +69,129 @@ fn sync_params(url: &str) -> Params {
     p.set("url", url);
     p
 }
+
+#[test]
+fn maximum_rating_rules_round_trip_conflict_and_clear_over_real_http() {
+    let dir = temp_dir("maximum-rating");
+    let (server, url) = seed(&dir);
+    let mut a = replica(&server, "a.sqlite", &url);
+    let mut b = replica(&server, "b.sqlite", &url);
+    command(
+        &mut a,
+        "collection",
+        &[
+            ("action", "set-rules"),
+            ("id", "2"),
+            ("min-rating", "0"),
+            ("max-rating", "4"),
+        ],
+    );
+    command(
+        &mut b,
+        "collection",
+        &[
+            ("action", "set-rules"),
+            ("id", "2"),
+            ("min-rating", "0"),
+            ("max-rating", "3"),
+        ],
+    );
+    assert!(sync(&mut a, &url).conflicts.is_empty());
+    let report = sync(&mut b, &url);
+    assert_eq!(report.conflicts.len(), 1);
+    let backup = Context::open(report.backup.unwrap()).unwrap();
+    assert_eq!(
+        backup.catalog().smart_rules(2).unwrap().unwrap().max_rating,
+        Some(3)
+    );
+    assert_eq!(
+        b.catalog().smart_rules(2).unwrap().unwrap().max_rating,
+        Some(4)
+    );
+    command(
+        &mut b,
+        "collection",
+        &[
+            ("action", "create-smart"),
+            ("name", "Unrated"),
+            ("max-rating", "0"),
+        ],
+    );
+    assert!(sync(&mut b, &url).conflicts.is_empty());
+    assert!(sync(&mut a, &url).conflicts.is_empty());
+    let created = a
+        .catalog()
+        .all_collections()
+        .unwrap()
+        .into_iter()
+        .find(|v| v.name == "Unrated")
+        .unwrap();
+    assert_eq!(created.rules.unwrap().max_rating, Some(0));
+    assert_eq!(
+        a.catalog().collection_assets(created.id).unwrap(),
+        vec![1, 2]
+    );
+    command(
+        &mut a,
+        "collection",
+        &[("action", "set-rules"), ("id", "2"), ("min-rating", "0")],
+    );
+    sync(&mut a, &url);
+    sync(&mut b, &url);
+    assert_eq!(
+        b.catalog().smart_rules(2).unwrap().unwrap().max_rating,
+        None
+    );
+    assert_eq!(
+        Context::open(server)
+            .unwrap()
+            .catalog()
+            .smart_rules(2)
+            .unwrap()
+            .unwrap()
+            .max_rating,
+        None
+    );
+}
+
+#[test]
+fn old_server_rejection_keeps_maximum_rating_drafts_and_baseline_intact() {
+    struct RejectExtended {
+        posted: Cell<bool>,
+    }
+    impl Transport for RejectExtended {
+        fn get(&self, url: &str) -> icatalog_sync::Result<HttpResponse> {
+            UreqTransport::new().get(url)
+        }
+        fn post(&self, _: &str, _: &[u8]) -> icatalog_sync::Result<HttpResponse> {
+            self.posted.set(true);
+            Ok(HttpResponse {
+                status: 400,
+                headers: Default::default(),
+                body: b"unsupported collection kind; update server".to_vec(),
+            })
+        }
+    }
+    let dir = temp_dir("maximum-rating-old-server");
+    let (server, url) = seed(&dir);
+    let mut c = replica(&server, "local.sqlite", &url);
+    command(
+        &mut c,
+        "collection",
+        &[("action", "set-rules"), ("id", "2"), ("max-rating", "2")],
+    );
+    let before = std::fs::read(c.path()).unwrap();
+    let transport = RejectExtended {
+        posted: Cell::new(false),
+    };
+    assert!(client::sync_once(&mut c, &transport, &url).is_err());
+    assert!(transport.posted.get());
+    assert_eq!(std::fs::read(c.path()).unwrap(), before);
+    assert_eq!(
+        c.catalog().smart_rules(2).unwrap().unwrap().max_rating,
+        Some(2)
+    );
+}
 fn temp_files(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
         .unwrap()

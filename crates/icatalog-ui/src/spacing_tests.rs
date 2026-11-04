@@ -154,6 +154,7 @@ fn rename_and_edit_rules_put_name_beside_its_field_and_align_rule_columns() {
                         "Camera Contains",
                         "Lens Contains",
                         "Minimum Rating",
+                        "Maximum Rating",
                         "Label Number",
                         "Keyword",
                         "Filename or Path Contains",
@@ -261,6 +262,7 @@ fn padded_collection_dialogs_fit_and_keep_label_value_columns_separate() {
                 "Camera Contains",
                 "Lens Contains",
                 "Minimum Rating",
+                "Maximum Rating",
                 "Label Number",
                 "Keyword",
                 "Filename or Path Contains",
@@ -273,7 +275,7 @@ fn padded_collection_dialogs_fit_and_keep_label_value_columns_separate() {
                     field.left() - caption.right() >= 15.5,
                     "{label}: {caption:?} {field:?}"
                 );
-                assert!(field.top() - previous_bottom >= 5.5, "{label}: {field:?}");
+                assert!(field.top() - previous_bottom >= 3.5, "{label}: {field:?}");
                 assert!(field.right() < 800.0 && field.bottom() < 600.0);
                 previous_bottom = field.bottom();
             }

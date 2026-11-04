@@ -12,6 +12,7 @@ pub(super) struct RuleInputs {
     camera: String,
     lens: String,
     rating: Option<i64>,
+    max_rating: Option<i64>,
     label: String,
     keyword: String,
     text: String,
@@ -123,6 +124,7 @@ impl RuleInputs {
             camera: r.camera.clone().unwrap_or_default(),
             lens: r.lens.clone().unwrap_or_default(),
             rating: r.min_rating,
+            max_rating: r.max_rating,
             label: r.label.map(|v| v.to_string()).unwrap_or_default(),
             keyword: r.keyword.clone().unwrap_or_default(),
             text: r.text.clone().unwrap_or_default(),
@@ -134,7 +136,7 @@ impl RuleInputs {
         egui::Grid::new("smart_rule_fields")
             .num_columns(2)
             .min_col_width(Self::label_column_width(ui))
-            .spacing(egui::vec2(16.0, 6.0))
+            .spacing(egui::vec2(16.0, 4.0))
             .show(ui, |ui| {
                 for (label, value, hint) in [
                     ("Format", &mut self.format, "JPEG, NEF, PNG, …"),
@@ -147,6 +149,10 @@ impl RuleInputs {
                 }
                 let label = ui.label("Minimum Rating");
                 super::rating::editor(ui, &mut self.rating, "Minimum Rating").labelled_by(label.id);
+                ui.end_row();
+                let label = ui.label("Maximum Rating");
+                super::rating::editor(ui, &mut self.max_rating, "Maximum Rating")
+                    .labelled_by(label.id);
                 ui.end_row();
                 for (label, value, hint) in [
                     ("Label Number", &mut self.label, "0–7"),
@@ -175,6 +181,9 @@ impl RuleInputs {
         }
         if let Some(rating) = self.rating {
             params.set("min-rating", rating.to_string());
+        }
+        if let Some(rating) = self.max_rating {
+            params.set("max-rating", rating.to_string());
         }
     }
 }

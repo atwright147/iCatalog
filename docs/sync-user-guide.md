@@ -6,6 +6,8 @@ Sync is available in the desktop app through **File → Connect to Server…** a
 
 ## Before you start
 
+Maximum Rating Smart rules require schema-v8 support (D57). Update iCatalog on the server and each client before syncing an upgraded catalogue. Older apps refuse the newer catalogue; an older server rejects a maximum-rule upload and leaves the client draft intact. Minimum and maximum are inclusive, can be used independently, and sync with the Collection’s other rules. A maximum of 0 matches unrated assets.
+
 Use builds containing protocol v2 (D20/D44) on both server and clients, and the new client-side `clone` command (D45) for the recommended setup below. Older builds cannot sync with this protocol. If running from this repository, `task build` creates the CLI and desktop binaries under `target/debug/`; use `task run --` in place of `icatalog`, and `task gui --` in place of `icatalog-ui` in the examples below. Installed binaries are assumed to be on your PATH.
 
 The examples use macOS/Linux shell paths. Replace the catalogue paths, media path and `nas` hostname with your own. On Windows, use the corresponding local paths and installed executables.

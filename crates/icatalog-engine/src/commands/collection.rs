@@ -64,6 +64,10 @@ impl Command for Collection {
                 doc: "Smart Collection: minimum rating 0-5 (absent annotations count as zero)",
             },
             ParamSpec {
+                name: "max-rating", required: false, positional: false,
+                doc: "Smart Collection: inclusive maximum rating 0-5; must not be below min-rating",
+            },
+            ParamSpec {
                 name: "label", required: false, positional: false,
                 doc: "Smart Collection: exact label 0-7 (absent annotations count as zero)",
             },
@@ -95,9 +99,9 @@ impl Command for Collection {
             "list" => &[],
             "create" => &["name"],
             "rename" => &["id", "name"],
-            "create-smart" => &["name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
+            "create-smart" => &["name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "max-rating", "label", "keyword", "text"],
             "preview-smart" => super::smart_collection::RULE_KEYS,
-            "set-rules" => &["id", "name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "label", "keyword", "text"],
+            "set-rules" => &["id", "name", "format", "captured-from", "captured-to", "camera", "lens", "min-rating", "max-rating", "label", "keyword", "text"],
             "rules" => &["id"],
             "show" => &["id"],
             "add" | "remove" => &["id", "asset", "assets"],

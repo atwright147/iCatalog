@@ -44,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("v5.sql"),
     include_str!("v6.sql"),
     include_str!("v7.sql"),
+    include_str!("v8.sql"),
 ];
 
 /// Errors from opening, migrating or querying a catalogue.

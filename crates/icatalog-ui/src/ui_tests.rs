@@ -5,6 +5,8 @@ use super::*;
 mod date_tests;
 #[path = "dialog_tests.rs"]
 mod dialog_tests;
+#[path = "max_rating_tests.rs"]
+mod max_rating_tests;
 #[path = "../tests/support/mod.rs"]
 mod support;
 use egui_kittest::{
@@ -2177,6 +2179,7 @@ fn visual_snapshots() {
             id,
             &icatalog_catalog::SmartRules {
                 min_rating: Some(4),
+                max_rating: Some(5),
                 ..Default::default()
             },
         )

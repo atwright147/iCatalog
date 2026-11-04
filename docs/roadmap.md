@@ -11,7 +11,7 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 ## 2. Done
 
 - **M0 housekeeping** — repo under git; root `.gitignore` (`target/`, `log/`, `*.sqlite`); `crates/*` workspace members; `log/devlog.md` (local, gitignored).
-- **M1 schema** — `icatalog-catalog`: schema v1-v7 with migrations, the model + CRUD for every table (including `source` with device provenance and source-rooted folders, D21), `AssetQuery`/`CatalogStats`; round-trip, FK-cascade, constraint, raw-bytes, migration and never-panic tests. The one open piece — the `ivc` import mapping — is M2 work, not schema work.
+- **M1 schema** — `icatalog-catalog`: schema v1-v8 with migrations, the model + CRUD for every table (including `source` with device provenance and source-rooted folders, D21), `AssetQuery`/`CatalogStats`; round-trip, FK-cascade, constraint, raw-bytes, migration and never-panic tests. The one open piece — the `ivc` import mapping — is M2 work, not schema work.
 
 ## 3. In progress
 
@@ -44,7 +44,7 @@ Folders navigation fills the available sidebar width (D42), including All/Unassi
 
 Details inspector and app dialogs have roomier local text layouts (D47): inset inspector content, larger line/section gaps, wrapping annotation controls and vertical scrolling; wider Collection/Smart rules/Connect/Sync dialog margins and field/button gaps. Rename/Edit Rules place Name beside its field, with Name aligned to rule inputs in Edit Rules. Smart rule fields/actions still fit at 800×600. Tests cover both themes/display scales, scrolled keyword editing and long sync diagnostics; screenshots include metadata and the scrolled inspector. Sidebar, grid/List and native OS picker spacing are unchanged.
 
-Edit Rules has a reusable Rules fieldset around the instructions and nine rule inputs (D48), with accessible grouping and a legend in the border. Name, match preview and actions stay outside. Input alignment and 800×600 fit are preserved; both themes/scales and grouped rule editing are covered. Creation/Rename layouts are unchanged.
+Edit Rules has a reusable Rules fieldset around the instructions and ten rule inputs (D48), with accessible grouping and a legend in the border. Name, match preview and actions stay outside. Input alignment and 800×600 fit are preserved; both themes/scales and grouped rule editing are covered. Creation/Rename layouts are unchanged.
 
 App dialogs have top-right X close controls through a shared heading component (D50). They use existing Cancel/Close semantics, discard unsaved drafts and disable closing during pending saves/transfers. Checks cover placement, pointer/accessibility activation, error/result dismissal and busy guards; screenshots cover each modal.
 
@@ -54,7 +54,9 @@ Details file sizes use the same shared human-readable formatter as List (D52), w
 
 Details exposure seconds are concise through shared `formatting::exposure_time` (D55): trim to two decimal places, preserving two significant digits for exposures below 0.01s and removing redundant zeros. Invalid values remain explicit; tests cover extremes, real inspector display and preserved stored precision.
 
-Ratings use reusable five-star components in List, Details and Create/Edit Smart Collection rules (D56). List stays read-only; editors support pointer/keyboard selection and clearing, preserving unrated assets and the distinction between no minimum and an explicit zero minimum. Existing edit/collection commands and busy guards persist changes; component, persistence, preview and theme/scale checks cover the shared controls.
+Smart rules also support an optional inclusive Maximum Rating (D57) in Create/Edit Rules and CLI `--max-rating`. Either bound can stand alone; 0 includes unrated assets, equal bounds select an exact rating, and inverted ranges fail validation without changing stored rules/name. Schema v8 preserves existing rules/UIDs/revisions/baselines; sync extends Collection records while retaining old baseline decoding and safe refusal by older servers. Tests cover migration/rollback, shared queries/previews, CLI, sync/conflicts and both-theme 1×/1.5×/2× editing. Ten rule rows use 4-point gaps to retain 800×600 fit.
+
+Ratings use reusable five-star components in List, Details and Create/Edit Smart Collection rules (D56/D57). List stays read-only; editors support pointer/keyboard selection and clearing, preserving unrated assets and the distinction between no bound and an explicit zero bound. Existing edit/collection commands and busy guards persist changes; component, persistence, preview and theme/scale checks cover the shared controls.
 
 Details and List share regional date/time display (D53/D54) with numeric regional date order, padded day/month, full years and an at separator before the system-format time: Foundation on macOS, native user formatters on Windows, and locale-environment settings on Linux. Modified uses the system local zone; Captured preserves its stored camera-local wall time. Invalid values remain explicit, the display cache is bounded and refreshed, and UI fixtures use deterministic regional settings. Tests cover regions/clocks, offsets/DST semantics, invalid input and native macOS output. Stored dates, search/sort and CLI behavior are unchanged; native Windows/Linux runtime verification remains platform-specific.
 
