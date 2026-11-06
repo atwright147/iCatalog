@@ -62,13 +62,13 @@ Details and List share regional date/time display (D53/D54) with numeric regiona
 
 Desktop legibility (D33) uses larger interface/caption text and List metadata, stronger normal/secondary/selection contrast in both themes, hinted glyphs without fractional variants, and roomier rows. Native display scaling is preserved. Layout checks cover both themes at 1×/1.5×/2×; light and Retina List screenshots supplement existing baselines.
 
-Desktop release automation (D34) exists for published releases: Windows x64/ARM64 ZIPs, macOS ARM64 `.app` + CLI archive, and Linux x86-64 Debian `.deb`, Fedora `.rpm` and Arch `.pkg.tar.zst`. Manual dispatch produces workflow artifacts only by default; `release_tag` builds the tag's application with current workflow packaging and uploads to its existing release. Hosted v0.1.0 recovery passed all four builds, all three Linux installation checks and final upload. All six assets and SHA256SUMS are published and their digests verified. Arch constraints are guarded by a generated-metadata regression. macOS Intel/universal releases are no longer targeted. Developer ID signing/notarization and Windows publisher signing remain open; NAS musl/Docker packaging remains planned.
+Desktop release automation (D34) exists for published releases: Windows x64/ARM64 ZIPs, macOS ARM64 `.app` + CLI archive, and Linux x86-64 Debian `.deb`, Fedora `.rpm` and Arch `.pkg.tar.zst`. Manual dispatch produces workflow artifacts only by default; `release_tag` builds the tag's application with current workflow packaging and uploads to its existing release. Hosted v0.1.0 recovery passed all four builds, all three Linux installation checks and final upload. All six original assets and SHA256SUMS are published and their digests verified. Arch constraints are guarded by a generated-metadata regression. macOS Intel/universal releases are no longer targeted. Developer ID signing/notarization and Windows publisher signing remain open. D58 adds two static NAS CLI archives and native CI jobs for future runs; hosted execution/publication remains unverified. Docker remains planned.
 
 ## 4. Next
 
 
 - **D20/D44 is implemented**, including Collection edits. Next sync work is deployment packaging, TLS/auth and automatic desktop startup behavior. See `docs/sync.md` for the shipped v2 protocol and first-sync upgrade behavior.
-- **M3 sync, deployment half** — the musl build and Docker packaging (`packaging/`) for `icatalog serve` on a NAS (D18 built the service itself). Exit criteria: a static musl build, a compose example, gate passes. Not verifiable on this machine (no musl target, no cross linker, no Docker).
+- **M3 sync, deployment half** — D58 adds native x86-64/ARM64 Linux musl CLI build tasks, CLI-only archives, static ELF checks and reusable PR/release CI jobs. Hosted execution/publication remains unverified. Next: Docker packaging and a Compose example for `icatalog serve` on a NAS; gate passes remain required.
 - Then close the M2/M3 gaps above; `wasm32-unknown-unknown` install and the first wasm check join the gate once the target is available.
 
 ## 5. Open backlog

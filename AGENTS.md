@@ -41,7 +41,7 @@ crates/
   icatalog-ui                EXISTS. L4 thin native egui desktop shell (browse + thumbnail + metadata + rating/label/keyword edit; init/import/update/edit/collection actions plus Connect/Clone/Sync dialogs, D46); wasm PLANNED
   testkit                    test helpers
 xtask/                       cargo xtask layers | ci   (PLANNED, at repo root)
-packaging/          EXISTS: desktop release scripts/launcher (D34); Docker image + compose example PLANNED
+packaging/          EXISTS: desktop release scripts/launcher (D34), static x86-64/ARM64 Linux musl CLI tooling (D58); Docker image + compose example PLANNED
 ```
 
 `ivc` (L0, EXISTS) lives in `ivc-file-research/crates/ivc` by design: standalone with no workspace deps; the app consumes it via a path dependency.
@@ -77,7 +77,7 @@ People trust iCatalog with catalogues of their life's photos, and a crash can lo
 
 ## 4. CLI and NAS deployment
 
-Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). The CLI and the `serve` service EXIST (D18); the musl build and Docker packaging are PLANNED.
+Requirements: start and update a catalogue from a CLI, and install that CLI on a NAS (bare metal or Docker). The CLI and the `serve` service EXIST (D18); native static musl build/archive tasks and CI jobs EXIST (D58; new hosted execution/publication unverified). Docker packaging is PLANNED.
 
 `icatalog` subcommands (`icatalog init|open|import|list|find|update|edit|collection|previews|clone|sync|serve|status`; `update` (D14), `edit` (D16) and `sync`/`serve` (D18) EXIST) (each maps to a command):
 
@@ -98,9 +98,9 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 
 Deployment on a NAS:
 
-- **Bare metal:** a static `icatalog` binary for `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl` for ARM NAS), built with `rusqlite`'s `bundled` feature so there is no system SQLite dependency; copy it and run `icatalog serve`, ideally under systemd.
+- **Bare metal:** `task nas:build -- <triple>` builds a static CLI for `x86_64-unknown-linux-musl` or `aarch64-unknown-linux-musl` on native Linux of the same architecture, using musl-gcc and bundled SQLite. `task release:package -- <triple>` creates a CLI-only tar archive; `task nas:test -- <triple>` runs native release CLI tests and checks the extracted ELF/version/catalogue creation/reopen. No dynamic interpreter/shared libraries are allowed. `nas.yml` provides native PR/main/manual jobs, reused by the release workflow. Copy the binary and run `icatalog serve`; service installation remains manual.
 - **Docker:** a small image holding the musl binary plus a compose example, under `packaging/` (PLANNED), with the catalogue directory as a volume.
-- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag builds that commit's app code with the dispatched workflow revision's `packaging/` and `Taskfile.yml`, then uploads after checks pass. Go is explicitly installed before Task. Hosted v0.1.0 recovery passed all four platform builds, all three Linux installation checks and final upload; all six assets and checksums are published. Arch constraints are guarded by a generated-metadata regression check. Musl NAS builds and Docker remain PLANNED.
+- Desktop release automation EXISTS (D34): Windows x64/ARM64 ZIPs, macOS ARM64 app archive (no Intel/universal build), and Linux x86-64 Debian/Fedora/Arch packages. The workflow builds on published releases. Manual dispatch without `release_tag` keeps artifacts only; supplying an existing release tag builds that commit's app code with the dispatched workflow revision's `packaging/` and `Taskfile.yml`, then uploads after checks pass. Go is explicitly installed before Task. Hosted v0.1.0 recovery passed all four desktop platform builds, all three Linux installation checks and final upload; the original six assets and checksums are published. Arch constraints are guarded by a generated-metadata regression check. D58 adds two NAS CLI archives and makes publication wait for both native musl jobs (eight assets on future runs); new hosted execution/publication remains unverified. Docker remains PLANNED.
 
 ## 5. Local copies + sync
 
@@ -184,6 +184,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 - Append a terse entry to `log/devlog.md` (what landed, what's still open).
 - **Keep `Taskfile.yml` current — same change, same commit.** The root `Taskfile.yml` (go-task: `task --list`) is the canonical command surface, so whenever a change adds, renames or removes a workspace command, crate, or gate step, update the matching task in the same change (and `docs/development.md`). Today it exposes `clone`, `previews`, `check`, `build`, `test`, `fmt`, `fmt:check`, `lint`, `layers`, `ci`, `doc`, `clean`, `run`, `gui`, and per-crate `catalog`/`media`/`engine`/`ui`. `task ui:test` runs headless UI checks (also included in workspace tests); `task ui:visual` compares reviewed screenshot baselines, `task ui:visual:update` explicitly regenerates them for review, and `task ui:smoke` runs native macOS checks with desktop permissions (D24). `task scale` is the opt-in 10,000-image workflow and large sync validation (requires a localhost listener). `task ci` is the full gate (`fmt:check`, then `lint`, then `test`, sequentially). Prefer `task <name>` over ad-hoc invocations so the documented surface stays the one people use; if a task's command changes, change the task — don't add a parallel path.
 - `task release:build -- --target <triple>` builds the locked release CLI and desktop app; `task release:package -- <triple>` packages them under `target/release-assets`; `task release:test` runs archive/version and Arch metadata regression tests (also included in workspace tests). Linux packaging requires FPM 1.17.0, rpm, bsdtar and zstd; Windows packaging uses PowerShell. See `docs/development.md` for the release matrix and prerequisites.
+- For NAS musl targets, use `task nas:build -- <triple>` on matching native Linux with musl-tools/binutils, then `task release:package -- <triple>` and `task nas:test -- <triple>`. These build/package only the CLI; desktop packaging dependencies are unnecessary. No local macOS or cross-architecture NAS build is supported by these tasks.
 - Keep the tree building at every step. `cargo xtask layers` joins this list once it exists.
 
 ## 8. Parallel agents

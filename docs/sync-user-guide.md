@@ -10,6 +10,8 @@ Maximum Rating Smart rules require schema-v8 support (D57). Update iCatalog on t
 
 Use builds containing protocol v2 (D20/D44) on both server and clients, and the new client-side `clone` command (D45) for the recommended setup below. Older builds cannot sync with this protocol. If running from this repository, `task build` creates the CLI and desktop binaries under `target/debug/`; use `task run --` in place of `icatalog`, and `task gui --` in place of `icatalog-ui` in the examples below. Installed binaries are assumed to be on your PATH.
 
+For a Linux NAS, D58 adds CLI-only static musl archives for x86-64 and ARM64. Build/download the archive for your CPU, extract `icatalog` and place it on PATH; no system SQLite or desktop libraries are required. Build commands and CI artifact locations are in [the NAS build guide](development.md#8a-static-nas-cli-builds-d58). The new release jobs have not yet been verified on hosted CI or published NAS assets.
+
 The examples use macOS/Linux shell paths. Replace the catalogue paths, media path and `nas` hostname with your own. On Windows, use the corresponding local paths and installed executables.
 
 Keep catalogues in a data folder outside the build directory. For a local repository test, `sync-demo/server.sqlite` is suitable; `target/` is build output and is removed by `task clean`.

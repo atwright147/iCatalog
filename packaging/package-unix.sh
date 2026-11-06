@@ -4,15 +4,21 @@ set -euo pipefail
 
 target=${1:-}
 case "$target" in
-  aarch64-apple-darwin|x86_64-unknown-linux-gnu) ;;
-  *) echo 'Usage: package-unix.sh aarch64-apple-darwin|x86_64-unknown-linux-gnu' >&2; exit 1 ;;
+  aarch64-apple-darwin|x86_64-unknown-linux-gnu|x86_64-unknown-linux-musl|aarch64-unknown-linux-musl) ;;
+  *) echo 'Usage: package-unix.sh aarch64-apple-darwin|x86_64-unknown-linux-gnu|x86_64-unknown-linux-musl|aarch64-unknown-linux-musl' >&2; exit 1 ;;
 esac
 version=$(bash packaging/version.sh)
 binary_dir=${ICATALOG_RELEASE_BINARY_DIR:-target/$target/release}
 output_dir=${ICATALOG_RELEASE_OUTPUT_DIR:-target/release-assets}
-for binary in icatalog icatalog-ui; do
+binaries=(icatalog icatalog-ui)
+build_hint="task release:build -- --target $target"
+if [[ "$target" == *-linux-musl ]]; then
+  binaries=(icatalog)
+  build_hint="task nas:build -- $target"
+fi
+for binary in "${binaries[@]}"; do
   if [[ ! -x "$binary_dir/$binary" ]]; then
-    echo "Missing executable $binary_dir/$binary; run task release:build -- --target $target first." >&2
+    echo "Missing executable $binary_dir/$binary; run $build_hint first." >&2
     exit 1
   fi
 done
@@ -20,7 +26,10 @@ mkdir -p "$output_dir" target
 stage=$(mktemp -d target/release-stage.XXXXXX)
 trap 'rm -rf "$stage"' EXIT
 
-if [[ "$target" == aarch64-apple-darwin ]]; then
+if [[ "$target" == *-linux-musl ]]; then
+  install -m 755 "$binary_dir/icatalog" "$stage/icatalog"
+  COPYFILE_DISABLE=1 tar -czf "$output_dir/icatalog-$version-$target.tar.gz" -C "$stage" icatalog
+elif [[ "$target" == aarch64-apple-darwin ]]; then
   bundle="$stage/iCatalog.app/Contents"
   mkdir -p "$bundle/MacOS"
   install -m 755 "$binary_dir/icatalog-ui" "$bundle/MacOS/icatalog-ui"

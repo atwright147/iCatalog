@@ -141,6 +141,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  nas:
+    needs: version
+    uses: ./.github/workflows/nas.yml
+    with:
+      source_ref: ${{ needs.version.outputs.source_sha }}
+      tooling_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && github.sha || '' }}
+
   linux-install:
     needs: [version, build]
     runs-on: ubuntu-22.04
@@ -179,7 +186,7 @@ jobs:
 
   publish:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: [build, linux-install]
+    needs: [build, linux-install, nas]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -190,12 +197,12 @@ jobs:
           pattern: release-*
           merge-multiple: true
           path: assets
-      - name: Generate checksums and attach all six packages to the existing release
+      - name: Generate checksums and attach all eight packages to the existing release
         working-directory: assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 6
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 8
           sha256sum -- * > SHA256SUMS
           gh release upload "$RELEASE_TAG" --clobber -- *

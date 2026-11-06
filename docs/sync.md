@@ -96,7 +96,7 @@ This performs GET only, verifies SHA-256 before caching and makes no request whe
 
 ## Remaining work
 
-TLS/authentication; automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; NAS musl/Docker packaging. The HTTP service and v2 protocol can be tested locally independently of that packaging.
+TLS/authentication; automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; Docker/Compose packaging. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs (see the development guide); new hosted runs/publication remain unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
 
 ## Desktop client
 

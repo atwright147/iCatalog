@@ -35,9 +35,20 @@ tasks:
         platforms: [windows]
 
   release:test:
-    desc: Test release versions, desktop archives and Arch package metadata
+    desc: Test release versions, desktop/NAS archives and Arch package metadata
     cmds:
       - cargo test --locked -p icatalog-cli --test release_packaging
+
+  nas:build:
+    desc: Build a static release CLI on native Linux (e.g. -- aarch64-unknown-linux-musl)
+    cmds:
+      - bash packaging/build-nas.sh build {{.CLI_ARGS}}
+
+  nas:test:
+    desc: Run native musl CLI tests and verify the NAS archive (after nas:build and release:package)
+    cmds:
+      - bash packaging/build-nas.sh test {{.CLI_ARGS}}
+      - bash packaging/test-nas.sh {{.CLI_ARGS}}
 
   test:
     desc: Run all workspace tests

@@ -51,6 +51,8 @@ fn unix_packaging_rejects_unsupported_targets_and_missing_binaries() {
         "../../outside",
         "aarch64-apple-darwin",
         "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
     ] {
         let output = Command::new("bash")
             .current_dir(root())
@@ -62,6 +64,162 @@ fn unix_packaging_rejects_unsupported_targets_and_missing_binaries() {
         assert!(!output.status.success());
         assert!(!scratch.path().join("output").exists());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn nas_archives_contain_only_an_executable_cli_for_each_target() {
+    let scratch = tempfile::tempdir().unwrap();
+    let binaries = scratch.path().join("CLI fixture with spaces");
+    let assets = scratch.path().join("assets with spaces");
+    std::fs::create_dir_all(&binaries).unwrap();
+    // This exercises archive layout/permissions on every Unix host. Actual Linux
+    // architecture/static linkage is checked separately, against the built ELF.
+    std::fs::copy(env!("CARGO_BIN_EXE_icatalog"), binaries.join("icatalog")).unwrap();
+    for target in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] {
+        success(
+            Command::new("bash")
+                .current_dir(root())
+                .args(["packaging/package-unix.sh", target])
+                .env("ICATALOG_RELEASE_BINARY_DIR", &binaries)
+                .env("ICATALOG_RELEASE_OUTPUT_DIR", &assets)
+                .output()
+                .unwrap(),
+        );
+        let archive = assets.join(format!(
+            "icatalog-{}-{target}.tar.gz",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let listing = Command::new("tar")
+            .arg("-tzf")
+            .arg(&archive)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&listing.stdout).trim(), "icatalog");
+        success(listing);
+        let extracted = scratch.path().join(target);
+        std::fs::create_dir(&extracted).unwrap();
+        success(
+            Command::new("tar")
+                .arg("-xzf")
+                .arg(&archive)
+                .arg("-C")
+                .arg(&extracted)
+                .output()
+                .unwrap(),
+        );
+        let cli = extracted.join("icatalog");
+        success(Command::new(&cli).arg("--version").output().unwrap());
+        let catalogue = extracted.join("smoke.sqlite");
+        success(
+            Command::new(&cli)
+                .arg("init")
+                .arg(&catalogue)
+                .output()
+                .unwrap(),
+        );
+        success(
+            Command::new(&cli)
+                .arg("open")
+                .arg(&catalogue)
+                .output()
+                .unwrap(),
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn nas_build_refuses_bad_actions_and_targets_before_invoking_cargo() {
+    for (action, target) in [
+        ("build", ""),
+        ("build", "x86_64-unknown-linux-gnu"),
+        ("build", "../../outside"),
+        ("clean", "x86_64-unknown-linux-musl"),
+    ] {
+        let output = Command::new("bash")
+            .current_dir(root())
+            .args(["packaging/build-nas.sh", action, target])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Usage:"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn nas_build_refuses_a_non_native_target() {
+    let target = if cfg!(target_arch = "aarch64") {
+        "x86_64-unknown-linux-musl"
+    } else {
+        "aarch64-unknown-linux-musl"
+    };
+    let output = Command::new("bash")
+        .current_dir(root())
+        .args(["packaging/build-nas.sh", "build", target])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("native Linux"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn static_elf_check_accepts_static_and_rejects_dynamic_wrong_arch_and_corruption() {
+    let scratch = tempfile::tempdir().unwrap();
+    let source = scratch.path().join("fixture.rs");
+    std::fs::write(&source, "fn main() {}\n").unwrap();
+    let static_binary = scratch.path().join("static executable");
+    let dynamic_binary = scratch.path().join("dynamic executable");
+    for (binary, linkage) in [
+        (&static_binary, "target-feature=+crt-static"),
+        (&dynamic_binary, "target-feature=-crt-static"),
+    ] {
+        success(
+            Command::new("rustc")
+                .args(["-C", linkage])
+                .arg(&source)
+                .arg("-o")
+                .arg(binary)
+                .output()
+                .unwrap(),
+        );
+    }
+    let (target, wrong_target) = if cfg!(target_arch = "aarch64") {
+        ("aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl")
+    } else {
+        ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+    };
+    for (target, binary, valid) in [
+        (target, &static_binary, true),
+        (target, &dynamic_binary, false),
+        (wrong_target, &static_binary, false),
+        ("../../outside", &static_binary, false),
+    ] {
+        let output = Command::new("bash")
+            .current_dir(root())
+            .arg("packaging/check-static-elf.sh")
+            .arg(target)
+            .arg(binary)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            valid,
+            "{target} {binary:?}: {output:?}"
+        );
+    }
+    std::fs::write(&static_binary, b"\x7fELF truncated").unwrap();
+    assert!(!Command::new("bash")
+        .current_dir(root())
+        .arg("packaging/check-static-elf.sh")
+        .arg(target)
+        .arg(&static_binary)
+        .output()
+        .unwrap()
+        .status
+        .success());
 }
 
 #[cfg(unix)]

@@ -7,7 +7,7 @@ Purpose: how to build, test, run and debug. Status vocabulary: **Decided** (owne
 - **Decided:** Rust toolchain, one Cargo workspace at the repo root.
 - **Decided:** the repo pins Rust `1.99.0` via `rust-toolchain.toml` (components rustfmt, clippy, rust-src, rust-analyzer), so the terminal and rust-analyzer (VS Code) use the same compiler regardless of the machine's default `stable`. rustup installs it on first use.
 - The `wasm32-unknown-unknown` target is **NOT installed** here (`rustup target list --installed` shows only `aarch64-apple-darwin`). To add it: `rustup target add wasm32-unknown-unknown`. No wasm build has been run.
-- Later, **Proposed**: trunk + wasm-bindgen for the browser build; musl targets (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) for the NAS binary.
+- NAS CLI builds use native Linux hosts with musl-tools/binutils and the matching musl Rust target (section 8a). Later, **Proposed**: trunk + wasm-bindgen for the browser build.
 
 ## 2. Build, test, lint
 
@@ -187,7 +187,7 @@ Linux builds on Ubuntu 22.04 (glibc 2.35 baseline). [FPM 1.17.0](https://fpm.rea
 
 The build matrix uses native [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): `windows-2022`, `windows-11-arm`, `macos-14` (ARM64), and `ubuntu-22.04`. Each job explicitly installs Go 1.25.10 with [setup-go](https://github.com/actions/setup-go) before building Task 3.53.1, rather than relying on runner software. Go caching is disabled because this is a Rust repository with no `go.sum`. Each job runs CLI/packaging tests. Extracted Windows/macOS archives must create and reopen a synthetic catalogue; the macOS executable must contain only ARM64. Disposable Debian 12, Fedora 43 and current Arch containers install the packages with dependency resolution, check ELF dependencies for both binaries, and create/reopen a catalogue with the installed CLI. These checks do not exercise a graphical desktop.
 
-Only after every build and Linux install test passes does the upload job get `contents: write`, generate `SHA256SUMS` and attach all six packages plus checksums to the existing release. Rerunning replaces same-named assets. Builds retain workflow artifacts for 14 days, including manual runs. Build jobs have read-only repository permissions and require no signing secrets.
+Only after every desktop build, Linux install test and NAS musl job passes does the upload job get `contents: write`, generate `SHA256SUMS` and attach all eight packages plus checksums to the existing release (six desktop packages and two CLI-only NAS archives). Rerunning replaces same-named assets. Builds retain workflow artifacts for 14 days, including manual runs. Build jobs have read-only repository permissions and require no signing secrets.
 
 Local packaging uses the same tasks as the workflow:
 
@@ -197,9 +197,27 @@ task release:package -- aarch64-apple-darwin
 task release:test
 ```
 
-Use the matching target on Windows/Linux. Windows needs PowerShell (`pwsh`); set `$env:RUSTFLAGS='-C target-feature=+crt-static'` before the Windows build to match CI. Linux needs the existing UI development libraries plus Ruby/FPM 1.17.0, `rpm`, `bsdtar` (`libarchive-tools` on Ubuntu) and `zstd`; the workflow records the exact install commands. Packaging reads `target/<triple>/release` and writes `target/release-assets`. `ICATALOG_RELEASE_BINARY_DIR` and `ICATALOG_RELEASE_OUTPUT_DIR` override those directories for artifact tests or inspection. Packaging requires both executables, performs no downloads, and cleans its temporary staging directory.
+Use the matching target on Windows/Linux. Windows needs PowerShell (`pwsh`); set `$env:RUSTFLAGS='-C target-feature=+crt-static'` before the Windows build to match CI. Desktop Linux needs the existing UI development libraries plus Ruby/FPM 1.17.0, `rpm`, `bsdtar` (`libarchive-tools` on Ubuntu) and `zstd`; the workflow records the exact install commands. Packaging reads `target/<triple>/release` and writes `target/release-assets`. `ICATALOG_RELEASE_BINARY_DIR` and `ICATALOG_RELEASE_OUTPUT_DIR` override those directories for artifact tests or inspection. Desktop packaging requires both executables; NAS packaging requires only the CLI. Both perform no downloads and clean their temporary staging directories.
 
-Status: local workspace, visual and archive/version checks pass. After correcting missing Go and Arch's spaced glibc constraint, [hosted v0.1.0 recovery](https://github.com/atwright147/iCatalog/actions/runs/40751654218) passed all four platform builds, all three Linux installation checks and final upload. The [existing release](https://github.com/atwright147/iCatalog/releases/tag/v0.1.0) contains all six assets plus SHA256SUMS; manifest entries were checked against GitHub's recorded asset digests. NAS musl builds, Docker/compose and wasm remain planned.
+Status: local workspace, visual and archive/version checks pass. After correcting missing Go and Arch's spaced glibc constraint, [hosted v0.1.0 recovery](https://github.com/atwright147/iCatalog/actions/runs/40751654218) passed all four desktop platform builds, all three Linux installation checks and final upload. The [existing release](https://github.com/atwright147/iCatalog/releases/tag/v0.1.0) contains the original six assets plus SHA256SUMS; manifest entries were checked against GitHub's recorded asset digests. D58 adds NAS builds for future workflow runs; no NAS asset publication is claimed. Docker/compose and wasm remain planned.
+
+## 8a. Static NAS CLI builds (D58)
+
+The CLI-only NAS targets are `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. Build on a native Linux host of the same architecture; macOS, Windows and cross-architecture invocations return an actionable error. On Ubuntu install `musl-tools` and `binutils`, then the matching Rust target. For x86-64:
+
+```sh
+sudo apt-get install musl-tools binutils
+rustup target add x86_64-unknown-linux-musl
+task nas:build -- x86_64-unknown-linux-musl
+task release:package -- x86_64-unknown-linux-musl
+task nas:test -- x86_64-unknown-linux-musl
+```
+
+On ARM64 Linux replace the triple with `aarch64-unknown-linux-musl`. `nas:build` uses the locked release CLI dependency graph, sets target-specific `musl-gcc` C compiler/linker settings for bundled SQLite, and explicitly enables the static C runtime ([Rust linkage reference](https://doc.rust-lang.org/stable/reference/linkage.html#static-and-dynamic-c-runtimes)). It also passes the GNU linker's `--no-dynamic-linker` option: older musl-gcc specs can otherwise retain an interpreter request in static PIE executables, even with no shared-library dependencies ([GNU ld options](https://sourceware.org/binutils/docs/ld/Options.html)). No GUI libraries, system SQLite, FPM or container runtime are needed. The ELF check rejects wrong architectures, non-executables, dynamic interpreters and shared-library dependencies. `nas:test` runs the CLI integration/packaging suite for that release target, then extracts the archive, repeats ELF verification and creates/reopens a synthetic catalogue with the packaged CLI.
+
+Archives are `target/release-assets/icatalog-<version>-<triple>.tar.gz`, containing only an executable `icatalog`. Extract on the matching NAS architecture, place it on PATH and follow [the sync setup guide](sync-user-guide.md). NAS firmware must support running Linux executables for that CPU; no systemd unit or service installer is supplied.
+
+`.github/workflows/nas.yml` runs both native targets on [GitHub-hosted Linux runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) (`ubuntu-24.04`, `ubuntu-24.04-arm`) for PRs, main pushes and manual dispatch, retaining checked archives as workflow artifacts. The release workflow calls the same workflow with its pinned application commit and, for recovery, the selected tooling revision; publication waits for both NAS jobs. Local verification passed native ARM64 builds/tests and an x86-64 cross-build with emulated CLI/archive tests. The latter skipped two native-host/compiler fixture tests already covered on ARM64; native x86-64 builds and hosted execution/publication remain unverified. Docker/Compose remains planned.
 
 ## 9. Open questions
 
