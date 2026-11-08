@@ -6,6 +6,10 @@ Purpose: crate map, layering, and the engine/UI seam. Status vocabulary: **Decid
 
 **Decided.** iCatalog is a Rust-only rebuild of the iView Media Pro media catalogue/organiser: CLI first, egui desktop, wasm browser build as a goal. No JavaScript/TypeScript, no Tauri, Electron or webviews, ever. The own catalogue format is **SQLite**; legacy `.ivc`/`.mpcatalog` is **import-only** through `ivc`. Development is **clean-room**. Machine names are lowercase (`icatalog`, `icatalog-*`, `ivc`); the repo root is `iCatalog/` (D4).
 
+Development tooling (D59): five on-demand Codex role definitions EXIST in
+`.codex/agents/`, with scope and coordination in [Development agents](agents.md).
+They do not participate in the application runtime, crate graph or sync protocol.
+
 ## 2. Crate map
 
 Status column: EXISTS means present in the repo today; PLANNED means not created.

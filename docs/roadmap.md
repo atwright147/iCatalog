@@ -11,6 +11,7 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 ## 2. Done
 
 - **M0 housekeeping** — repo under git; root `.gitignore` (`target/`, `log/`, `*.sqlite`); `crates/*` workspace members; `log/devlog.md` (local, gitignored).
+- **Development agents (D59)** — five project-scoped Codex roles in `.codex/agents/`: legacy-format research, catalogue/sync, native UI, release/deployment and independent read-only review. [Scope and usage](agents.md); roles run on demand and do not change feature priorities.
 - **M1 schema** — `icatalog-catalog`: schema v1-v8 with migrations, the model + CRUD for every table (including `source` with device provenance and source-rooted folders, D21), `AssetQuery`/`CatalogStats`; round-trip, FK-cascade, constraint, raw-bytes, migration and never-panic tests. The one open piece — the `ivc` import mapping — is M2 work, not schema work.
 
 ## 3. In progress

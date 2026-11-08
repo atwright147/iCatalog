@@ -548,6 +548,26 @@ Extend `release:package` with CLI-only `icatalog-<version>-<triple>.tar.gz` arch
 
 Use native `ubuntu-24.04` and `ubuntu-24.04-arm` runners in a reusable `nas.yml`, also triggered on PRs, main pushes and manual dispatch. The release workflow passes its resolved application commit and recovery tooling revision to the reusable workflow and waits for both NAS jobs before publishing eight assets and checksums. No extra write permissions are granted to build jobs. Hosted execution and publication of the new jobs remain unverified until they run; the historical v0.1.0 release still has its original six desktop assets. Docker/Compose, systemd installation and TLS/auth are separate work.
 
+## D59. Project-scoped development agents (2026-11-08)
+
+The owner requested all five proposed specialist roles. Define `legacy_format`,
+`catalogue_sync`, `native_ui`, `release_deployment` and `reviewer` as standalone
+Codex TOML files under `.codex/agents/`, using `name`, `description` and
+`developer_instructions`. Omit model/reasoning overrides so the session's choices
+are inherited; preserve parent permissions. Reviewer read-only behaviour is an
+instruction boundary, not a separate enforced sandbox.
+
+Keep the main conversation as coordinator. Delegate bounded independent work,
+usually to one or two specialists, with explicit file ownership and separate Cargo
+target directories. Workers do not delegate further. Require independent review
+for migrations, imports, catalogue replacement and sync recovery; the coordinator
+integrates fixes, runs the final workspace gate and updates shared docs/devlog.
+Roles run on demand, with no schedule, application dependency, new CLI/Task command
+or authority to deploy/publish. `docs/agents.md` documents invocation, fallback
+briefs for runtimes without custom-role selection, and handoff expectations.
+
+Format reference: [official Codex subagents documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

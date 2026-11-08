@@ -189,6 +189,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 8. Parallel agents
 
+Five reusable project agents EXIST in `.codex/agents/`: `legacy_format`, `catalogue_sync`, `native_ui`, `release_deployment` and `reviewer` (D59). Read `docs/agents.md` for their scope, invocation examples and handoff rules. The main conversation coordinates; delegate independent work when it materially helps, usually to one or two specialists. Keep small fixes in the main conversation. Give each worker explicit file ownership; workers do not delegate further. Obtain an independent read-only `reviewer` pass for migrations, imports, catalogue replacement and sync recovery changes. The coordinator owns integration, final `task ci`, shared docs and devlog unless explicitly assigned. Definitions are on-demand roles, not scheduled/background jobs; omitted model settings inherit the session's choices. Reviewer read-only behaviour is an instruction, not a separate sandbox.
+
 - Use your own target dir (`CARGO_TARGET_DIR=target/agent-<name>`) to avoid the Cargo build lock, and edit only files you own. Shared files (root `Cargo.toml`, engine command registry) get small, surgical edits; re-read before editing.
 - Put new commands in a new module rather than growing a shared file.
 - If someone else's in-progress edit breaks the build, wait and retry; don't fix their files.

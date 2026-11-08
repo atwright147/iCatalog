@@ -45,6 +45,15 @@ A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common command
 - `task release:build -- --target <triple>`, `task release:package -- <triple>`: build the locked release CLI + desktop app and package them under `target/release-assets` (section 8).
 - `task release:test`: archive, release-tag and Arch package metadata regression tests, also included in the workspace gate.
 
+## 2b. Codex development agents (D59)
+
+Five project-scoped roles EXIST in `.codex/agents/`: `legacy_format`,
+`catalogue_sync`, `native_ui`, `release_deployment` and `reviewer`. The main session
+coordinates their bounded tasks; they inherit its model choices and permissions.
+The reviewer is read-only by instruction. See [Development agents](agents.md) for
+invocation examples, file ownership, isolated build directories and verification.
+These are on-demand development tools; no application dependency or Task command is added.
+
 ## 3. Workspace layout
 
 Root `Cargo.toml` today: `members = ["ivc-file-research/crates/ivc", "crates/*"]`; `icatalog-catalog` is the first app crate. App crates go in `crates/` (see `docs/architecture.md`).
