@@ -12,6 +12,11 @@ Use builds containing protocol v2 (D20/D44) on both server and clients, and the 
 
 For a Linux NAS, D58 adds CLI-only static musl archives for x86-64 and ARM64. Build/download the archive for your CPU, extract `icatalog` and place it on PATH; no system SQLite or desktop libraries are required. Build commands and CI artifact locations are in [the NAS build guide](development.md#8a-static-nas-cli-builds-d58). The new release jobs have not yet been verified on hosted CI or published NAS assets.
 
+For Docker on a NAS, use the [Docker/Compose setup guide](nas-docker.md) (D60).
+It covers image building/loading, non-root permissions, persistent catalogue and
+preview storage, read-only media, explicit initialization/import and maintenance.
+Images are built locally; no registry image is published yet.
+
 The examples use macOS/Linux shell paths. Replace the catalogue paths, media path and `nas` hostname with your own. On Windows, use the corresponding local paths and installed executables.
 
 Keep catalogues in a data folder outside the build directory. For a local repository test, `sync-demo/server.sqlite` is suitable; `target/` is build output and is removed by `task clean`.
@@ -51,7 +56,10 @@ icatalog serve "$HOME/iCatalog/Library.sqlite" --bind 0.0.0.0 --port 8080
 
 Clients will use `http://nas:8080`, replacing `nas` with the server's hostname or LAN IP address. If you omit `--bind`, the default is `127.0.0.1`, which accepts connections only from the server itself. Allow the chosen port through the server's firewall for trusted LAN clients.
 
-The service runs until stopped with Ctrl-C. Docker packaging and a supplied NAS service-installation recipe are not available yet.
+The service runs until stopped with Ctrl-C. `serve` requires an existing catalogue
+file and never creates a missing file; check the configured path/mount or initialize
+a new catalogue explicitly. Docker/Compose packaging is available through the
+[NAS Docker guide](nas-docker.md); a systemd installation recipe remains unbuilt.
 
 ## 3. Clone a local catalogue on each client
 

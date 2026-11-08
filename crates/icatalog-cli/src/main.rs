@@ -87,6 +87,8 @@ fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
     };
     let session = if inv.command == "clone" {
         icatalog_engine::Context::for_destination(&inv.catalogue)
+    } else if inv.command == "serve" {
+        icatalog_engine::Context::open_existing(&inv.catalogue)
     } else {
         icatalog_engine::Context::open(&inv.catalogue)
     };

@@ -1,0 +1,27 @@
+# Set absolute paths and an account able to write the catalogue directory.
+# No host directories are created and no catalogue is initialized automatically.
+services:
+  icatalog:
+    image: ${ICATALOG_IMAGE:-icatalog:local}
+    init: true
+    user: "${ICATALOG_UID:-1000}:${ICATALOG_GID:-1000}"
+    command: [serve, /catalogue/catalogue.sqlite, --bind, "0.0.0.0", --port, "8080"]
+    ports:
+      - "${ICATALOG_BIND:-127.0.0.1}:${ICATALOG_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: ${ICATALOG_CATALOGUE_DIR:?Set ICATALOG_CATALOGUE_DIR to an existing writable absolute directory}
+        target: /catalogue
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ICATALOG_MEDIA_DIR:?Set ICATALOG_MEDIA_DIR to an existing readable absolute directory}
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 10s

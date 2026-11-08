@@ -44,6 +44,8 @@ A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common command
 - `task gui -- <catalogue>`: run the `icatalog-ui` desktop shell, e.g. `task gui -- photos.sqlite`.
 - `task release:build -- --target <triple>`, `task release:package -- <triple>`: build the locked release CLI + desktop app and package them under `target/release-assets` (section 8).
 - `task release:test`: archive, release-tag and Arch package metadata regression tests, also included in the workspace gate.
+- `task docker:build -- <musl-triple> [image]`: package a verified static CLI into a local image; requires Docker/Podman and `readelf`.
+- `task docker:test -- [image]`: disposable container permissions, preview, clone/edit/sync and restart checks; `ICATALOG_TEST_COMPOSE=1` also exercises Docker Compose. See [NAS Docker setup](nas-docker.md).
 
 ## 2b. Codex development agents (D59)
 
@@ -71,7 +73,7 @@ For the server/client setup, first sync, everyday desktop workflow and conflict 
 
 EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`, `clone`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
 
-Sync (D20/D44) is two processes. On the NAS run `task run -- serve nas.sqlite --port 8080` (optional `--bind`, default `127.0.0.1`). Use `task clone -- local.sqlite --url http://nas:8080` with a new destination filename to download a verified replica and establish its baseline before editing. Parent directories must exist; existing files/sidecars are refused. Clone makes no uploads and fails if the server is unreachable. Alternatively, manually copy the canonical catalogue to a local path and run `task run -- sync local.sqlite --url http://nas:8080` before editing. That first sync backs up unknown local changes before establishing the server baseline, including upgrades from D18/D19. Both peers must support protocol v2. Thereafter ratings, labels, keywords and Collection creation/name/rules/membership are uploaded by stable UID and revision; media, metadata, thumbnails and previews are never uploaded. Independent edits merge; conflicting entities are reported with a backup containing the local drafts. Idle sync uploads/downloads nothing. Replica Import/Update are disabled; make media changes on the server or a standalone catalogue. Whole-snapshot uploads and `.sync-state` fingerprints are retired. Plain HTTP only; TLS/auth and automatic desktop sync remain open; D46 supplies explicit desktop Connect/Clone and Sync dialogs. Full recovery/bounds/wire details: `docs/sync.md`.
+Sync (D20/D44) is two processes. On the NAS run `task run -- serve nas.sqlite --port 8080` (optional `--bind`, default `127.0.0.1`). `serve` requires an existing file and opens without SQLite's create flag (D60); initialize new catalogues explicitly. Use `task clone -- local.sqlite --url http://nas:8080` with a new destination filename to download a verified replica and establish its baseline before editing. Parent directories must exist; existing files/sidecars are refused. Clone makes no uploads and fails if the server is unreachable. Alternatively, manually copy the canonical catalogue to a local path and run `task run -- sync local.sqlite --url http://nas:8080` before editing. That first sync backs up unknown local changes before establishing the server baseline, including upgrades from D18/D19. Both peers must support protocol v2. Thereafter ratings, labels, keywords and Collection creation/name/rules/membership are uploaded by stable UID and revision; media, metadata, thumbnails and previews are never uploaded. Independent edits merge; conflicting entities are reported with a backup containing the local drafts. Idle sync uploads/downloads nothing. Replica Import/Update are disabled; make media changes on the server or a standalone catalogue. Whole-snapshot uploads and `.sync-state` fingerprints are retired. Plain HTTP only; TLS/auth and automatic desktop sync remain open; D46 supplies explicit desktop Connect/Clone and Sync dialogs. Full recovery/bounds/wire details: `docs/sync.md`.
 
 Preview generation is explicit: `task previews -- photos.sqlite generate` makes oriented JPEG previews with long edge at most 1920 pixels, using original media and existing raster/RAW-preview decoding. Embedded storage is the default for a portable standalone file. For a NAS run `task previews -- nas.sqlite external`, then Generate; `embed` converts referenced bytes back into SQLite and `status` reports mode/count. Conversion verifies all referenced blobs and commits atomically; external files are retained for recovery. `task run -- sync local.sqlite --url http://nas:8080 --preview <sha>` fetches one referenced preview using GET only, verifies SHA-256 and reuses valid cached bytes. Desktop full-size preview viewing is not wired yet.
 
@@ -208,7 +210,7 @@ task release:test
 
 Use the matching target on Windows/Linux. Windows needs PowerShell (`pwsh`); set `$env:RUSTFLAGS='-C target-feature=+crt-static'` before the Windows build to match CI. Desktop Linux needs the existing UI development libraries plus Ruby/FPM 1.17.0, `rpm`, `bsdtar` (`libarchive-tools` on Ubuntu) and `zstd`; the workflow records the exact install commands. Packaging reads `target/<triple>/release` and writes `target/release-assets`. `ICATALOG_RELEASE_BINARY_DIR` and `ICATALOG_RELEASE_OUTPUT_DIR` override those directories for artifact tests or inspection. Desktop packaging requires both executables; NAS packaging requires only the CLI. Both perform no downloads and clean their temporary staging directories.
 
-Status: local workspace, visual and archive/version checks pass. After correcting missing Go and Arch's spaced glibc constraint, [hosted v0.1.0 recovery](https://github.com/atwright147/iCatalog/actions/runs/40751654218) passed all four desktop platform builds, all three Linux installation checks and final upload. The [existing release](https://github.com/atwright147/iCatalog/releases/tag/v0.1.0) contains the original six assets plus SHA256SUMS; manifest entries were checked against GitHub's recorded asset digests. D58 adds NAS builds for future workflow runs; no NAS asset publication is claimed. Docker/compose and wasm remain planned.
+Status: local workspace, visual and archive/version checks pass. After correcting missing Go and Arch's spaced glibc constraint, [hosted v0.1.0 recovery](https://github.com/atwright147/iCatalog/actions/runs/40751654218) passed all four desktop platform builds, all three Linux installation checks and final upload. The [existing release](https://github.com/atwright147/iCatalog/releases/tag/v0.1.0) contains the original six assets plus SHA256SUMS; manifest entries were checked against GitHub's recorded asset digests. D58 adds NAS builds for future workflow runs; no NAS asset publication is claimed. Container packaging is covered in section 8b; wasm remains planned.
 
 ## 8a. Static NAS CLI builds (D58)
 
@@ -226,7 +228,24 @@ On ARM64 Linux replace the triple with `aarch64-unknown-linux-musl`. `nas:build`
 
 Archives are `target/release-assets/icatalog-<version>-<triple>.tar.gz`, containing only an executable `icatalog`. Extract on the matching NAS architecture, place it on PATH and follow [the sync setup guide](sync-user-guide.md). NAS firmware must support running Linux executables for that CPU; no systemd unit or service installer is supplied.
 
-`.github/workflows/nas.yml` runs both native targets on [GitHub-hosted Linux runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) (`ubuntu-24.04`, `ubuntu-24.04-arm`) for PRs, main pushes and manual dispatch, retaining checked archives as workflow artifacts. The release workflow calls the same workflow with its pinned application commit and, for recovery, the selected tooling revision; publication waits for both NAS jobs. Local verification passed native ARM64 builds/tests and an x86-64 cross-build with emulated CLI/archive tests. The latter skipped two native-host/compiler fixture tests already covered on ARM64; native x86-64 builds and hosted execution/publication remain unverified. Docker/Compose remains planned.
+`.github/workflows/nas.yml` runs both native targets on [GitHub-hosted Linux runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) (`ubuntu-24.04`, `ubuntu-24.04-arm`) for PRs, main pushes and manual dispatch, retaining checked archives as workflow artifacts. The release workflow calls the same workflow with its pinned application commit and, for recovery, the selected tooling revision; publication waits for both NAS jobs. Local verification passed native ARM64 builds/tests and an x86-64 cross-build with emulated CLI/archive tests. The latter skipped two native-host/compiler fixture tests already covered on ARM64; native x86-64 builds and hosted execution/publication remain unverified.
+
+## 8b. NAS Docker/Compose packaging (D60)
+
+`task docker:build -- <musl-triple> [image]` validates and packages an existing
+static CLI into a non-root scratch image. `task docker:test -- [image]` runs the
+ignored real-container regression with generated media and disposable data.
+`ICATALOG_CONTAINER_ENGINE=podman` selects Podman; `ICATALOG_TEST_COMPOSE=1` adds
+actual Docker Compose stop/down/up and persistence checks. The normal workspace
+gate includes fast build-input regressions without requiring a container engine.
+
+The separate `docker.yml` workflow builds/tests on native x86-64 and ARM64 Linux,
+including the supplied Compose lifecycle, without publishing images. Hosted runs
+remain unverified. Local runtime verification passed native ARM64 and emulated
+x86-64 applications, plus official Compose v2 against Podman's Docker API, using
+Linux-local fixture storage. Native Docker-backend execution remains unverified.
+Read [NAS Docker setup](nas-docker.md) for prerequisites,
+ownership, mounts, explicit init/import, desktop connection and upgrades.
 
 ## 9. Open questions
 

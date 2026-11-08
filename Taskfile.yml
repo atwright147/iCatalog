@@ -50,6 +50,16 @@ tasks:
       - bash packaging/build-nas.sh test {{.CLI_ARGS}}
       - bash packaging/test-nas.sh {{.CLI_ARGS}}
 
+  docker:build:
+    desc: Package an existing static NAS CLI as a local container image (e.g. -- aarch64-unknown-linux-musl icatalog:local)
+    cmds:
+      - bash packaging/docker/build.sh {{.CLI_ARGS}}
+
+  docker:test:
+    desc: Test container persistence, permissions, previews and clone/edit/sync with disposable data (e.g. -- icatalog:local)
+    cmds:
+      - bash packaging/docker/test.sh {{.CLI_ARGS}}
+
   test:
     desc: Run all workspace tests
     aliases: [t]

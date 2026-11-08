@@ -24,6 +24,21 @@ impl Context {
         Ok(Context { path, catalog })
     }
 
+    /// Open an existing on-disk catalogue without creating a missing file.
+    pub fn open_existing(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        if !path.is_file() {
+            return Err(crate::error::EngineError::BadParam(
+                "catalogue must be an existing file; check its path and mounts, or run init explicitly"
+                    .into(),
+            ));
+        }
+        // Removing SQLite's create flag also covers removal between the check
+        // above and opening the connection.
+        let catalog = icatalog_catalog::Catalog::open_existing(&path)?;
+        Ok(Context { path, catalog })
+    }
+
     /// Catalogue file path.
     pub fn path(&self) -> &Path {
         &self.path

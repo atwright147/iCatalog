@@ -104,6 +104,34 @@ fn sync_requires_url_and_serve_requires_port() {
 }
 
 #[test]
+fn serve_requires_an_existing_file_without_creating_a_catalogue() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.sqlite");
+    for path in [
+        missing.to_str().unwrap(),
+        dir.path().to_str().unwrap(),
+        ":memory:",
+        "",
+    ] {
+        let o = icatalog(&["serve", path, "--port", "0"]);
+        assert!(!o.status.success(), "{}", s(&o.stdout));
+        assert!(s(&o.stderr).contains("existing file"), "{}", s(&o.stderr));
+        assert!(!missing.exists());
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+    // The explicit creation command still works; existing catalogues reach the
+    // serve command's parameter validation rather than the opening guard.
+    assert!(icatalog(&["init", missing.to_str().unwrap()])
+        .status
+        .success());
+    let o = icatalog(&["serve", missing.to_str().unwrap(), "--port", "0"]);
+    assert!(!o.status.success());
+    assert!(s(&o.stderr).contains("port"), "{}", s(&o.stderr));
+    assert!(!s(&o.stderr).contains("existing file"));
+}
+
+#[test]
 fn unknown_command_fails() {
     let o = icatalog(&["frobnicate"]);
     assert!(!o.status.success());

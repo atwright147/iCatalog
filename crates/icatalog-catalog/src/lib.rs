@@ -12,7 +12,7 @@
 use std::fmt;
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OpenFlags};
 
 mod annotation;
 mod folder;
@@ -192,6 +192,18 @@ impl Catalog {
     /// Open (creating if absent) a catalogue file and apply pending migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::from_conn(Connection::open(path)?)
+    }
+
+    /// Open an existing catalogue without SQLite's create flag, applying pending
+    /// migrations. Refuse special in-memory/temporary paths and treat filenames
+    /// literally rather than interpreting SQLite URI parameters.
+    pub fn open_existing(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        if path == Path::new(":memory:") || !path.is_file() {
+            return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
+        }
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        Self::from_conn(Connection::open_with_flags(path, flags)?)
     }
 
     /// Open a fresh in-memory catalogue.

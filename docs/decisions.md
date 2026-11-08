@@ -568,6 +568,44 @@ briefs for runtimes without custom-role selection, and handoff expectations.
 
 Format reference: [official Codex subagents documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 
+## D60. Static CLI container and NAS Compose deployment (2026-11-08)
+
+The owner requested the next deployment milestone after D58: Docker packaging and
+a Compose example. Package the already built static musl CLI for linux/amd64 or
+linux/arm64 instead of maintaining another Rust build recipe. Reuse D58's ELF
+architecture/static-link checks; prepare an allowlisted temporary build context
+containing only the binary, Dockerfile and empty mount directories. `FROM scratch`
+keeps the runtime free of shells, compilers, package managers and desktop libraries.
+Default to numeric UID/GID 1000:1000 and the existing `serve` command.
+
+Compose makes UID/GID configurable, injects init for stop-signal forwarding, mounts
+the entire catalogue directory read/write and originals read-only, and uses a
+read-only rootfs with dropped capabilities. Bind directories must already exist;
+published HTTP defaults to loopback, with an explicit trusted-LAN override. No
+implicit catalogue initialization or mount ownership changes. Import and preview
+generation use one-shot CLI containers with the same stable paths and mounts.
+TLS/authentication and a systemd installer remain separate work.
+
+Fix CLI startup to open `serve` through `Context::open_existing` and
+`Catalog::open_existing`: reject missing/non-file/special paths and omit SQLite's
+CREATE/URI flags, including protection against disappearance after the path check.
+This avoids creating an empty schema file on a mistaken mount. Explicit `init`
+and existing migrations are unchanged. No app dependency, schema, sync protocol
+or command id is added.
+
+Add `docker:build` and `docker:test` tasks, a setup/maintenance guide, fast hostile
+build-input/CLI regressions and opt-in real-container tests using generated BMPs.
+Runtime checks cover external-preview generation/fetch, read-only mounts, non-root
+configuration, clone/edit/Collection sync, SIGTERM forwarding and replacement of
+the server followed by a fresh clone verifying committed state. Native x86-64 and
+ARM64 CI also exercises the supplied Compose stop/down/up lifecycle. Images remain
+local; the workflow has read-only repository permissions and no registry login,
+push, deployment or release-publication step. Hosted execution remains unverified.
+
+References: [Dockerfile USER and exec-form ENTRYPOINT](https://docs.docker.com/reference/dockerfile/),
+[Compose init and bind mounts](https://docs.docker.com/reference/compose-file/services/),
+[Docker PID 1 signal behavior](https://docs.docker.com/reference/cli/docker/container/run/).
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

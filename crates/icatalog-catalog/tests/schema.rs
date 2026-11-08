@@ -2,6 +2,24 @@
 
 use icatalog_catalog::*;
 
+#[test]
+fn open_existing_refuses_missing_and_special_paths_and_preserves_existing_data() {
+    let path = tmp("open-existing");
+    assert!(Catalog::open_existing(&path).is_err());
+    assert!(!path.exists());
+    assert!(Catalog::open_existing("").is_err());
+    assert!(Catalog::open_existing(":memory:").is_err());
+    assert!(Catalog::open_existing(std::env::temp_dir()).is_err());
+    let c = Catalog::open(&path).unwrap();
+    c.insert_catalogue("existing", "2026-11-08T00:00:00Z")
+        .unwrap();
+    drop(c);
+    let c = Catalog::open_existing(&path).unwrap();
+    assert_eq!(c.catalogue().unwrap().unwrap().id, "existing");
+    drop(c);
+    std::fs::remove_file(path).unwrap();
+}
+
 fn asset(uid: &str, path: &str) -> Asset {
     Asset {
         id: 0,
