@@ -622,6 +622,12 @@ dependency, sync protocol or packaging change. A Unix integration test passes
 invalid bytes as real process arguments and checks byte-exact catalogue handling,
 clean text-argument errors and the absence of a lossy substitute catalogue.
 
+## D62. Keep long folder trees scrollable within the sidebar (2026-11-09)
+
+Keep Folders, All and Unassigned fixed above a separately scrolling device/folder tree. Cap the tree at 45% of the sidebar height available after those controls; shorter trees use only their content height. The Collections heading, New Collection button and independently scrolling collection rows then remain reachable in short windows, even when many folders are expanded. The folder scroll position stays independent of collection scrolling and selection does not change the asset query.
+
+This is a native shell layout fix with no engine, schema, command, dependency or Taskfile change. A real-widget 800×600 test covers a 40-row folder tree and 40 Collections, scrolling to and selecting late rows in both lists while the fixed controls remain visible.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

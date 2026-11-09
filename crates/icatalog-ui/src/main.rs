@@ -1911,7 +1911,13 @@ impl eframe::App for App {
                     collapsed_devices: &mut self.collapsed_devices,
                     selected: &mut sel,
                 };
-                build_tree(ui, &self.folders, None, &mut tree, 0, &devices);
+                egui::ScrollArea::vertical()
+                    .id_salt("folder_tree")
+                    .auto_shrink([false, true])
+                    .max_height(ui.available_height() * 0.45)
+                    .show(ui, |ui| {
+                        build_tree(ui, &self.folders, None, &mut tree, 0, &devices);
+                    });
                 if sel != self.folder_sel {
                     self.folder_sel = sel;
                     self.collection_anchor = None;

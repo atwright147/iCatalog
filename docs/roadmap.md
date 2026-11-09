@@ -43,6 +43,8 @@ Collections fill the remaining sidebar height (D49), with scrolling for long lis
 
 Folders navigation fills the available sidebar width (D42), including All/Unassigned, device headers and indented folder names. Disclosure arrows remain separate; long names truncate with hover text. Headless checks cover right-edge selection, nesting, collapse/reopen, both themes and display scales; screenshots cover device headers in both themes.
 
+Long folder trees scroll independently below fixed All/Unassigned controls (D62), using at most 45% of the remaining sidebar height. Collections remains reachable and retains its own scroll area. A headless 800×600 check scrolls to late rows in both lists and selects them.
+
 Details inspector and app dialogs have roomier local text layouts (D47): inset inspector content, larger line/section gaps, wrapping annotation controls and vertical scrolling; wider Collection/Smart rules/Connect/Sync dialog margins and field/button gaps. Rename/Edit Rules place Name beside its field, with Name aligned to rule inputs in Edit Rules. Smart rule fields/actions still fit at 800×600. Tests cover both themes/display scales, scrolled keyword editing and long sync diagnostics; screenshots include metadata and the scrolled inspector. Sidebar, grid/List and native OS picker spacing are unchanged.
 
 Edit Rules has a reusable Rules fieldset around the instructions and ten rule inputs (D48), with accessible grouping and a legend in the border. Name, match preview and actions stay outside. Input alignment and 800×600 fit are preserved; both themes/scales and grouped rule editing are covered. Creation/Rename layouts are unchanged.

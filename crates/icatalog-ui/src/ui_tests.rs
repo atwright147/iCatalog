@@ -236,6 +236,53 @@ fn click_position(h: &mut Harness<'_, App>, pos: egui::Pos2) {
 }
 
 #[test]
+fn long_folder_tree_scrolls_without_hiding_collections() {
+    let fixture = Fixture::new();
+    seed_folder_tree(&fixture, "Demo device");
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    let mut last_collection = 0;
+    for index in 0..40 {
+        ctx.catalog()
+            .connection()
+            .execute(
+                "INSERT INTO folder(id,source_id,name) VALUES (?1,1,?2)",
+                (100 + index, format!("Folder {index:02}")),
+            )
+            .unwrap();
+        last_collection = ctx
+            .catalog()
+            .insert_collection(&format!("Collection {index:02}"))
+            .unwrap();
+    }
+    drop(ctx);
+    let mut h = fixture.harness([800.0, 600.0]);
+    let all_before = h.get_by_label("All").rect();
+    let new_collection = h.get_by_label("New Collection…").rect();
+    assert!(new_collection.bottom() < 600.0, "{new_collection:?}");
+
+    h.get_by_label("Folder 39").scroll_to_me();
+    settle(&mut h);
+    let folder = h.get_by_label("Folder 39").rect();
+    assert!(folder.top() > all_before.bottom() && folder.bottom() < new_collection.top());
+    h.get_by_label("Folder 39").click();
+    settle(&mut h);
+    assert_eq!(h.state().folder_sel, FolderSelection::Folder(139));
+    assert_eq!(h.get_by_label("All").rect(), all_before);
+    assert_eq!(h.get_by_label("New Collection…").rect(), new_collection);
+
+    h.get_by_label("Collection 39").scroll_to_me();
+    settle(&mut h);
+    let collection = h.get_by_label("Collection 39").rect();
+    assert!(collection.top() > new_collection.bottom() && collection.bottom() < 600.0);
+    h.get_by_label("Collection 39").click();
+    settle(&mut h);
+    assert_eq!(
+        h.state().folder_sel,
+        FolderSelection::Collections(vec![last_collection])
+    );
+}
+
+#[test]
 fn collections_use_remaining_sidebar_height_and_scroll_to_later_rows() {
     let fixture = Fixture::new();
     let ctx = open_catalogue(&fixture.path()).unwrap();
