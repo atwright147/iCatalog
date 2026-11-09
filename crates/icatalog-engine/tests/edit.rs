@@ -138,6 +138,23 @@ fn keywords_add_remove_and_clear() {
 }
 
 #[test]
+fn exact_keyword_edit_preserves_commas_and_other_names() {
+    let (mut ctx, a, _, p) = seed("exact-keyword");
+    edit(&mut ctx, a, &[("keyword", "Paris,France")]);
+    edit(&mut ctx, a, &[("keyword-exact", "Paris, France")]);
+    assert_eq!(names(&ctx, a), vec!["France", "Paris", "Paris, France"]);
+    let result = keep(edit(
+        &mut ctx,
+        a,
+        &[("remove-keyword-exact", "Paris, France")],
+    ));
+    assert!(result.contains("-Paris, France"));
+    assert_eq!(names(&ctx, a), vec!["France", "Paris"]);
+    drop(ctx);
+    let _ = std::fs::remove_file(p);
+}
+
+#[test]
 fn other_asset_unaffected() {
     let (mut ctx, a, b, p) = seed("other");
     edit(&mut ctx, a, &[("keyword", "sunset"), ("rating", "5")]);

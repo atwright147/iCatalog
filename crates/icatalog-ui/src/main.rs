@@ -1454,7 +1454,7 @@ impl App {
             if ui.button("Add").clicked() {
                 let name = self.keyword_input.trim().to_owned();
                 if !name.is_empty() {
-                    edit = Some(edit_params(id, "keyword", &name));
+                    edit = Some(edit_params(id, "keyword-exact", &name));
                     self.keyword_input.clear();
                 }
             }
@@ -1467,7 +1467,7 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 ui.label(kw);
                 if ui.small_button("remove").clicked() {
-                    edit = Some(edit_params(id, "remove-keyword", kw));
+                    edit = Some(edit_params(id, "remove-keyword-exact", kw));
                 }
             });
         }

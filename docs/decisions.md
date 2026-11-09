@@ -632,6 +632,15 @@ This is a native shell layout fix with no engine, schema, command, dependency or
 
 Use `cli:run`, `cli:clone` and `cli:previews` for CLI entry points, `ui:run` for the native desktop app, `ui:test` for its focused tests, and `test:catalog`, `test:media`, `test:engine`, `test:sync` and `test:scale` for the other focused checks. Remove the former top-level `run`, `clone`, `previews`, `gui`, `ui`, `catalog`, `media`, `engine`, `sync` and `scale` task names without aliases. The former `ui` and `ui:test` tasks ran the same tests; only `ui:test` remains. Keep workspace, UI visual/smoke, release, NAS and Docker tasks as they are. This changes the development command surface only; the underlying Cargo and packaging commands and their argument forwarding stay the same.
 
+## D64. Preserve one keyword name through desktop edits (2026-11-09)
+
+Keep the comma-separated `edit --keyword` and `--remove-keyword` options for
+existing callers. Add `--keyword-exact` and `--remove-keyword-exact` for one
+verbatim name, including commas. The desktop uses the exact options for its
+single-keyword Add and Remove controls, so a displayed XMP keyword cannot be
+split into other names by the command parser. The command transaction and
+catalogue schema are unchanged.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

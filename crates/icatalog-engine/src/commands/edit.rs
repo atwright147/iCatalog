@@ -40,10 +40,22 @@ impl Command for Edit {
                 doc: "add keyword(s); comma-separated for several",
             },
             ParamSpec {
+                name: "keyword-exact",
+                required: false,
+                positional: false,
+                doc: "add one keyword verbatim, including commas",
+            },
+            ParamSpec {
                 name: "remove-keyword",
                 required: false,
                 positional: false,
                 doc: "remove keyword(s); comma-separated for several",
+            },
+            ParamSpec {
+                name: "remove-keyword-exact",
+                required: false,
+                positional: false,
+                doc: "remove one keyword verbatim, including commas",
             },
             ParamSpec {
                 name: "clear-keywords",
@@ -68,8 +80,14 @@ impl Command for Edit {
 
         let rating = params.get("rating").map(str::to_owned);
         let label = params.get("label").map(str::to_owned);
-        let add_names = names(params.get("keyword"), "--keyword")?;
-        let remove_names = names(params.get("remove-keyword"), "--remove-keyword")?;
+        let mut add_names = names(params.get("keyword"), "--keyword")?;
+        let mut remove_names = names(params.get("remove-keyword"), "--remove-keyword")?;
+        if let Some(name) = params.get("keyword-exact") {
+            add_names.push(exact_name(name, "--keyword-exact")?);
+        }
+        if let Some(name) = params.get("remove-keyword-exact") {
+            remove_names.push(exact_name(name, "--remove-keyword-exact")?);
+        }
         let clear = match params.get("clear-keywords") {
             None => false,
             Some("true") => true,
@@ -87,7 +105,7 @@ impl Command for Edit {
             && !clear
         {
             return Err(EngineError::BadParam(
-                "no edits requested (--rating, --label, --keyword, --remove-keyword or --clear-keywords)"
+                "no edits requested (--rating, --label, --keyword, --keyword-exact, --remove-keyword, --remove-keyword-exact or --clear-keywords)"
                     .into(),
             ));
         }
@@ -179,6 +197,13 @@ fn names(v: Option<&str>, option: &str) -> Result<Vec<String>> {
         )));
     }
     Ok(out)
+}
+
+fn exact_name(name: &str, option: &str) -> Result<String> {
+    if name.trim().is_empty() {
+        return Err(EngineError::BadParam(format!("{option} needs a name")));
+    }
+    Ok(name.to_owned())
 }
 
 /// Parse `0..=max`; anything else (non-integer or out of range) is a `BadParam`.
