@@ -75,6 +75,67 @@ fn non_recursive_and_dupes() {
 }
 
 #[test]
+fn import_after_update_uses_current_hash_and_never_duplicates_a_path() {
+    let (mut ctx, base, dir) = setup("changed-content-dedupe");
+    run(&mut ctx, &dir, None).unwrap();
+    let first = ctx
+        .catalog()
+        .asset_by_path(dir.join("a.png").to_str().unwrap())
+        .unwrap()
+        .unwrap();
+    let original = std::fs::read(dir.join("a.png")).unwrap();
+    png(&dir.join("a.png"), 42, 20, 3);
+    let mut update = Params::new();
+    update.set("path", dir.to_str().unwrap());
+    dispatch(&mut ctx, "update", &update).unwrap();
+    let changed = ctx.catalog().asset(first.id).unwrap().unwrap();
+    assert_eq!(changed.uid, first.uid);
+    assert_ne!(changed.content_hash, first.content_hash);
+
+    let second = base.join("second");
+    std::fs::create_dir(&second).unwrap();
+    std::fs::write(second.join("original.png"), original).unwrap();
+    assert_eq!(metric(run(&mut ctx, &second, None).unwrap(), "imported"), 1);
+    let restored = ctx
+        .catalog()
+        .asset_by_path(second.join("original.png").to_str().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.content_hash, first.content_hash);
+    assert_ne!(restored.uid, first.uid);
+
+    assert_eq!(metric(run(&mut ctx, &dir, None).unwrap(), "imported"), 0);
+    let assets = ctx.catalog().query_assets(&AssetQuery::default()).unwrap();
+    assert_eq!(assets.iter().filter(|a| a.path == changed.path).count(), 1);
+    assert_eq!(assets.len(), 4);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn invalid_utf8_filenames_are_reported_instead_of_collapsing_to_one_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (mut ctx, _, dir) = setup("invalid-paths");
+    let source = dir.join("a.png");
+    let first = dir.join(OsString::from_vec(b"bad-\xff.png".to_vec()));
+    let second = dir.join(OsString::from_vec(b"bad-\xfe.png".to_vec()));
+    std::fs::copy(&source, &first).unwrap();
+    png(&second, 43, 21, 9);
+
+    let outcome = run(&mut ctx, &dir, None).unwrap();
+    assert_eq!(metric(outcome.clone(), "skipped: path is not UTF-8"), 2);
+    assert_eq!(metric(outcome, "imported"), 3);
+    assert_eq!(
+        ctx.catalog()
+            .query_assets(&AssetQuery::default())
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
 fn skip_reasons_reported() {
     let (mut ctx, base, dir) = setup("d");
     let big = dir.join("huge.tif");

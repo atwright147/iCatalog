@@ -100,6 +100,15 @@ impl Command for Update {
             let w = walk(root, *rec);
             errors += w.errors;
             for f in &w.files {
+                if f.to_str().is_none() {
+                    // Older imports could store this lossy spelling. Keep it
+                    // out of the missing set even though we cannot refresh it.
+                    seen.insert(f.to_string_lossy().into_owned());
+                    scanned += 1;
+                    skipped += 1;
+                    note_skip(&mut skips, SkipReason::NonUtf8Path);
+                    continue;
+                }
                 seen.insert(f.to_string_lossy().into_owned());
                 scanned += 1;
                 let mut folder_id = None;

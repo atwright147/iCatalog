@@ -312,6 +312,16 @@ impl Catalog {
             .optional()?)
     }
 
+    /// Whether any asset currently has these bytes. A UID may outlive its
+    /// original content after Update, so it cannot answer this question.
+    pub fn has_content_hash(&self, hash: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM asset WHERE content_hash=?1)",
+            [hash],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Update the mutable columns of an asset by `a.id`; `uid` is never changed.
     pub fn update_asset(&self, a: &Asset) -> Result<()> {
         self.conn.execute(

@@ -63,7 +63,7 @@ CREATE UNIQUE INDEX idx_folder_source_path ON folder(source_id, path) WHERE sour
 -- PROPOSED: one row per catalogued asset
 CREATE TABLE asset (
   id          INTEGER PRIMARY KEY,
-  uid         TEXT NOT NULL UNIQUE,    -- stable id; = content_hash for imported files (D13)
+  uid         TEXT NOT NULL UNIQUE,    -- stable id; initially content_hash, with suffix on historical collision (D66)
   folder_id   INTEGER REFERENCES folder(id),
   path        TEXT NOT NULL,           -- normalised POSIX, not unique (D10)
   path_raw    BLOB,                    -- original legacy bytes
@@ -252,7 +252,7 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 - **Path normalisation:** separators (legacy Mac paths versus POSIX/Windows), case, Unicode normalisation, and the rule that a catalogued path is never trusted to stay inside a directory (**Decided** in golden rules; representation **Open**).
 - Stable asset UIDs are used by D20 sync; detecting moved source files remains open.
 - **Source identity:** currently the absolute import-root path, so a NAS share remounted elsewhere or a drive that changes mount point looks like a new source. Volume UUID/label detection is **Open**.
-- `size_class` (long edge in pixels, grid = 256), `source` (`"rendered"`), `derived_from` (`"<file_size>:<mtime>"`) and `content_hash` (`"sha256:<hex>"`, also the `asset.uid`) are **RESOLVED per D13**. Since D31, generator version 2 sets `orientation_applied` true when a valid EXIF orientation (1–8, including identity) has been applied to the thumbnail pixels. Thumbnail width/height describe the oriented pixels; asset dimensions and `asset_meta.orientation` retain source values. Missing/invalid orientation leaves pixels unchanged and the flag false. Older false-flag thumbnails use stored asset orientation at display time without a migration or rewrite. Raw-versus-decoded metadata storage is answered by D8.
+- `size_class` (long edge in pixels, grid = 256), `source` (`"rendered"`), `derived_from` (`"<file_size>:<mtime>"`) and `content_hash` (`"sha256:<hex>"`) are **RESOLVED per D13**. The initial `asset.uid` is that hash unless an older asset retains it after changing content; then the new UID receives a numeric suffix (D66). Since D31, generator version 2 sets `orientation_applied` true when a valid EXIF orientation (1–8, including identity) has been applied to the thumbnail pixels. Thumbnail width/height describe the oriented pixels; asset dimensions and `asset_meta.orientation` retain source values. Missing/invalid orientation leaves pixels unchanged and the flag false. Older false-flag thumbnails use stored asset orientation at display time without a migration or rewrite. Raw-versus-decoded metadata storage is answered by D8.
 
 ## 5. Test requirements
 

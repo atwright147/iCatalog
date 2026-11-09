@@ -70,6 +70,10 @@ L0  ivc (legacy parser, no workspace deps)
 
 **EXISTS** (D12): the engine holds a session `Context` and a static registry (slice of `&dyn Command`) mapping string id to command; `run` takes string-keyed `Params` validated into typed values (bad input is `EngineError::BadParam`) and returns `Outcome::{Text,Table}` or an error, never panics. `dispatch` runs each engine command in a SQLite transaction and rolls back on an error, panic or failed commit (D23). During `update`, catalogue errors propagate to that transaction; media that passes header probing but fails full decode is skipped before asset fields change. The rescan checks thumbnail derivation without loading image bytes, so it can repair an older stale thumbnail. `dispatch_guarded` also catches panics outside command execution. Sync retains its separate file-replacement protocol.
 
+Import uses exact path and current content-hash checks for duplicates (D66).
+Historical UIDs remain stable after Update and do not suppress reimport of
+their old bytes.
+
 **EXISTS** (D18): the sync commands `clone`, `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
 The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes and validates text arguments before dispatch. Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.

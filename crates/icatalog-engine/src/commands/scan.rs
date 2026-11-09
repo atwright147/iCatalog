@@ -95,6 +95,8 @@ pub(super) enum SkipReason {
     NotImage,
     /// A RAW container with no usable embedded JPEG preview.
     RawNoPreview,
+    /// The current catalogue path model cannot represent this filename.
+    NonUtf8Path,
 }
 
 impl SkipReason {
@@ -104,6 +106,7 @@ impl SkipReason {
             SkipReason::TooLarge => "larger than 512 MiB",
             SkipReason::NotImage => "not a recognised image",
             SkipReason::RawNoPreview => "RAW file with no usable preview",
+            SkipReason::NonUtf8Path => "path is not UTF-8",
         }
     }
 }
@@ -364,6 +367,9 @@ pub(super) fn ingest(
     if !has_image_ext(path) {
         return Ok(Ingested::Skipped(SkipReason::UnsupportedExt));
     }
+    let Some(path_str) = path.to_str() else {
+        return Ok(Ingested::Skipped(SkipReason::NonUtf8Path));
+    };
     let Ok(md) = std::fs::metadata(path) else {
         return Ok(Ingested::Failed);
     };
@@ -372,12 +378,11 @@ pub(super) fn ingest(
     }
     let file_size = i64::try_from(md.len()).unwrap_or(i64::MAX);
     let mtime = mtime_secs(&md);
-    let path_str = path.to_string_lossy().into_owned();
-    let mut existing = if refresh {
-        ctx.catalog().asset_by_path(&path_str)?
-    } else {
-        None
-    };
+    let known_path = ctx.catalog().asset_by_path(path_str)?;
+    if !refresh && known_path.is_some() {
+        return Ok(Ingested::Duplicate);
+    }
+    let mut existing = if refresh { known_path } else { None };
     let mut folder_changed = false;
     let mut needs_thumbnail_repair = false;
     if let Some(a) = &mut existing {
@@ -502,7 +507,7 @@ pub(super) fn ingest(
         capture_xmp(ctx, a.id, &bytes, preview.as_deref())?;
         return Ok(Ingested::Changed { errors });
     }
-    if ctx.catalog().asset_by_uid(&hash)?.is_some() {
+    if ctx.catalog().has_content_hash(&hash)? {
         return Ok(Ingested::Duplicate);
     }
     let Some(prepared) = prepare_derived(image_bytes, exif_bytes) else {
@@ -512,11 +517,22 @@ pub(super) fn ingest(
             SkipReason::NotImage
         }));
     };
+    // The first import uses its content hash as UID. After that asset changes,
+    // its UID remains stable; if the original bytes are imported again, choose
+    // another stable UID without mistaking the historical UID for a duplicate.
+    let mut uid = hash.clone();
+    let mut suffix = 1u64;
+    while ctx.catalog().asset_by_uid(&uid)?.is_some() {
+        uid = format!("{hash}:{suffix}");
+        suffix = suffix
+            .checked_add(1)
+            .ok_or_else(|| crate::EngineError::Internal("too many historical asset UIDs".into()))?;
+    }
     let a = Asset {
         id: 0,
-        uid: hash.clone(),
+        uid,
         folder_id,
-        path: path_str,
+        path: path_str.to_owned(),
         path_raw: None,
         name: path
             .file_name()

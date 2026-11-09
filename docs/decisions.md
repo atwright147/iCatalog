@@ -650,6 +650,19 @@ and `:memory:` paths are invalid for disk catalogue creation; intentional
 memory catalogues use `open_in_memory`. This keeps the requested filename and
 the session path aligned for later backup and replacement.
 
+## D66. Deduplicate imports by current content (2026-11-09)
+
+An imported asset's UID stays fixed when Update changes its bytes. Import
+checks the exact path first, then checks current `content_hash` values for
+duplicate content. A historical UID equal to the incoming hash does not
+mean those bytes are still present. When such a UID is occupied, append a
+bounded numeric suffix to give the new asset its own stable UID. No schema or
+sync protocol change is needed; the UID is still immutable after insertion.
+Paths that cannot be represented as UTF-8 are counted as skipped with an
+explicit reason before any lossy path or folder lookup. Update still marks
+their lossy spelling as seen, so older catalogue rows recorded under that
+spelling are not falsely flagged missing.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

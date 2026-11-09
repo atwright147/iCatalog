@@ -67,6 +67,11 @@ impl Command for Import {
         errors += w.errors;
         for f in &w.files {
             scanned += 1;
+            if f.to_str().is_none() {
+                skipped += 1;
+                note_skip(&mut skips, SkipReason::NonUtf8Path);
+                continue;
+            }
             let folder_id = folderizer.folder_for(ctx, f)?;
             match ingest(ctx, f, false, folder_id) {
                 Ok(Ingested::Added { errors: e }) => {

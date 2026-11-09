@@ -54,6 +54,27 @@ fn added_and_unchanged() {
     assert_eq!(all(&ctx).len(), 3);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn invalid_utf8_file_does_not_mark_an_old_lossy_path_missing() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (mut ctx, dir) = setup("lossy-legacy-path");
+    let invalid = dir.join(OsString::from_vec(b"old-\xff.png".to_vec()));
+    std::fs::copy(dir.join("a.png"), &invalid).unwrap();
+    let mut legacy = all(&ctx).into_iter().find(|a| a.name == "a.png").unwrap();
+    legacy.uid = "legacy-lossy-uid".into();
+    legacy.path = invalid.to_string_lossy().into_owned();
+    legacy.name = "old-�.png".into();
+    legacy.content_hash = None;
+    let id = ctx.catalog().insert_asset(&legacy).unwrap();
+
+    let outcome = update(&mut ctx, Some(&dir));
+    assert_eq!(metric(&outcome, "skipped: path is not UTF-8"), 1);
+    assert!(!ctx.catalog().asset(id).unwrap().unwrap().missing);
+}
+
 #[test]
 fn changed_keeps_uid_and_refreshes() {
     let (mut ctx, dir) = setup("chg");
