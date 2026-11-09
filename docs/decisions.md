@@ -606,6 +606,22 @@ References: [Dockerfile USER and exec-form ENTRYPOINT](https://docs.docker.com/r
 [Compose init and bind mounts](https://docs.docker.com/reference/compose-file/services/),
 [Docker PID 1 signal behavior](https://docs.docker.com/reference/cli/docker/container/run/).
 
+## D61. Handle non-UTF-8 startup arguments without a panic (2026-11-09)
+
+Read OS arguments with `args_os` in the CLI and desktop entry points. The CLI
+validates command names, options and positional text before passing them into
+string-keyed commands. It passes catalogue path bytes intact to SQLite; a
+filesystem that accepts the name can open it, while one that refuses it returns
+an ordinary error. Non-UTF-8 option values are rejected rather than replaced
+with `�` and possibly selecting a different file. A malformed text argument
+exits with a usage error instead of panicking outside the CLI's last-resort guard.
+
+Imported-media paths and current engine command parameters are UTF-8 text;
+arbitrary source-path bytes need a separate model design. No schema, command id,
+dependency, sync protocol or packaging change. A Unix integration test passes
+invalid bytes as real process arguments and checks byte-exact catalogue handling,
+clean text-argument errors and the absence of a lossy substitute catalogue.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

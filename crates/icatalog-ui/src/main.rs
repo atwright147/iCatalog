@@ -55,7 +55,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> eframe::Result<()> {
-    let path = std::env::args()
+    let path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("catalogue.sqlite"));

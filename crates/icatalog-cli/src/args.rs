@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use icatalog_engine::Params;
@@ -12,24 +13,28 @@ pub struct Invocation {
 /// Parse the tokens after the command name. `args[0]` is the catalogue path;
 /// `--name value` sets a parameter; extra positionals are rejected except for
 /// `find` (query), `collection` and `previews` (action), which require one positional.
-pub fn parse(command: &str, args: &[String]) -> std::result::Result<Invocation, String> {
+pub fn parse(command: &str, args: &[OsString]) -> std::result::Result<Invocation, String> {
     let Some(catalogue) = args.first() else {
         return Err("missing <catalogue> path".to_owned());
     };
-    if catalogue.starts_with('-') {
-        return Err(format!(
-            "missing <catalogue> path (got option '{catalogue}')"
-        ));
+    if let Some(option) = catalogue.to_str().filter(|value| value.starts_with('-')) {
+        return Err(format!("missing <catalogue> path (got option '{option}')"));
     }
     let mut params = Params::new();
-    let mut positionals: Vec<&String> = Vec::new();
+    let mut positionals: Vec<&str> = Vec::new();
     let mut iter = args.iter().skip(1);
     while let Some(tok) = iter.next() {
+        let tok = tok.to_str().ok_or_else(|| {
+            "option names and positional arguments must be valid UTF-8".to_owned()
+        })?;
         if tok.starts_with("--") && tok.len() > 2 {
             let name = tok.trim_start_matches("--");
             let Some(value) = iter.next() else {
                 return Err(format!("option '{tok}' needs a value"));
             };
+            let value = value
+                .to_str()
+                .ok_or_else(|| format!("value for option '{tok}' must be valid UTF-8"))?;
             params.set(name, value);
         } else if tok.starts_with('-') {
             return Err(format!("unknown option '{tok}'"));
@@ -62,8 +67,8 @@ pub fn parse(command: &str, args: &[String]) -> std::result::Result<Invocation, 
 mod tests {
     use super::*;
 
-    fn v(a: &[&str]) -> Vec<String> {
-        a.iter().map(|s| (*s).to_owned()).collect()
+    fn v(a: &[&str]) -> Vec<OsString> {
+        a.iter().map(OsString::from).collect()
     }
 
     #[test]

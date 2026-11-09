@@ -12,11 +12,14 @@
 
 mod args;
 
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let raw: Vec<String> = std::env::args().skip(1).collect();
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&raw))) {
+    match std::panic::catch_unwind(|| {
+        let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
+        run(&raw)
+    }) {
         Ok(code) => code,
         Err(_) => {
             eprintln!(
@@ -27,23 +30,31 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(raw: &[String]) -> ExitCode {
-    match raw.first().map(String::as_str) {
-        None | Some("help") | Some("--help") | Some("-h") => {
+fn run(raw: &[OsString]) -> ExitCode {
+    let Some(first) = raw.first() else {
+        println!("{}", help_text());
+        return ExitCode::SUCCESS;
+    };
+    let Some(cmd) = first.to_str() else {
+        eprintln!("icatalog: command name must be valid UTF-8");
+        return ExitCode::from(2);
+    };
+    match cmd {
+        "help" | "--help" | "-h" => {
             println!("{}", help_text());
             ExitCode::SUCCESS
         }
-        Some("--version") | Some("-V") => {
+        "--version" | "-V" => {
             println!("icatalog {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        Some("commands") => {
+        "commands" => {
             for c in all_commands() {
                 println!("{}  {}", c.id(), c.label());
             }
             ExitCode::SUCCESS
         }
-        Some(cmd) => dispatch_cli(cmd, raw.get(1..).unwrap_or(&[])),
+        _ => dispatch_cli(cmd, raw.get(1..).unwrap_or(&[])),
     }
 }
 
@@ -71,7 +82,7 @@ fn dispatch_any(
     }
 }
 
-fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
+fn dispatch_cli(cmd: &str, rest: &[OsString]) -> ExitCode {
     if !is_known(cmd) {
         eprintln!("unknown command '{cmd}'");
         eprintln!("{}", help_text());
@@ -95,7 +106,13 @@ fn dispatch_cli(cmd: &str, rest: &[String]) -> ExitCode {
     let mut ctx = match session {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("icatalog: {e}");
+            if inv.catalogue.to_str().is_none() {
+                eprintln!(
+                    "icatalog: could not open catalogue path containing non-UTF-8 bytes: {e}"
+                );
+            } else {
+                eprintln!("icatalog: {e}");
+            }
             return ExitCode::FAILURE;
         }
     };

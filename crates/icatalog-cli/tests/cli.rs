@@ -8,6 +8,100 @@ fn icatalog(args: &[&str]) -> Output {
         .unwrap()
 }
 
+#[cfg(unix)]
+#[test]
+fn non_utf8_catalogue_path_is_byte_exact_and_text_arguments_fail_cleanly() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir
+        .path()
+        .join(OsString::from_vec(b"library-\xff.sqlite".to_vec()));
+    let binary = env!("CARGO_BIN_EXE_icatalog");
+    // Linux usually accepts arbitrary filename bytes; macOS APFS may not.
+    // Neither outcome may panic or create a replacement-character catalogue.
+    let supported = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(file) => {
+            drop(file);
+            std::fs::remove_file(&path).unwrap();
+            true
+        }
+        Err(_) => false,
+    };
+    let init = Command::new(binary)
+        .arg("init")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!s(&init.stderr).contains("panicked"));
+    if supported {
+        assert!(init.status.success(), "{}", s(&init.stderr));
+        let status = Command::new(binary)
+            .arg("status")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "{}", s(&status.stderr));
+        assert!(s(&status.stdout).contains("assets"));
+    } else {
+        assert!(!init.status.success());
+        assert!(s(&init.stderr).contains("non-UTF-8 bytes"));
+        assert!(!path.exists());
+    }
+    assert!(!dir.path().join("library-�.sqlite").exists());
+
+    let invalid = OsString::from_vec(b"bad-\xff".to_vec());
+    let valid_path = dir.path().join("valid.sqlite");
+    assert!(Command::new(binary)
+        .arg("init")
+        .arg(&valid_path)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let bad_value = Command::new(binary)
+        .arg("list")
+        .arg(&valid_path)
+        .arg("--limit")
+        .arg(&invalid)
+        .output()
+        .unwrap();
+    assert_eq!(bad_value.status.code(), Some(2));
+    assert!(s(&bad_value.stderr).contains("UTF-8"));
+    assert!(!s(&bad_value.stderr).contains("panicked"));
+
+    let bad_source = Command::new(binary)
+        .arg("import")
+        .arg(&valid_path)
+        .arg("--path")
+        .arg(&invalid)
+        .output()
+        .unwrap();
+    assert_eq!(bad_source.status.code(), Some(2));
+    assert!(s(&bad_source.stderr).contains("option '--path' must be valid UTF-8"));
+    assert!(!s(&bad_source.stderr).contains("panicked"));
+
+    let bad_positional = Command::new(binary)
+        .arg("find")
+        .arg(&valid_path)
+        .arg(&invalid)
+        .output()
+        .unwrap();
+    assert_eq!(bad_positional.status.code(), Some(2));
+    assert!(s(&bad_positional.stderr).contains("valid UTF-8"));
+    assert!(!s(&bad_positional.stderr).contains("panicked"));
+
+    let bad_command = Command::new(binary).arg(invalid).output().unwrap();
+    assert_eq!(bad_command.status.code(), Some(2));
+    assert!(s(&bad_command.stderr).contains("UTF-8"));
+    assert!(!s(&bad_command.stderr).contains("panicked"));
+}
+
 #[test]
 fn maximum_rating_cli_previews_saves_and_rejects_inverted_ranges() {
     let path =
