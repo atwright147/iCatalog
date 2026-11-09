@@ -75,8 +75,13 @@ pub(super) fn has_image_ext(path: &Path) -> bool {
 pub(super) fn has_raw_ext(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| RAW_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .map(is_raw_format)
         .unwrap_or(false)
+}
+
+/// The catalogue stores a RAW asset's extension as its format during import.
+pub(super) fn is_raw_format(format: &str) -> bool {
+    RAW_EXTS.iter().any(|raw| format.eq_ignore_ascii_case(raw))
 }
 
 /// Why a candidate file was skipped rather than imported.

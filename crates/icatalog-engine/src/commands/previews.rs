@@ -98,7 +98,13 @@ impl Command for Previews {
                 failed += 1;
                 continue;
             }
-            let image = if icatalog_media::is_raw(&bytes) {
+            // TIFF headers also identify ordinary raster TIFFs; use the format
+            // recorded at import to select the embedded-preview path.
+            let image = if asset
+                .format
+                .as_deref()
+                .is_some_and(super::scan::is_raw_format)
+            {
                 match icatalog_media::raw_preview(&bytes) {
                     Ok(b) => b,
                     Err(_) => {

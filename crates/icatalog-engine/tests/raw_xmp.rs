@@ -186,6 +186,12 @@ fn raw_preview_and_xmp_seeded() {
     assert_eq!(a.label, 1); // Red maps to label 1
     assert_eq!(a.caption.as_deref(), Some("Hello"));
     assert_eq!(kws(&ctx, id), ["cat", "dog"]);
+    let mut params = Params::new();
+    params.set("action", "generate");
+    let result = dispatch(&mut ctx, "previews", &params).unwrap();
+    assert!(result.render().contains("generated 1"));
+    let preview = ctx.catalog().preview(id).unwrap().unwrap();
+    assert_eq!((preview.width, preview.height), (32, 24));
     drop(ctx);
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -319,6 +325,13 @@ fn plain_tiff_uses_rendered_path() {
         .unwrap()
         .unwrap();
     assert_eq!(t.source, "rendered");
+    assert!(icatalog_media::is_raw(&out));
+    let mut params = Params::new();
+    params.set("action", "generate");
+    let result = dispatch(&mut ctx, "previews", &params).unwrap();
+    assert!(result.render().contains("generated 1"));
+    let preview = ctx.catalog().preview(id).unwrap().unwrap();
+    assert_eq!((preview.width, preview.height), (20, 10));
     drop(ctx);
     let _ = std::fs::remove_dir_all(&base);
 }
