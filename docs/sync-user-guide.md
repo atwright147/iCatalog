@@ -8,7 +8,7 @@ Sync is available in the desktop app through **File → Connect to Server…** a
 
 Maximum Rating Smart rules require schema-v8 support (D57). Update iCatalog on the server and each client before syncing an upgraded catalogue. Older apps refuse the newer catalogue; an older server rejects a maximum-rule upload and leaves the client draft intact. Minimum and maximum are inclusive, can be used independently, and sync with the Collection’s other rules. A maximum of 0 matches unrated assets.
 
-Use builds containing protocol v2 (D20/D44) on both server and clients, and the new client-side `clone` command (D45) for the recommended setup below. Older builds cannot sync with this protocol. If running from this repository, `task build` creates the CLI and desktop binaries under `target/debug/`; use `task run --` in place of `icatalog`, and `task gui --` in place of `icatalog-ui` in the examples below. Installed binaries are assumed to be on your PATH.
+Use builds containing protocol v2 (D20/D44) on both server and clients, and the new client-side `clone` command (D45) for the recommended setup below. Older builds cannot sync with this protocol. If running from this repository, `task build` creates the CLI and desktop binaries under `target/debug/`; use `task cli:run --` in place of `icatalog`, and `task ui:run --` in place of `icatalog-ui` in the examples below. Installed binaries are assumed to be on your PATH.
 
 For a Linux NAS, D58 adds CLI-only static musl archives for x86-64 and ARM64. Build/download the archive for your CPU, extract `icatalog` and place it on PATH; no system SQLite or desktop libraries are required. Build commands and CI artifact locations are in [the NAS build guide](development.md#8a-static-nas-cli-builds-d58). The new release jobs have not yet been verified on hosted CI or published NAS assets.
 
@@ -79,7 +79,7 @@ mkdir -p "$HOME/Pictures/iCatalog"
 icatalog clone "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080
 ```
 
-From this repository, the equivalent is `task clone -- local.sqlite --url http://nas:8080`.
+From this repository, the equivalent is `task cli:clone -- local.sqlite --url http://nas:8080`.
 
 Clone downloads a consistent copy while the server remains running, verifies it, preserves its catalogue identity and records the starting point for your future edits. It reports the catalogue ID, generation and download size. The resulting local replica is ready to use immediately: **do not run `init` or copy a file first, and no separate first sync is required.** Your first edits after cloning will be uploaded by your next ordinary sync.
 

@@ -562,7 +562,7 @@ fn hostile_params_never_panic() {
 }
 
 #[test]
-#[ignore = "10,000-asset snapshot and annotation round trip; run task scale"]
+#[ignore = "10,000-asset snapshot and annotation round trip; run task test:scale"]
 fn large_snapshot_round_trip() {
     let dir = temp_dir("scale");
     let server = make_catalogue(&dir, "server.sqlite", "test", 0);

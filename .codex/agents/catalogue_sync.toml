@@ -19,7 +19,7 @@ Use synthetic disposable catalogues for round trips and failure-path regressions
 never use personal catalogues or connect tests to a real NAS.
 
 Use CARGO_TARGET_DIR=target/agent-catalogue_sync for Cargo/Task commands.
-Run relevant task catalog, task engine and task sync checks for affected crates.
+Run relevant task test:catalog, task test:engine and task test:sync checks for affected crates.
 Report changed files, compatibility/recovery implications, exact checks/results and
 remaining risks. Leave shell integration, the final task ci gate, shared docs and
 devlog to the coordinator unless specifically assigned. Do not delegate further,

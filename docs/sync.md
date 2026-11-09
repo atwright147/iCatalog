@@ -75,11 +75,11 @@ The client establishes the baseline in the verified temporary database and flush
 Grid thumbnails stay embedded. A `preview` row links an asset to a SHA-256 JPEG hash, oriented dimensions and source content hash. Previews use a 1920-pixel maximum long edge, JPEG quality 80, no upscaling and the existing EXIF orientation/media decoder; RAW uses its embedded JPEG preview without demosaicing. Generation is explicit and runs on the machine holding the original media:
 
 ```sh
-task previews -- photos.sqlite status
-task previews -- photos.sqlite generate
-task previews -- nas.sqlite external
-task previews -- nas.sqlite generate
-task previews -- photos.sqlite embed
+task cli:previews -- photos.sqlite status
+task cli:previews -- photos.sqlite generate
+task cli:previews -- nas.sqlite external
+task cli:previews -- nas.sqlite generate
+task cli:previews -- photos.sqlite embed
 ```
 
 The per-catalogue default is **embedded**, giving a standalone portable SQLite file usable without the originals. **External** stores verified bytes in `previews/<sha>.jpg` beside the catalogue; choose this for a NAS so catalogue downloads contain references and grid thumbnails, while previews arrive lazily. External directories must be real directories, not symlinks. Writes use exclusive temporary files and rename; filenames derive only from validated hashes.
@@ -89,7 +89,7 @@ Conversion verifies every referenced blob before committing the new mode. Missin
 A replica fetches a referenced preview explicitly with:
 
 ```sh
-task run -- sync local.sqlite --url http://nas:8080 --preview <sha>
+task cli:run -- sync local.sqlite --url http://nas:8080 --preview <sha>
 ```
 
 This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop Connect/Clone and explicit Sync controls exist (D46); automatic startup sync and a full-size preview viewer are not wired yet; the desktop continues to display grid thumbnails.

@@ -14,7 +14,7 @@ fn metric(outcome: &Outcome, name: &str) -> u64 {
 }
 
 #[test]
-#[ignore = "10,000 generated images; run task scale"]
+#[ignore = "10,000 generated images; run task test:scale"]
 fn large_catalogue_workflow() {
     let base = std::env::temp_dir().join(format!("icatalog-scale-{}", std::process::id()));
     std::fs::create_dir(&base).unwrap();
