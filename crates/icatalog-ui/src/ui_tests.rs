@@ -15,6 +15,18 @@ use egui_kittest::{
 };
 use std::time::{Duration, Instant};
 use support::bmp;
+
+#[cfg(unix)]
+#[test]
+fn import_rejects_a_non_utf8_directory_instead_of_substituting_its_name() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let invalid = PathBuf::from(OsString::from_vec(b"photos-\xff".to_vec()));
+    assert!(import_params(&invalid).unwrap_err().contains("non-UTF-8"));
+    let valid = PathBuf::from("photos-�");
+    assert_eq!(import_params(&valid).unwrap().get("path"), Some("photos-�"));
+}
 #[path = "rating_tests.rs"]
 mod rating_tests;
 #[path = "rename_tests.rs"]

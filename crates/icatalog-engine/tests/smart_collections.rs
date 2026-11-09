@@ -18,7 +18,7 @@ fn rows(o: Outcome) -> Vec<Vec<String>> {
     }
 }
 fn fixture() -> Context {
-    let mut c = Context::open(":memory:").unwrap();
+    let mut c = Context::open_in_memory().unwrap();
     dispatch(&mut c, "init", &Params::new()).unwrap();
     c.catalog().connection().execute_batch("INSERT INTO asset(id,uid,name,path,format) VALUES(1,'one','One.jpg','/one.jpg','JPEG'),(2,'two','Two.nef','/two.nef','NEF'); INSERT INTO annotation(asset_id,rating,label) VALUES(1,5,2);").unwrap();
     c

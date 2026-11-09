@@ -673,6 +673,15 @@ active. A blob shared by another asset stays until its final reference is
 removed. This needs no migration or protocol change and prevents old embedded
 JPEGs from surviving a successful external conversion or its later snapshots.
 
+## D68. Reject non-UTF-8 desktop import directories (2026-11-09)
+
+Desktop file pickers return an OS path, while the existing engine import
+parameter is UTF-8 text. Validate the selected directory with `Path::to_str`
+before dispatch and show a normal status error if it fails. Never use lossy
+display conversion for the import target: a replacement-character sibling
+could otherwise be imported instead. This mirrors CLI text-argument rejection
+until the engine and catalogue can carry byte-exact media paths.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

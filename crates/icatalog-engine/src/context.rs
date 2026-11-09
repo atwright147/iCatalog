@@ -8,6 +8,14 @@ pub struct Context {
 }
 
 impl Context {
+    /// Open a session backed by an in-memory catalogue, primarily for tests.
+    pub fn open_in_memory() -> Result<Self> {
+        Ok(Context {
+            path: PathBuf::from(":memory:"),
+            catalog: icatalog_catalog::Catalog::open_in_memory()?,
+        })
+    }
+
     /// Prepare a destination session without opening, creating or migrating
     /// its file. Used by commands that install a verified new catalogue.
     pub fn for_destination(path: impl AsRef<Path>) -> Result<Self> {

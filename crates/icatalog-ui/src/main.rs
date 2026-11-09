@@ -35,7 +35,7 @@ use icatalog_catalog::{
 };
 use icatalog_engine::{dispatch_guarded, Context, Params};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -1623,6 +1623,15 @@ fn edit_params(id: i64, key: &str, value: &str) -> Params {
     p
 }
 
+fn import_params(dir: &Path) -> std::result::Result<Params, &'static str> {
+    let path = dir
+        .to_str()
+        .ok_or("Cannot import: directory path contains non-UTF-8 bytes")?;
+    let mut params = Params::new();
+    params.set("path", path);
+    Ok(params)
+}
+
 fn collection_params(action: &str, collection: i64, assets: &[i64]) -> Params {
     let mut params = Params::new();
     params
@@ -1950,11 +1959,10 @@ impl eframe::App for App {
 
         if let Some(a) = action {
             match a {
-                Action::Import(dir) => {
-                    let mut p = Params::new();
-                    p.set("path", dir.display().to_string());
-                    self.run_command("import", &p);
-                }
+                Action::Import(dir) => match import_params(&dir) {
+                    Ok(params) => self.run_command("import", &params),
+                    Err(message) => self.status = message.into(),
+                },
                 Action::Update => self.run_command("update", &Params::new()),
             }
         }
@@ -2070,7 +2078,8 @@ mod tests {
     use super::*;
 
     fn app() -> App {
-        let ctx = open_catalogue(std::path::Path::new(":memory:")).unwrap();
+        let mut ctx = Context::open_in_memory().unwrap();
+        dispatch_guarded(&mut ctx, "init", &Params::new()).unwrap();
         ctx.catalog().connection().execute_batch(
             "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000)
              INSERT INTO asset(uid,path,name) SELECT 'uid-'||x, '/synthetic/'||x||'.png', x||'.png' FROM n;"

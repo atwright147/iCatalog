@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn panic_after_write_rolls_back_and_session_remains_usable() {
-        let mut ctx = Context::open(":memory:").unwrap();
+        let mut ctx = Context::open_in_memory().unwrap();
         let result = run_atomic(&mut ctx, "synthetic", |ctx| {
             ctx.catalog().insert_catalogue("rolled-back", "t")?;
             panic!("synthetic failure after a write");
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn failed_commit_rolls_back() {
-        let mut ctx = Context::open(":memory:").unwrap();
+        let mut ctx = Context::open_in_memory().unwrap();
         let result = run_atomic(&mut ctx, "synthetic", |ctx| {
             ctx.catalog().connection().execute_batch(
                 "PRAGMA defer_foreign_keys = ON; INSERT INTO folder (parent_id, name) VALUES (999, 'orphan');"

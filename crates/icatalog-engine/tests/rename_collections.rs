@@ -50,7 +50,7 @@ fn rename_both_kinds_preserves_identity_members_rules_and_duplicate_names() {
 
 #[test]
 fn invalid_and_failed_renames_do_not_change_names_or_membership() {
-    let mut ctx = Context::open(":memory:").unwrap();
+    let mut ctx = Context::open_in_memory().unwrap();
     dispatch(&mut ctx, "init", &Params::new()).unwrap();
     ctx.catalog().insert_collection("Original").unwrap();
     for (id, name) in [

@@ -103,7 +103,7 @@ fn collections_persist_without_moving_assets_and_membership_is_idempotent() {
 
 #[test]
 fn invalid_operations_report_errors_and_leave_membership_unchanged() {
-    let mut ctx = Context::open(":memory:").unwrap();
+    let mut ctx = Context::open_in_memory().unwrap();
     assert!(dispatch(&mut ctx, "collection", &params(&[("action", "list")])).is_err());
     init(&mut ctx);
     run(&mut ctx, &[("action", "create"), ("name", "Album")]);
@@ -168,7 +168,7 @@ fn invalid_operations_report_errors_and_leave_membership_unchanged() {
 
 #[test]
 fn batch_membership_validates_every_id_and_rolls_back_failed_adds_and_removes() {
-    let mut ctx = Context::open(":memory:").unwrap();
+    let mut ctx = Context::open_in_memory().unwrap();
     init(&mut ctx);
     run(&mut ctx, &[("action", "create"), ("name", "Album")]);
     for assets in [

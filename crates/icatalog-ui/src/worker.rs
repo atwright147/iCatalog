@@ -46,8 +46,10 @@ mod tests {
 
     #[test]
     fn background_command_reports_success_and_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("worker.sqlite");
         for (id, success) in [("init", true), ("missing-command", false)] {
-            let mut worker = Worker::start(":memory:".into(), id.into(), Params::new()).unwrap();
+            let mut worker = Worker::start(path.clone(), id.into(), Params::new()).unwrap();
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
                 if let Some(result) = worker.poll() {

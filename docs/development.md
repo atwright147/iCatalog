@@ -79,6 +79,8 @@ path. After Update changes an asset's bytes, its old UID remains stable but no
 longer makes the old bytes count as a duplicate (D66).
 Paths containing non-UTF-8 bytes are reported as skipped during import/update
 until the catalogue path model can represent them byte-exactly.
+Desktop Import rejects a selected non-UTF-8 directory before dispatch and
+shows the error in the status area (D68).
 
 CLI and desktop startup read OS arguments without assuming UTF-8. The CLI passes a catalogue filename through byte-for-byte on Unix: a filesystem that supports it can open the catalogue, while one that rejects it returns an ordinary error. The CLI never substitutes replacement characters into a path. Command names, option values and positional text must be UTF-8 because the current command parameters and stored imported-media paths are strings; malformed values return a usage error. Choose a UTF-8 source path before `import`/`update` if that option is rejected.
 

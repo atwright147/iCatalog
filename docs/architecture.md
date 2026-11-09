@@ -81,9 +81,13 @@ their old bytes.
 
 The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes and validates text arguments before dispatch. Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.
 
+The desktop validates a selected import directory before placing it in the
+string-keyed command parameter, reporting a normal error for a non-UTF-8 path
+(D68).
+
 Catalogue opening treats `file:` as a literal relative filename and rejects
 special in-memory disk paths (D65); explicit test sessions use
-`Catalog::open_in_memory`.
+`Catalog::open_in_memory` or `Context::open_in_memory`.
 
 Replica cloning (D45) uses `Context::for_destination`, an in-memory session carrying the intended output path. The CLI selects this constructor for `clone`, then uses normal registry dispatch, so merely invoking the command cannot create/open/migrate the destination file. The L3 clone command and ordinary sync share staged download validation and baseline preparation. Clone publishes the verified file using a same-filesystem hard link, which atomically refuses any existing destination, then reopens the session on the completed replica. Existing files, symlinks and SQLite sidecars are rejected. No schema, dependency or HTTP endpoint change; Desktop clone/connect controls are implemented in D46.
 
