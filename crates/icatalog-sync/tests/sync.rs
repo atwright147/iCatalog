@@ -807,6 +807,59 @@ fn clone_downloads_a_ready_replica_and_the_first_edit_is_uploaded() {
     assert!(temp_files(&dir).is_empty());
 }
 
+#[test]
+fn captioned_clone_can_edit_rating_and_label_and_sync_without_changing_text() {
+    let dir = temp_dir("captioned-clone");
+    let server = make_catalogue(&dir, "server.sqlite", "captioned", 0);
+    {
+        let c = Context::open(&server).unwrap();
+        c.catalog()
+            .connection()
+            .execute_batch("INSERT INTO asset(id,uid,name,path) VALUES(1,'captioned-photo','Photo.jpg','/synthetic/Photo.jpg')")
+            .unwrap();
+        c.catalog()
+            .set_annotation(&icatalog_catalog::Annotation {
+                asset_id: 1,
+                rating: 0,
+                label: 0,
+                caption: Some("Original caption".into()),
+                headline: Some("Original headline".into()),
+                creator: Some("Original creator".into()),
+                copyright: Some("Original copyright".into()),
+                updated_utc: None,
+            })
+            .unwrap();
+    }
+    let url = format!("http://127.0.0.1:{}", start_server(server.clone()));
+    let destination = dir.join("clone.sqlite");
+    let mut clone = Context::for_destination(&destination).unwrap();
+    icatalog_sync::clone_catalogue(&mut clone, &UreqTransport::new(), &url).unwrap();
+    command(
+        &mut clone,
+        "edit",
+        &[("id", "1"), ("rating", "5"), ("label", "3")],
+    );
+    let local = clone.catalog().annotation(1).unwrap().unwrap();
+    assert_eq!(local.caption.as_deref(), Some("Original caption"));
+    assert_eq!(local.headline.as_deref(), Some("Original headline"));
+    assert_eq!(local.creator.as_deref(), Some("Original creator"));
+    assert_eq!(local.copyright.as_deref(), Some("Original copyright"));
+
+    let report = sync(&mut clone, &url);
+    assert_eq!(report.action, SyncAction::Pushed);
+    let received = Context::open(server)
+        .unwrap()
+        .catalog()
+        .annotation(1)
+        .unwrap()
+        .unwrap();
+    assert_eq!((received.rating, received.label), (5, 3));
+    assert_eq!(received.caption, local.caption);
+    assert_eq!(received.headline, local.headline);
+    assert_eq!(received.creator, local.creator);
+    assert_eq!(received.copyright, local.copyright);
+}
+
 struct NoCloneRequests;
 impl Transport for NoCloneRequests {
     fn get(&self, _: &str) -> icatalog_sync::Result<HttpResponse> {

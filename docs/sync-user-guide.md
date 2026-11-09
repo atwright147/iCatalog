@@ -125,7 +125,7 @@ The desktop remembers the URL in `<catalogue>.sync-url` beside the local catalog
 
 | Change | Where to make it |
 |---|---|
-| Rating, label, keywords | Any established client copy or the server |
+| Rating, label, keywords | Any established client copy or the server, including photos with captions or credits; those text fields are preserved |
 | Collection creation, rename, Smart rules, manual membership | Any established client copy or the server |
 | Import new media, rescan files, refresh extracted metadata | Server |
 | Generate larger previews or change their storage mode | Server |

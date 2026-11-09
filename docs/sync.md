@@ -26,7 +26,7 @@ Do original imports and rescans on the server or a standalone catalogue. To star
 
 ## Conflict policy and retries
 
-Annotation changes carry the stable asset UID, the baseline revision and the complete desired rating/label/keyword-name set. A revision covers that entire set, so two different fields on the same asset can conflict. A new keyword is named directly and created by the server when needed. Other annotation text fields and all media/thumbnail/metadata data are excluded from uploads.
+Annotation changes carry the stable asset UID, the baseline revision and the complete desired rating/label/keyword-name set. A revision covers that entire set, so two different fields on the same asset can conflict. A new keyword is named directly and created by the server when needed. Existing captions, headlines, creators and copyright fields remain intact when a replica edits a rating or label; those text fields and all media/thumbnail/metadata data are excluded from uploads.
 
 Collection changes carry UID, baseline revision, name, optional typed Smart Collection rules and sorted manual member asset UIDs. New Collections have no baseline revision. Each Collection is one conflict unit: concurrent name/rule/membership edits to the same Collection can conflict. Edits to separate Collections or assets proceed independently. Smart membership remains computed; it is never uploaded as a member list. Collection deletion and changing a Collection between manual and Smart are unsupported.
 

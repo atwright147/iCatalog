@@ -61,6 +61,63 @@ fn replica_guards_preserve_server_media_and_allow_user_annotations_and_collectio
     c.add_to_collection(1, 1).unwrap();
     assert_eq!(c.collection_assets(1).unwrap(), vec![1]);
 }
+
+#[test]
+fn replica_rating_and_label_edits_preserve_existing_server_text() {
+    let c = fixture();
+    c.connection()
+        .execute(
+            "INSERT INTO asset(id,uid,path,name) VALUES(2,'two','/two','Two')",
+            [],
+        )
+        .unwrap();
+    let original = Annotation {
+        asset_id: 1,
+        rating: 0,
+        label: 0,
+        caption: Some("A server caption".into()),
+        headline: Some("A server headline".into()),
+        creator: Some("Photographer".into()),
+        copyright: Some("Copyright holder".into()),
+        updated_utc: Some("2026-11-08T00:00:00Z".into()),
+    };
+    c.set_annotation(&original).unwrap();
+    c.set_replica_base(c.generation().unwrap().unwrap(), b"synthetic baseline")
+        .unwrap();
+    let revision_before = c.annotation_states().unwrap()[0].revision;
+
+    let mut edited = original.clone();
+    edited.rating = 5;
+    edited.label = 3;
+    edited.updated_utc = Some("2026-11-09T00:00:00Z".into());
+    c.set_annotation(&edited).unwrap();
+    assert_eq!(c.annotation(1).unwrap(), Some(edited.clone()));
+    assert_eq!(
+        c.annotation_states().unwrap()[0].revision,
+        revision_before + 1
+    );
+    c.set_annotation(&edited).unwrap();
+    assert_eq!(
+        c.annotation_states().unwrap()[0].revision,
+        revision_before + 1
+    );
+
+    let mut forbidden = edited.clone();
+    forbidden.caption = Some("Changed locally".into());
+    assert!(c.set_annotation(&forbidden).is_err());
+    assert_eq!(c.annotation(1).unwrap(), Some(edited));
+
+    let mut new_text = original;
+    new_text.asset_id = 2;
+    assert!(c.set_annotation(&new_text).is_err());
+    assert!(c.annotation(2).unwrap().is_none());
+    new_text.caption = None;
+    new_text.headline = None;
+    new_text.creator = None;
+    new_text.copyright = None;
+    c.set_annotation(&new_text).unwrap();
+    assert_eq!(c.annotation(2).unwrap(), Some(new_text));
+}
 #[test]
 fn overflow_is_an_error_and_rolls_back_the_triggering_write() {
     let c = fixture();

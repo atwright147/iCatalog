@@ -2306,7 +2306,7 @@ fn interaction_busy_controls_and_failed_edit_recover() {
     assert_eq!(lock.catalog().annotation(1).unwrap().unwrap().rating, 5);
     assert!(!h.get_by_label("Rating 4").accesskit_node().is_disabled());
     lock.catalog().connection().execute_batch(
-        "CREATE TRIGGER reject_annotation BEFORE INSERT ON annotation BEGIN SELECT RAISE(ABORT, 'test write failure'); END;"
+        "CREATE TRIGGER reject_annotation BEFORE UPDATE ON annotation BEGIN SELECT RAISE(ABORT, 'test write failure'); END;"
     ).unwrap();
     h.get_by_label("Rating 4").click();
     settle(&mut h);

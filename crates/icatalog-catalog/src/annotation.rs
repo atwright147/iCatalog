@@ -236,17 +236,14 @@ impl Catalog {
     }
 
     pub fn set_annotation(&self, a: &Annotation) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO annotation (asset_id, rating, label, caption, headline, creator, copyright, updated_utc)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(asset_id) DO UPDATE SET
-               rating = excluded.rating,
-               label = excluded.label,
-               caption = excluded.caption,
-               headline = excluded.headline,
-               creator = excluded.creator,
-               copyright = excluded.copyright,
-               updated_utc = excluded.updated_utc",
+        // Replica triggers reject inserting server-owned text. SQLite runs
+        // BEFORE INSERT triggers even when an UPSERT resolves to UPDATE, so
+        // update an existing annotation without taking that insert path.
+        let updated = self.conn.execute(
+            "UPDATE annotation SET
+               rating = ?2, label = ?3, caption = ?4, headline = ?5,
+               creator = ?6, copyright = ?7, updated_utc = ?8
+             WHERE asset_id = ?1",
             params![
                 a.asset_id,
                 a.rating,
@@ -258,6 +255,22 @@ impl Catalog {
                 a.updated_utc
             ],
         )?;
+        if updated == 0 {
+            self.conn.execute(
+                "INSERT INTO annotation (asset_id, rating, label, caption, headline, creator, copyright, updated_utc)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    a.asset_id,
+                    a.rating,
+                    a.label,
+                    a.caption,
+                    a.headline,
+                    a.creator,
+                    a.copyright,
+                    a.updated_utc
+                ],
+            )?;
+        }
         Ok(())
     }
 
