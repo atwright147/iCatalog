@@ -49,6 +49,35 @@ impl Catalog {
             .optional()?)
     }
 
+    /// Source file size/time recorded when a thumbnail was generated, without
+    /// loading its image bytes during a rescan.
+    pub fn thumbnail_derivation(&self, asset_id: i64, size_class: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT derived_from FROM thumbnail WHERE asset_id = ?1 AND size_class = ?2",
+                params![asset_id, size_class],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Keep a thumbnail's source marker current when only file metadata changed
+    /// and the verified content hash still matches the asset.
+    pub fn retag_thumbnail(
+        &self,
+        asset_id: i64,
+        size_class: i64,
+        derived_from: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE thumbnail SET derived_from = ?3 WHERE asset_id = ?1 AND size_class = ?2",
+            params![asset_id, size_class, derived_from],
+        )?;
+        Ok(())
+    }
+
     pub fn insert_metadata_raw(&self, m: &MetadataRaw) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO metadata_raw (asset_id, scheme, key, seq, value) VALUES (?1, ?2, ?3, ?4, ?5)",

@@ -140,26 +140,48 @@ fn mtime_secs(md: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// Write EXIF metadata and the grid thumbnail; returns the number of soft errors.
+/// Decode before changing an asset so an unreadable replacement cannot leave
+/// its old thumbnail paired with a new content hash.
+struct PreparedDerived {
+    exif: icatalog_media::ExifData,
+    thumbnail: icatalog_media::Thumbnail,
+    errors: u64,
+}
+
+fn prepare_derived(image_bytes: &[u8], exif_bytes: &[u8]) -> Option<PreparedDerived> {
+    let (exif, errors) = match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
+        Ok(d) => (d, 0),
+        Err(_) => (Default::default(), 1),
+    };
+    let thumbnail = icatalog_media::thumbnail_jpeg_with_orientation(
+        image_bytes,
+        icatalog_media::GRID_LONG_EDGE,
+        exif.orientation,
+    )
+    .ok()?;
+    Some(PreparedDerived {
+        exif,
+        thumbnail,
+        errors,
+    })
+}
+
+/// Write previously decoded EXIF metadata and grid thumbnail.
 fn write_derived(
     ctx: &Context,
     asset_id: i64,
     image_bytes: &[u8],
-    exif_bytes: &[u8],
     source: &str,
     file_size: i64,
     mtime: i64,
+    prepared: PreparedDerived,
 ) -> Result<u64> {
     capture_color(ctx, asset_id, image_bytes, source)?;
-    let mut errors = 0;
-    let d = match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
-        Ok(d) => d,
-        Err(_) => {
-            errors += 1;
-            Default::default()
-        }
-    };
-    let orientation = d.orientation;
+    let PreparedDerived {
+        exif: d,
+        thumbnail: t,
+        errors,
+    } = prepared;
     // A changed file can lose its EXIF. Clear stale metadata so the display
     // fallback cannot rotate the new thumbnail using an old orientation.
     if d != Default::default() || ctx.catalog().asset_meta(asset_id)?.is_some() {
@@ -180,25 +202,18 @@ fn write_derived(
             duration_ms: None,
         })?;
     }
-    match icatalog_media::thumbnail_jpeg_with_orientation(
-        image_bytes,
-        icatalog_media::GRID_LONG_EDGE,
-        orientation,
-    ) {
-        Ok(t) => ctx.catalog().insert_thumbnail(&CatalogThumbnail {
-            asset_id,
-            size_class: i64::from(icatalog_media::GRID_LONG_EDGE),
-            source: source.into(),
-            format: t.format,
-            width: t.width,
-            height: t.height,
-            orientation_applied: t.orientation_applied,
-            bytes: t.bytes,
-            derived_from: Some(format!("{file_size}:{mtime}")),
-            generator_version: icatalog_media::GENERATOR_VERSION,
-        })?,
-        Err(_) => errors += 1,
-    }
+    ctx.catalog().insert_thumbnail(&CatalogThumbnail {
+        asset_id,
+        size_class: i64::from(icatalog_media::GRID_LONG_EDGE),
+        source: source.into(),
+        format: t.format,
+        width: t.width,
+        height: t.height,
+        orientation_applied: t.orientation_applied,
+        bytes: t.bytes,
+        derived_from: Some(format!("{file_size}:{mtime}")),
+        generator_version: icatalog_media::GENERATOR_VERSION,
+    })?;
     Ok(errors)
 }
 
@@ -359,6 +374,7 @@ pub(super) fn ingest(
         None
     };
     let mut folder_changed = false;
+    let mut needs_thumbnail_repair = false;
     if let Some(a) = &mut existing {
         if let Some(fid) = folder_id {
             if a.folder_id != Some(fid) {
@@ -372,13 +388,21 @@ pub(super) fn ingest(
             .iter()
             .any(|m| m.key == "color_model");
         if a.file_size == Some(file_size) && a.mtime == Some(mtime) && has_color_info {
-            if folder_changed {
-                ctx.catalog().update_asset(a)?;
+            let derived_from = format!("{file_size}:{mtime}");
+            needs_thumbnail_repair = ctx
+                .catalog()
+                .thumbnail_derivation(a.id, i64::from(icatalog_media::GRID_LONG_EDGE))?
+                .as_deref()
+                != Some(derived_from.as_str());
+            if !needs_thumbnail_repair {
+                if folder_changed {
+                    ctx.catalog().update_asset(a)?;
+                }
+                if a.missing {
+                    ctx.catalog().set_asset_missing(a.id, false)?;
+                }
+                return Ok(Ingested::Unchanged);
             }
-            if a.missing {
-                ctx.catalog().set_asset_missing(a.id, false)?;
-            }
-            return Ok(Ingested::Unchanged);
         }
     }
     let Ok(bytes) = std::fs::read(path) else {
@@ -427,26 +451,62 @@ pub(super) fn ingest(
     let hash = icatalog_media::content_hash(&bytes);
     if let Some(mut a) = existing {
         let same = a.content_hash.as_deref() == Some(hash.as_str());
+        let prior_derivation = a
+            .file_size
+            .zip(a.mtime)
+            .map(|(size, time)| format!("{size}:{time}"));
+        let stored_derivation = ctx
+            .catalog()
+            .thumbnail_derivation(a.id, i64::from(icatalog_media::GRID_LONG_EDGE))?;
+        if same
+            && !needs_thumbnail_repair
+            && stored_derivation.is_some()
+            && stored_derivation.as_deref() == prior_derivation.as_deref()
+        {
+            a.file_size = Some(file_size);
+            a.mtime = Some(mtime);
+            a.missing = false;
+            capture_color(ctx, a.id, image_bytes, source)?;
+            ctx.catalog().update_asset(&a)?;
+            let current_derivation = format!("{file_size}:{mtime}");
+            if stored_derivation.as_deref() != Some(current_derivation.as_str()) {
+                ctx.catalog().retag_thumbnail(
+                    a.id,
+                    i64::from(icatalog_media::GRID_LONG_EDGE),
+                    &current_derivation,
+                )?;
+            }
+            return Ok(Ingested::Unchanged);
+        }
+        let Some(prepared) = prepare_derived(image_bytes, exif_bytes) else {
+            return Ok(Ingested::Skipped(if preview.is_some() {
+                SkipReason::RawNoPreview
+            } else {
+                SkipReason::NotImage
+            }));
+        };
         a.file_size = Some(file_size);
         a.mtime = Some(mtime);
         a.missing = false;
-        if same {
-            capture_color(ctx, a.id, image_bytes, source)?;
-            ctx.catalog().update_asset(&a)?;
-            return Ok(Ingested::Unchanged);
-        }
         a.content_hash = Some(hash);
         a.format = Some(format);
         a.width = width;
         a.height = height;
         ctx.catalog().update_asset(&a)?;
-        let errors = write_derived(ctx, a.id, image_bytes, exif_bytes, source, file_size, mtime)?;
+        let errors = write_derived(ctx, a.id, image_bytes, source, file_size, mtime, prepared)?;
         capture_xmp(ctx, a.id, &bytes, preview.as_deref())?;
         return Ok(Ingested::Changed { errors });
     }
     if ctx.catalog().asset_by_uid(&hash)?.is_some() {
         return Ok(Ingested::Duplicate);
     }
+    let Some(prepared) = prepare_derived(image_bytes, exif_bytes) else {
+        return Ok(Ingested::Skipped(if preview.is_some() {
+            SkipReason::RawNoPreview
+        } else {
+            SkipReason::NotImage
+        }));
+    };
     let a = Asset {
         id: 0,
         uid: hash.clone(),
@@ -472,10 +532,10 @@ pub(super) fn ingest(
         ctx,
         asset_id,
         image_bytes,
-        exif_bytes,
         source,
         file_size,
         mtime,
+        prepared,
     )?;
     if let Some(data) = capture_xmp(ctx, asset_id, &bytes, preview.as_deref())? {
         seed_xmp(ctx, asset_id, &data)?;

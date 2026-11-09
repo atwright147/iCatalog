@@ -128,7 +128,10 @@ impl Command for Update {
                         skipped += 1;
                         note_skip(&mut skips, s);
                     }
-                    Ok(Ingested::Failed) | Err(_) => errors += 1,
+                    Ok(Ingested::Failed) => errors += 1,
+                    // A catalogue write may already have changed this asset.
+                    // Propagate it so dispatch rolls back the whole rescan.
+                    Err(error) => return Err(error),
                 }
             }
         }

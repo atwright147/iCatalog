@@ -85,7 +85,7 @@ The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The
 | `open` | `icatalog open photos.sqlite` | Validate and print a summary |
 | `import` | `icatalog import photos.sqlite --path ~/Pictures --kind removable` | Import a directory (EXISTS, raster only; builds a source + folder tree, D21) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
-| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21) |
+| `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21). Unreadable files are counted/skipped; a catalogue write failure aborts and rolls back the rescan. A decodable replacement is required before its asset and thumbnail advance. |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16) |
 | `collection` | `icatalog collection photos.sqlite create --name "Favourites"` | Manual collections: list/create/show/add/remove (EXISTS, D25) |
 | `previews` | `icatalog previews photos.sqlite generate` | Generate or convert embedded/external previews (EXISTS, D20/D44) |
