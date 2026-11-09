@@ -87,7 +87,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | `init` / `new <catalogue>` | Create an empty SQLite catalogue |
 | `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
 | `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory (creating a source and mirroring its directory tree into folders, grouped under a device in the UI; `--kind local\|optical\|removable\|network`), or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
-| `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date) |
+| `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date); `find --rating 0` includes all assets and `--label 0` includes assets without annotations |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
 | `edit <catalogue> --id <id> [--rating 0-5] [--label 0-7] [--keyword <names>] [--remove-keyword <names>] [--clear-keywords true]` | EXISTS (D16): set one asset's user annotations (keywords, rating, label); the iView-style editing that used to be sketched under `update` |
 | `collection <catalogue> <action>` | EXISTS (D25/D35/D36/D37/D38): manual and Smart Collections; `list`, `create --name <name>`, `create-smart --name <name> <rules>`, `preview-smart <rules>` (read-only count/summary, D37), `rename --id <collection> --name <name>`, `rules --id <collection>`, `set-rules --id <collection> [--name <name>] <rules>`, `show --id <collection>`, `add/remove --id <collection> --asset <asset>` (manual only); `list`/`find --collection <id>` browse members |

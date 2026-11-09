@@ -176,6 +176,8 @@ CREATE INDEX idx_annotation_rating ON annotation(rating);
 CREATE INDEX idx_annotation_label ON annotation(label);
 ```
 
+`AssetQuery` and `find` treat an absent annotation row as rating 0 and label 0. A minimum rating of 0 includes every asset; an exact label of 0 includes both explicitly unlabelled assets and assets without annotations. Smart Collection rules use the same zero defaults.
+
 ### v8 additions (D57, implemented)
 
 `smart_collection.max_rating` is optional and inclusive. The at-least-one-rule constraint includes it, allowing maximum-only rules; a cross-field constraint rejects inverted bounds. Because SQLite cannot replace those table constraints in place, v8 rebuilds the rules table inside the migration transaction, copies every existing rule with NULL maximum, and recreates its membership/revision/generation triggers. Collection UIDs, revisions, manual membership and replica baseline bytes remain unchanged. The schema update advances catalogue generation once. Failed migration rolls back the entire rebuild and can be retried; reopening an upgraded catalogue is idempotent.

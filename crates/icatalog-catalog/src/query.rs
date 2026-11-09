@@ -20,9 +20,9 @@ pub struct AssetQuery {
     /// Match members of any listed collection, without duplicate assets.
     /// An empty list matches nothing; at most 32,000 ids are supported.
     pub collection_ids: Option<Vec<i64>>,
-    /// Minimum rating, inclusive.
+    /// Minimum rating, inclusive; missing annotations count as rating zero.
     pub min_rating: Option<i64>,
-    /// Exact label.
+    /// Exact label; missing annotations count as label zero.
     pub label: Option<i64>,
     /// Filter by folder id; exact unless `folder_recursive` is true.
     pub folder_id: Option<i64>,
@@ -109,13 +109,13 @@ impl Catalog {
         }
         if let Some(r) = q.min_rating {
             sql.push_str(
-                " AND EXISTS (SELECT 1 FROM annotation a WHERE a.asset_id = asset.id AND a.rating >= ?)",
+                " AND COALESCE((SELECT rating FROM annotation WHERE asset_id = asset.id), 0) >= ?",
             );
             args.push(Value::Integer(r));
         }
         if let Some(l) = q.label {
             sql.push_str(
-                " AND EXISTS (SELECT 1 FROM annotation a WHERE a.asset_id = asset.id AND a.label = ?)",
+                " AND COALESCE((SELECT label FROM annotation WHERE asset_id = asset.id), 0) = ?",
             );
             args.push(Value::Integer(l));
         }
@@ -429,6 +429,22 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1]]);
+    }
+
+    #[test]
+    fn zero_rating_and_label_include_assets_without_annotation() {
+        let (c, i) = setup();
+        c.set_annotation(&ann(i[0], 5, 2)).unwrap();
+        c.set_annotation(&ann(i[1], 0, 0)).unwrap();
+        let mut q = AssetQuery {
+            min_rating: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), i);
+        q.label = Some(0);
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1], i[2]]);
+        q.min_rating = None;
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![i[1], i[2]]);
     }
 
     #[test]

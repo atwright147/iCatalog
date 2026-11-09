@@ -252,6 +252,38 @@ fn end_to_end() {
 }
 
 #[test]
+fn find_zero_rating_and_label_include_unannotated_assets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalogue.sqlite");
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    let ctx = icatalog_engine::Context::open(&path).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "INSERT INTO asset(id,uid,path,name) VALUES
+             (1,'rated','/synthetic/RatedPhoto.jpg','RatedPhoto.jpg'),
+             (2,'zero','/synthetic/ZeroPhoto.jpg','ZeroPhoto.jpg'),
+             (3,'missing','/synthetic/MissingPhoto.jpg','MissingPhoto.jpg');
+             INSERT INTO annotation(asset_id,rating,label) VALUES (1,5,2),(2,0,0);",
+        )
+        .unwrap();
+    drop(ctx);
+
+    let rating = icatalog(&["find", p, "Photo", "--rating", "0"]);
+    assert!(rating.status.success(), "{}", s(&rating.stderr));
+    for name in ["RatedPhoto", "ZeroPhoto", "MissingPhoto"] {
+        assert!(s(&rating.stdout).contains(name));
+    }
+    let label = icatalog(&["find", p, "Photo", "--label", "0"]);
+    assert!(label.status.success(), "{}", s(&label.stderr));
+    assert!(!s(&label.stdout).contains("RatedPhoto"));
+    for name in ["ZeroPhoto", "MissingPhoto"] {
+        assert!(s(&label.stdout).contains(name));
+    }
+}
+
+#[test]
 fn collection_cli_round_trip_and_argument_errors() {
     let path =
         std::env::temp_dir().join(format!("icat-cli-collection-{}.sqlite", std::process::id()));

@@ -29,13 +29,13 @@ impl Command for Find {
                 name: "rating",
                 required: false,
                 positional: false,
-                doc: "minimum rating 0-5",
+                doc: "minimum rating 0-5; zero includes assets without annotations",
             },
             ParamSpec {
                 name: "label",
                 required: false,
                 positional: false,
-                doc: "exact label 0-7",
+                doc: "exact label 0-7; zero includes assets without annotations",
             },
             ParamSpec {
                 name: "limit",
