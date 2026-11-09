@@ -111,6 +111,16 @@ impl Catalog {
         self.conn.execute("INSERT INTO preview_blob(hash,bytes) VALUES(?1,?2) ON CONFLICT(hash) DO UPDATE SET bytes=excluded.bytes WHERE bytes IS NOT excluded.bytes",params![hash,bytes])?;
         Ok(())
     }
+    /// Remove preview bytes no longer referenced by any asset. Keep shared
+    /// blobs while at least one asset still refers to their hash.
+    pub fn prune_unreferenced_preview_blobs(&self) -> Result<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM preview_blob WHERE hash IS NULL OR hash NOT IN (
+                SELECT hash FROM preview
+            )",
+            [],
+        )?)
+    }
     pub fn store_preview(&self, p: &Preview) -> Result<()> {
         self.conn.execute("INSERT INTO preview(asset_id,hash,width,height,source_hash) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(asset_id) DO UPDATE SET hash=excluded.hash,width=excluded.width,height=excluded.height,source_hash=excluded.source_hash",params![p.asset_id,p.hash,p.width,p.height,p.source_hash])?;
         Ok(())

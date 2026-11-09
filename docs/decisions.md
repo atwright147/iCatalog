@@ -663,6 +663,16 @@ explicit reason before any lossy path or folder lookup. Update still marks
 their lossy spelling as seen, so older catalogue rows recorded under that
 spelling are not falsely flagged missing.
 
+## D67. Prune unreferenced preview blobs during preview work (2026-11-09)
+
+When Update changes source content, the existing trigger invalidates the
+preview reference but leaves its embedded blob. `previews generate`,
+`external` and `embed` now delete blobs with no remaining references in the
+same command transaction, including when the requested mode is already
+active. A blob shared by another asset stays until its final reference is
+removed. This needs no migration or protocol change and prevents old embedded
+JPEGs from surviving a successful external conversion or its later snapshots.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

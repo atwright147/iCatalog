@@ -37,6 +37,9 @@ Container packaging (D60) reuses those static binaries and validates their ELF b
 
 Smart Collection previews (D37) dispatch the read-only `collection preview-smart` action from a separate desktop worker after a 200 ms typing pause. The engine validates the draft and produces its count and readable AND summary; the catalogue counts against the shared saved-membership SQL predicate. The shell holds draft/worker state and discards stale responses. No temporary collection, new layer, dependency or schema is needed.
 
+Preview generation and storage conversion prune blobs no longer referenced by
+assets within the command transaction (D67); shared preview hashes remain.
+
 Smart Collection editing (D38) submits the editable Name and full rules through one `collection set-rules --id … --name …` command/transaction. Optional name validation reuses rename/create; omission preserves the existing name. The shell handles double-click selection/opening and the shared modal/worker, including busy guards and retained inputs on errors. No new layer, command id, dependency or schema.
 
 Desktop shell input initialization (D39) reads the macOS double-click interval through the existing safe AppKit binding and sets egui's input option; unavailable intervals fall back to 500 ms. Other platforms keep their current settings. No engine/model behavior or new dependency is involved.

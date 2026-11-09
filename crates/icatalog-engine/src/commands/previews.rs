@@ -45,6 +45,7 @@ impl Command for Previews {
                 "external"
             };
             if mode == ctx.catalog().preview_mode()? {
+                ctx.catalog().prune_unreferenced_preview_blobs()?;
                 return Ok(Outcome::text(format!("previews already {mode}")));
             }
             for hash in ctx.catalog().preview_hashes()? {
@@ -57,6 +58,7 @@ impl Command for Previews {
                 crate::previews::store(ctx.catalog(), ctx.path(), &hash, &bytes, mode)?;
             }
             ctx.catalog().set_preview_mode(mode)?;
+            ctx.catalog().prune_unreferenced_preview_blobs()?;
             return Ok(Outcome::text(format!("previews stored {mode}")));
         }
         let assets = ctx.catalog().query_assets(&Default::default())?;
@@ -138,6 +140,7 @@ impl Command for Previews {
             })?;
             generated += 1;
         }
+        ctx.catalog().prune_unreferenced_preview_blobs()?;
         Ok(Outcome::text(format!("previews: generated {generated}; cached {cached}; unavailable, changed or unsupported {failed} (run update for changed media)")))
     }
 }
