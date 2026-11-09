@@ -8,6 +8,34 @@ fn icatalog(args: &[&str]) -> Output {
         .unwrap()
 }
 
+#[test]
+fn init_treats_sqlite_uri_syntax_as_a_literal_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "file:requested.sqlite?mode=memory";
+    let created = Command::new(env!("CARGO_BIN_EXE_icatalog"))
+        .current_dir(dir.path())
+        .args(["init", name])
+        .output()
+        .unwrap();
+    assert!(created.status.success(), "{}", s(&created.stderr));
+    assert!(dir.path().join(name).is_file());
+    assert!(!dir.path().join("requested.sqlite").exists());
+    let reopened = Command::new(env!("CARGO_BIN_EXE_icatalog"))
+        .current_dir(dir.path())
+        .args(["status", name])
+        .output()
+        .unwrap();
+    assert!(reopened.status.success(), "{}", s(&reopened.stderr));
+    for special in [":memory:", ""] {
+        let output = Command::new(env!("CARGO_BIN_EXE_icatalog"))
+            .current_dir(dir.path())
+            .args(["init", special])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{special}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn non_utf8_catalogue_path_is_byte_exact_and_text_arguments_fail_cleanly() {

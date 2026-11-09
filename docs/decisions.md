@@ -641,6 +641,15 @@ single-keyword Add and Remove controls, so a displayed XMP keyword cannot be
 split into other names by the command parser. The command transaction and
 catalogue schema are unchanged.
 
+## D65. Open catalogue paths literally (2026-11-09)
+
+`Catalog::open` and `open_existing` use SQLite flags without URI mode and
+prefix relative `file:` paths with `./` before opening. SQLite builds may
+interpret that prefix as URI syntax globally even without the URI flag. Empty
+and `:memory:` paths are invalid for disk catalogue creation; intentional
+memory catalogues use `open_in_memory`. This keeps the requested filename and
+the session path aligned for later backup and replacement.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

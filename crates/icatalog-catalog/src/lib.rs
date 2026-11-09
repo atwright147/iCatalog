@@ -182,6 +182,17 @@ fn migrate(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
+/// SQLite may parse a leading `file:` as a URI even without SQLITE_OPEN_URI
+/// when its global URI option is enabled. An explicit relative prefix keeps
+/// the exact filesystem name while preventing URI interpretation.
+fn sqlite_literal_path(path: &Path) -> std::path::PathBuf {
+    if path.as_os_str().as_encoded_bytes().starts_with(b"file:") {
+        Path::new(".").join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 impl Catalog {
     fn from_conn(mut conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -189,9 +200,19 @@ impl Catalog {
         Ok(Catalog { conn })
     }
 
-    /// Open (creating if absent) a catalogue file and apply pending migrations.
+    /// Open (creating if absent) a literal catalogue file and apply pending migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::from_conn(Connection::open(path)?)
+        let path = path.as_ref();
+        if path.as_os_str().is_empty() || path == Path::new(":memory:") {
+            return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
+        }
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        Self::from_conn(Connection::open_with_flags(
+            sqlite_literal_path(path),
+            flags,
+        )?)
     }
 
     /// Open an existing catalogue without SQLite's create flag, applying pending
@@ -203,7 +224,10 @@ impl Catalog {
             return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
         }
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        Self::from_conn(Connection::open_with_flags(path, flags)?)
+        Self::from_conn(Connection::open_with_flags(
+            sqlite_literal_path(path),
+            flags,
+        )?)
     }
 
     /// Open a fresh in-memory catalogue.

@@ -20,6 +20,12 @@ fn open_existing_refuses_missing_and_special_paths_and_preserves_existing_data()
     std::fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn creating_a_catalogue_rejects_ephemeral_special_paths() {
+    assert!(Catalog::open("").is_err());
+    assert!(Catalog::open(":memory:").is_err());
+}
+
 fn asset(uid: &str, path: &str) -> Asset {
     Asset {
         id: 0,
