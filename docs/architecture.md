@@ -79,7 +79,7 @@ their old bytes.
 
 **EXISTS** (D18): the sync commands `clone`, `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
-The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes and validates text arguments before dispatch. Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.
+The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes, validates text arguments and rejects long options absent from that command's registry `ParamSpec` before opening the catalogue (D71). Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.
 
 The desktop validates a selected import directory before placing it in the
 string-keyed command parameter, reporting a normal error for a non-UTF-8 path

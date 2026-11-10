@@ -183,6 +183,27 @@ fn s(b: &[u8]) -> String {
 }
 
 #[test]
+fn unknown_long_option_rejects_edit_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("unknown-option.sqlite");
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    let catalogue = icatalog_engine::Context::open(&path).unwrap();
+    catalogue
+        .catalog()
+        .connection()
+        .execute_batch("INSERT INTO asset(id,uid,name,path) VALUES(1,'a','a','/a')")
+        .unwrap();
+    drop(catalogue);
+
+    let result = icatalog(&["edit", p, "--id", "1", "--rating", "5", "--raiting", "1"]);
+    assert_eq!(result.status.code(), Some(2));
+    assert!(s(&result.stderr).contains("unknown option '--raiting'"));
+    let catalogue = icatalog_engine::Context::open(&path).unwrap();
+    assert!(catalogue.catalog().annotation(1).unwrap().is_none());
+}
+
+#[test]
 fn version_and_help() {
     let o = icatalog(&["--version"]);
     assert!(o.status.success());

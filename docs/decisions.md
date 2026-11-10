@@ -700,6 +700,16 @@ the thumbnail untouched; a different hash follows the existing refresh path
 while preserving the asset UID. This adds disk reads to unchanged rescans but
 keeps them memory bounded. No schema, command, or Taskfile change is needed.
 
+## D71. Reject unknown CLI long options (2026-11-10)
+
+The CLI checks each `--name value` option against the selected command's
+existing non-positional `ParamSpec` entries in the engine or sync registry.
+Unknown or malformed long names return a usage error before the catalogue is
+opened, so a misspelling alongside valid edit options cannot silently apply a
+partial user request. Command metadata remains the single source for accepted
+CLI names and help text. No engine behavior, schema, or Taskfile change is
+needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

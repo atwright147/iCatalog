@@ -14,6 +14,9 @@ pub struct Invocation {
 /// `--name value` sets a parameter; extra positionals are rejected except for
 /// `find` (query), `collection` and `previews` (action), which require one positional.
 pub fn parse(command: &str, args: &[OsString]) -> std::result::Result<Invocation, String> {
+    let command_spec = icatalog_engine::find_command(command)
+        .or_else(|| icatalog_sync::find_command(command))
+        .ok_or_else(|| format!("unknown command '{command}'"))?;
     let Some(catalogue) = args.first() else {
         return Err("missing <catalogue> path".to_owned());
     };
@@ -28,7 +31,14 @@ pub fn parse(command: &str, args: &[OsString]) -> std::result::Result<Invocation
             "option names and positional arguments must be valid UTF-8".to_owned()
         })?;
         if tok.starts_with("--") && tok.len() > 2 {
-            let name = tok.trim_start_matches("--");
+            let name = tok.strip_prefix("--").unwrap_or(tok);
+            if !command_spec
+                .params()
+                .iter()
+                .any(|spec| !spec.positional && spec.name == name)
+            {
+                return Err(format!("unknown option '{tok}'"));
+            }
             let Some(value) = iter.next() else {
                 return Err(format!("option '{tok}' needs a value"));
             };
@@ -98,6 +108,9 @@ mod tests {
     #[test]
     fn unknown_option() {
         assert!(parse("list", &v(&["c", "-x"])).is_err());
+        assert!(parse("edit", &v(&["c", "--raiting", "5"])).is_err());
+        assert!(parse("list", &v(&["c", "--rating", "5"])).is_err());
+        assert!(parse("edit", &v(&["c", "---rating", "5"])).is_err());
     }
 
     #[test]
