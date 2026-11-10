@@ -69,7 +69,7 @@ Adding a crate (**Proposed** procedure):
 
 For the server/client setup, first sync, everyday desktop workflow and conflict recovery, see [Using iCatalog sync](sync-user-guide.md). The [protocol reference](sync.md) covers wire details and limits.
 
-EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`, `clone`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`.
+EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`, `clone`, `sync` and `serve`; also `--help`, `--version` and `commands` (list registered commands). Example: `cargo run -p icatalog-cli -- init photos.sqlite`; import a raster directory with `cargo run -p icatalog-cli -- import photos.sqlite --path <dir>` (add `--kind optical|removable|network` to declare the source kind; default `local`); set annotations with `cargo run -p icatalog-cli -- edit photos.sqlite --id 3 --rating 5 --keyword sunset`. Options use `--name value`; a following `--option` is treated as a missing value and rejected (D78).
 
 Catalogue paths are opened as literal filenames (D65), including names that
 begin `file:`. Empty and `:memory:` paths are rejected for disk commands.

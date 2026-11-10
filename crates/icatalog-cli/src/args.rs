@@ -45,6 +45,11 @@ pub fn parse(command: &str, args: &[OsString]) -> std::result::Result<Invocation
             let value = value
                 .to_str()
                 .ok_or_else(|| format!("value for option '{tok}' must be valid UTF-8"))?;
+            if value.starts_with("--") {
+                return Err(format!(
+                    "option '{tok}' needs a value (got option '{value}')"
+                ));
+            }
             params.set(name, value);
         } else if tok.starts_with('-') {
             return Err(format!("unknown option '{tok}'"));
@@ -116,6 +121,14 @@ mod tests {
     #[test]
     fn option_missing_value() {
         assert!(parse("list", &v(&["c", "--limit"])).is_err());
+        assert!(parse("edit", &v(&["c", "--id", "1", "--keyword", "--label"])).is_err());
+        assert_eq!(
+            parse("edit", &v(&["c", "--id", "1", "--rating", "-1"]))
+                .unwrap()
+                .params
+                .get("rating"),
+            Some("-1")
+        );
     }
 
     #[test]

@@ -360,6 +360,38 @@ fn find_zero_rating_and_label_include_unannotated_assets() {
 }
 
 #[test]
+fn missing_keyword_value_cannot_be_saved_as_an_option_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalogue.sqlite");
+    let p = path.to_str().unwrap();
+    assert!(icatalog(&["init", p]).status.success());
+    let ctx = icatalog_engine::Context::open(&path).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute(
+            "INSERT INTO asset(id,uid,path,name) VALUES (1,'photo','/photo.jpg','photo.jpg')",
+            [],
+        )
+        .unwrap();
+    drop(ctx);
+
+    let output = icatalog(&["edit", p, "--id", "1", "--keyword", "--label"]);
+    assert!(!output.status.success());
+    assert!(s(&output.stderr).contains("needs a value"));
+    let ctx = icatalog_engine::Context::open_existing(&path).unwrap();
+    let keywords: i64 = ctx
+        .catalog()
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM asset_keyword WHERE asset_id=1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(keywords, 0);
+}
+
+#[test]
 fn collection_cli_round_trip_and_argument_errors() {
     let path =
         std::env::temp_dir().join(format!("icat-cli-collection-{}.sqlite", std::process::id()));

@@ -768,6 +768,14 @@ previous missing state, since a permissions or I/O failure does not prove
 that the file is gone. Offline source handling is unchanged. No schema,
 command or Taskfile change is needed.
 
+## D78. Treat an option token as a missing CLI value (2026-11-10)
+
+The CLI's `--name value` parser rejects a following `--option` token as a
+missing value. This prevents an incomplete edit such as `--keyword --label`
+from saving `--label` as a keyword. Single-dash negative values continue to
+reach command validation. A literal value beginning with `--` is not accepted
+by this CLI syntax. No engine, schema or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
