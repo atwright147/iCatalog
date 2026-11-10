@@ -80,6 +80,31 @@ fn rating_and_label() {
 }
 
 #[test]
+fn unchanged_rating_and_label_do_not_write_annotations() {
+    let (mut ctx, a, b, p) = seed("noop-annotation");
+    edit(&mut ctx, a, &[("rating", "4"), ("label", "2")]);
+    let before = ctx.catalog().annotation(a).unwrap().unwrap();
+    let generation = ctx.catalog().generation().unwrap();
+    let revision = ctx.catalog().annotation_states().unwrap()[0].revision;
+
+    let result = keep(edit(&mut ctx, a, &[("rating", "4"), ("label", "2")]));
+    assert!(result.contains("nothing changed"));
+    assert_eq!(ctx.catalog().annotation(a).unwrap(), Some(before));
+    assert_eq!(ctx.catalog().generation().unwrap(), generation);
+    assert_eq!(
+        ctx.catalog().annotation_states().unwrap()[0].revision,
+        revision
+    );
+
+    let result = keep(edit(&mut ctx, b, &[("rating", "0"), ("label", "0")]));
+    assert!(result.contains("nothing changed"));
+    assert!(ctx.catalog().annotation(b).unwrap().is_none());
+    assert_eq!(ctx.catalog().generation().unwrap(), generation);
+    drop(ctx);
+    let _ = std::fs::remove_file(p);
+}
+
+#[test]
 fn preserves_other_annotation_fields() {
     let (mut ctx, a, _, p) = seed("pres");
     let ann = Annotation {

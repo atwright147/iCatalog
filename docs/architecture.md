@@ -19,7 +19,7 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 | Crate | Layer | Depends on | Role | Status |
 |---|---|---|---|---|
 | `ivc` (`ivc-file-research/crates/ivc`) | L0 | nothing in the workspace | Legacy `.ivc` parser | EXISTS |
-| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`) | SQLite schema (migrations v1-v8) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
+| `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`, `functions`) | SQLite schema (migrations v1-v8) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13); optional EXIF orientation for thumbnails/display (D31); `raw` (embedded JPEG preview of DNG/CR2/NEF/ARW/PEF/RAF/CR3) and `xmp` (packet locate + tolerant parse) modules (D17) | EXISTS |
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq` | Protocol v2 (D20/D44): NAS-side `serve`, verified replica `clone` (D45), revision-checked annotation/Collection uploads, catalogue/preview pulls, embedded replica baseline, per-entity conflict backups, verified atomic replacement; exposes its own command registry | EXISTS |
@@ -122,6 +122,12 @@ UI verification (D24): `egui_kittest` is a UI-only dev dependency. Headless test
 Folders rows (D42) use selectable buttons filling the remaining sidebar width, with left-aligned names, truncation and full-name hover text. All/Unassigned fill the content area; device and folder rows retain separate disclosure arrows and indentation. The device/folder tree scrolls independently within 45% of the sidebar height remaining after the fixed Folders/All/Unassigned controls (D62), leaving Collections reachable. Selection and collapse behavior remain shell state.
 
 Folder browsing (D43) sets `AssetQuery::folder_recursive` for desktop selections. The catalogue query follows `folder.parent_id` with a recursive CTE using `UNION` to deduplicate visited ids and terminate cycles. It filters the selected folder and descendants before ordering/paging, composing with search and other filters. Expansion state does not affect membership. Exact-folder queries remain the API default; the shell holds only selection/expansion state. No schema, command or dependency change.
+
+Asset name/path substring filters and Smart Collection text/camera/lens rules
+use a Rust Unicode-lowercase SQLite function registered on each catalogue
+connection (D83). Their predicates remain in SQL before ordering and paging.
+The engine `edit` command skips annotation writes when a requested rating or
+label already has that value (D82), preserving timestamps and generation.
 
 The Collections scroll area fills the remaining sidebar height (D49), replacing its former 180-point cap. The standalone asset-total footer/separator is removed. The New Collection button remains above the scrolling rows, which retain per-Collection counts and selection behavior. This is shell layout only.
 

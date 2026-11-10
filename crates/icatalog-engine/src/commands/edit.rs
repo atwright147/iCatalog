@@ -148,10 +148,12 @@ impl Command for Edit {
                 copyright: None,
                 updated_utc: None,
             });
+            let mut annotation_changed = false;
             if let Some(v) = &rating {
                 let r = bounded(v, "rating", 5)?;
                 if r != ann.rating {
                     ann.rating = r;
+                    annotation_changed = true;
                     changes.push(format!("rating {r}"));
                 }
             }
@@ -159,11 +161,14 @@ impl Command for Edit {
                 let l = bounded(v, "label", 7)?;
                 if l != ann.label {
                     ann.label = l;
+                    annotation_changed = true;
                     changes.push(format!("label {l}"));
                 }
             }
-            ann.updated_utc = Some(utc_iso_now());
-            ctx.catalog().set_annotation(&ann)?;
+            if annotation_changed {
+                ann.updated_utc = Some(utc_iso_now());
+                ctx.catalog().set_annotation(&ann)?;
+            }
         }
 
         if changes.is_empty() {

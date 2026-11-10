@@ -12,6 +12,7 @@
 use std::fmt;
 use std::path::Path;
 
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{params, Connection, OpenFlags};
 
 mod annotation;
@@ -206,9 +207,29 @@ fn sqlite_literal_path(path: &Path) -> std::path::PathBuf {
     }
 }
 
+fn register_text_search(conn: &Connection) -> Result<()> {
+    conn.create_scalar_function(
+        "icatalog_contains_ci",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            let haystack: Option<String> = ctx.get(0)?;
+            let needle: Option<String> = ctx.get(1)?;
+            Ok(match (haystack, needle) {
+                (Some(haystack), Some(needle)) => {
+                    haystack.to_lowercase().contains(&needle.to_lowercase())
+                }
+                _ => false,
+            })
+        },
+    )?;
+    Ok(())
+}
+
 impl Catalog {
     fn from_conn(mut conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        register_text_search(&conn)?;
         migrate(&mut conn)?;
         Ok(Catalog { conn })
     }

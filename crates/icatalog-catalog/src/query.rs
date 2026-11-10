@@ -65,18 +65,16 @@ impl Catalog {
         );
         let mut args: Vec<Value> = Vec::new();
         if let Some(t) = &q.text_like {
-            sql.push_str(
-                " AND (instr(lower(name), lower(?)) > 0 OR instr(lower(path), lower(?)) > 0)",
-            );
+            sql.push_str(" AND (icatalog_contains_ci(name, ?) OR icatalog_contains_ci(path, ?))");
             args.push(Value::Text(t.clone()));
             args.push(Value::Text(t.clone()));
         }
         if let Some(t) = &q.name_like {
-            sql.push_str(" AND instr(lower(name), lower(?)) > 0");
+            sql.push_str(" AND icatalog_contains_ci(name, ?)");
             args.push(Value::Text(t.clone()));
         }
         if let Some(t) = &q.path_like {
-            sql.push_str(" AND instr(lower(path), lower(?)) > 0");
+            sql.push_str(" AND icatalog_contains_ci(path, ?)");
             args.push(Value::Text(t.clone()));
         }
         if let Some(k) = &q.keyword {
@@ -305,6 +303,34 @@ mod tests {
         assert!(q(|q| q.name_like = Some("docs".into())).is_empty());
         assert_eq!(q(|q| q.path_like = Some("beach".into())), vec![i[0]]);
         assert!(q(|q| q.path_like = Some("three.tif2".into())).is_empty());
+    }
+
+    #[test]
+    fn unicode_case_variants_match_names_and_paths() {
+        let c = Catalog::open_in_memory().unwrap();
+        c.insert_catalogue("unicode-search", "t").unwrap();
+        let name_id = c
+            .insert_asset(&mk("name", "/photos/café.jpg", "café.jpg"))
+            .unwrap();
+        let path_id = c
+            .insert_asset(&mk("path", "/Été/summer.jpg", "summer.jpg"))
+            .unwrap();
+
+        let q = AssetQuery {
+            text_like: Some("CAFÉ".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![name_id]);
+        let q = AssetQuery {
+            name_like: Some("CAFÉ".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![name_id]);
+        let q = AssetQuery {
+            path_like: Some("été".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![path_id]);
     }
 
     #[test]

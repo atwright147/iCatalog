@@ -801,6 +801,26 @@ again before replacement. The existing HTTP sync regression runs on Windows
 CI as well as Unix. This adds a Windows-only engine dependency and a focused
 Windows CI job; no schema, protocol or Taskfile change is needed.
 
+## D82. Avoid annotation writes for unchanged edit values (2026-11-10)
+
+The `edit` command writes an annotation only when a requested rating or label
+differs from its current value. Repeating a value, including zero on an asset
+without an annotation row, preserves `updated_utc` and catalogue generation.
+Keyword edits in the same command still apply normally. This keeps the
+"nothing changed" result accurate and avoids an unnecessary sync pull. No
+schema, protocol, command or Taskfile change is needed.
+
+## D83. Match Unicode case variants in catalogue text searches (2026-11-10)
+
+SQLite's built-in `lower` handles ASCII but misses names such as `café.jpg`
+when searched as `CAFÉ`. Register a deterministic, connection-local SQLite
+function from Rust using Unicode lowercase conversion, and use it for asset
+name/path substring filters and Smart Collection text, camera and lens rules.
+The predicate stays in SQL before ordering and paging. Exact keyword matching
+and ASCII-case-insensitive format rules retain their existing behavior.
+`icatalog-catalog` enables rusqlite's `functions` feature; there is no schema,
+protocol, command or Taskfile change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

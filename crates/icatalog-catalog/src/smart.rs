@@ -114,13 +114,13 @@ pub(crate) const SMART_MATCH: &str = "
  (sc.format IS NULL OR lower(asset.format) = lower(sc.format))
  AND (sc.captured_from IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND substr(m.captured_local,1,10)>=sc.captured_from))
  AND (sc.captured_to IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND substr(m.captured_local,1,10)<=sc.captured_to))
- AND (sc.camera IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND instr(lower(coalesce(m.make,'') || ' ' || coalesce(m.model,'')),lower(sc.camera))>0))
- AND (sc.lens IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND instr(lower(m.lens),lower(sc.lens))>0))
+ AND (sc.camera IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND icatalog_contains_ci(coalesce(m.make,'') || ' ' || coalesce(m.model,''),sc.camera)))
+ AND (sc.lens IS NULL OR EXISTS (SELECT 1 FROM asset_meta m WHERE m.asset_id=asset.id AND icatalog_contains_ci(m.lens,sc.lens)))
  AND (sc.min_rating IS NULL OR coalesce((SELECT rating FROM annotation WHERE asset_id=asset.id),0)>=sc.min_rating)
  AND (sc.max_rating IS NULL OR coalesce((SELECT rating FROM annotation WHERE asset_id=asset.id),0)<=sc.max_rating)
  AND (sc.label IS NULL OR coalesce((SELECT label FROM annotation WHERE asset_id=asset.id),0)=sc.label)
  AND (sc.keyword IS NULL OR EXISTS (SELECT 1 FROM asset_keyword ak JOIN keyword k ON k.id=ak.keyword_id WHERE ak.asset_id=asset.id AND k.name=sc.keyword))
- AND (sc.text IS NULL OR instr(lower(asset.name),lower(sc.text))>0 OR instr(lower(asset.path),lower(sc.text))>0)";
+ AND (sc.text IS NULL OR icatalog_contains_ci(asset.name,sc.text) OR icatalog_contains_ci(asset.path,sc.text))";
 
 pub(crate) fn membership_sql() -> String {
     format!("((sc.collection_id IS NULL AND EXISTS (SELECT 1 FROM collection_asset ca WHERE ca.collection_id=c.id AND ca.asset_id=asset.id)) OR (sc.collection_id IS NOT NULL AND ({SMART_MATCH})))")

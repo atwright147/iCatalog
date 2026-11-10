@@ -20,6 +20,33 @@ fn smart(c: &Catalog, rules: SmartRules) -> i64 {
 }
 
 #[test]
+fn unicode_case_variants_match_smart_text_camera_and_lens() {
+    let c = Catalog::open_in_memory().unwrap();
+    c.insert_catalogue("unicode-smart", "t").unwrap();
+    c.connection()
+        .execute_batch(
+            "INSERT INTO asset(id,uid,name,path) VALUES (1,'a','café.jpg','/Été/café.jpg');
+        INSERT INTO asset_meta(asset_id,make,model,lens) VALUES (1,'NIKON','Élite','Étoile');",
+        )
+        .unwrap();
+    let id = smart(
+        &c,
+        SmartRules {
+            text: Some("CAFÉ".into()),
+            camera: Some("élite".into()),
+            lens: Some("éTOILE".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(c.collection_assets(id).unwrap(), vec![1]);
+    assert_eq!(
+        c.count_smart_matches(&c.smart_rules(id).unwrap().unwrap())
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn live_rules_counts_memberships_union_and_paging_share_the_same_results() {
     let c = fixture();
     let id = smart(
