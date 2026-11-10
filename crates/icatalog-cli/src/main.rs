@@ -96,12 +96,10 @@ fn dispatch_cli(cmd: &str, rest: &[OsString]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let session = if inv.command == "clone" {
-        icatalog_engine::Context::for_destination(&inv.catalogue)
-    } else if inv.command == "serve" {
-        icatalog_engine::Context::open_existing(&inv.catalogue)
-    } else {
-        icatalog_engine::Context::open(&inv.catalogue)
+    let session = match inv.command.as_str() {
+        "clone" => icatalog_engine::Context::for_destination(&inv.catalogue),
+        "init" => icatalog_engine::Context::open(&inv.catalogue),
+        _ => icatalog_engine::Context::open_existing(&inv.catalogue),
     };
     let mut ctx = match session {
         Ok(c) => c,

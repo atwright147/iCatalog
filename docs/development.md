@@ -73,6 +73,8 @@ EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`
 
 Catalogue paths are opened as literal filenames (D65), including names that
 begin `file:`. Empty and `:memory:` paths are rejected for disk commands.
+Only CLI `init` creates a missing catalogue; `clone` publishes a verified new
+destination, and every other CLI command requires an existing file (D72).
 
 Import skips a path already catalogued and content currently present at another
 path. After Update changes an asset's bytes, its old UID remains stable but no
@@ -98,7 +100,7 @@ The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The
 | Subcommand | Example | Purpose |
 |---|---|---|
 | `init` / `new` | `icatalog init photos.sqlite` | Create an empty catalogue |
-| `open` | `icatalog open photos.sqlite` | Validate and print a summary |
+| `open` | `icatalog open photos.sqlite` | Validate an existing catalogue and print a summary; a missing file is an error |
 | `import` | `icatalog import photos.sqlite --path ~/Pictures --kind removable` | Import a directory (EXISTS, raster only; builds a source + folder tree, D21) or a `.ivc`/`.mpcatalog` (not built) |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21). Unreadable files are counted/skipped; a catalogue write failure aborts and rolls back the rescan. A decodable replacement is required before its asset and thumbnail advance. |

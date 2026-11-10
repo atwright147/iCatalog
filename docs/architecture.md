@@ -23,7 +23,7 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13); optional EXIF orientation for thumbnails/display (D31); `raw` (embedded JPEG preview of DNG/CR2/NEF/ARW/PEF/RAF/CR3) and `xmp` (packet locate + tolerant parse) modules (D17) | EXISTS |
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
 | `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq` | Protocol v2 (D20/D44): NAS-side `serve`, verified replica `clone` (D45), revision-checked annotation/Collection uploads, catalogue/preview pulls, embedded replica baseline, per-entity conflict backups, verified atomic replacement; exposes its own command registry | EXISTS |
-| `icatalog-cli` | L4 | `icatalog-engine`, `icatalog-sync` | Binary `icatalog`: thin wrapper dispatching engine + sync commands by id (`init/open/import/list/find/status/update/edit/collection/previews/clone/sync/serve`, `--help`, `--version`, `commands`) | EXISTS |
+| `icatalog-cli` | L4 | `icatalog-engine`, `icatalog-sync` | Binary `icatalog`: thin wrapper dispatching engine + sync commands by id (`init/open/import/list/find/status/update/edit/collection/previews/clone/sync/serve`, `--help`, `--version`, `commands`); only `init` creates a missing catalogue (D72) | EXISTS |
 | `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `icatalog-sync`, `eframe`/`egui`, `rfd`, `muda` (native macOS menu), `chrono` (date validation/locales), Foundation/Windows native regional date APIs | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`/`collection`); desktop Connect/Clone and explicit Sync dialogs (D46); wasm PLANNED | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
 | `xtask/` (repo root) | tooling | none | `cargo xtask layers`, `ci` | PLANNED |
@@ -80,6 +80,11 @@ their old bytes.
 **EXISTS** (D18): the sync commands `clone`, `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
 The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes, validates text arguments and rejects long options absent from that command's registry `ParamSpec` before opening the catalogue (D71). Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.
+
+CLI `init` uses the create-capable session; `clone` prepares a destination
+without opening it. Every other CLI command opens an existing file without
+SQLite's create flag, so a mistyped path cannot leave an empty catalogue
+(D72). The desktop's separate startup behavior remains as documented below.
 
 The desktop validates a selected import directory before placing it in the
 string-keyed command parameter, reporting a normal error for a non-UTF-8 path

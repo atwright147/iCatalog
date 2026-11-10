@@ -275,6 +275,33 @@ fn serve_requires_an_existing_file_without_creating_a_catalogue() {
 }
 
 #[test]
+fn commands_other_than_init_refuse_missing_catalogues_without_creating_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing.sqlite");
+    let p = path.to_str().unwrap();
+    for (command, tail) in [
+        ("open", &[][..]),
+        ("list", &[][..]),
+        ("find", &["photo"][..]),
+        ("status", &[][..]),
+        ("collection", &["list"][..]),
+        ("previews", &["status"][..]),
+        ("update", &[][..]),
+        ("edit", &["--id", "1", "--rating", "5"][..]),
+    ] {
+        let mut args = vec![command, p];
+        args.extend_from_slice(tail);
+        let output = icatalog(&args);
+        assert!(!output.status.success(), "{command}: {}", s(&output.stdout));
+        assert!(s(&output.stderr).contains("existing file"));
+        assert!(!path.exists(), "{command} created a catalogue");
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    assert!(icatalog(&["init", p]).status.success());
+    assert!(icatalog(&["open", p]).status.success());
+}
+
+#[test]
 fn unknown_command_fails() {
     let o = icatalog(&["frobnicate"]);
     assert!(!o.status.success());

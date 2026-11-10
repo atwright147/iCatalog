@@ -710,6 +710,16 @@ partial user request. Command metadata remains the single source for accepted
 CLI names and help text. No engine behavior, schema, or Taskfile change is
 needed.
 
+## D72. Require existing catalogues for CLI commands other than init (2026-11-10)
+
+CLI startup uses the create-capable `Context::open` only for `init`; `clone`
+continues to prepare a new destination without opening it. All other commands
+use `Context::open_existing`, which checks the path and omits SQLite's create
+flag. A missing or mistyped path now fails without leaving an empty schema
+file, including for read-only commands and failed edits. Existing catalogue
+behavior, desktop startup, schema, sync protocol and Taskfile commands are
+unchanged.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

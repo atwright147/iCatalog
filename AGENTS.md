@@ -85,7 +85,7 @@ Requirements: start and update a catalogue from a CLI, and install that CLI on a
 | Subcommand | Purpose |
 |---|---|
 | `init` / `new <catalogue>` | Create an empty SQLite catalogue |
-| `open <catalogue>` | Open/validate and print a summary (and later launch the GUI on it) |
+| `open <catalogue>` | Open/validate an existing catalogue and print a summary (and later launch the GUI on it); only `init` creates a missing CLI catalogue |
 | `import <catalogue> <path>` | EXISTS for raster directories (D13); legacy `.ivc` not built. Import a photo/media directory (creating a source and mirroring its directory tree into folders, grouped under a device in the UI; `--kind local\|optical\|removable\|network`), or a legacy `.ivc`/`.mpcatalog` (via crate `ivc`) |
 | `list` / `find <query>` | Browse and search items (name, path, keyword, rating, label, date); `find --rating 0` includes all assets and `--label 0` includes assets without annotations |
 | `update <catalogue> [--path <dir>]` | EXISTS (D14): rescan folders for added/changed/missing files |
