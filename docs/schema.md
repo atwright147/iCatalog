@@ -76,7 +76,7 @@ CREATE TABLE asset (
   color_space INTEGER,
   mtime       INTEGER,                 -- Unix epoch seconds (UTC instant)
   content_hash TEXT,
-  missing     INTEGER NOT NULL DEFAULT 0  -- v3 (D14): 1 when the last rescan did not find the file
+  missing     INTEGER NOT NULL DEFAULT 0  -- v3 (D14/D77): 1 when a rescan confirmed the file absent
 );
 
 -- PROPOSED: canonical grid thumbnails (D8); the wasm client and sync cannot regenerate them

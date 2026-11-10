@@ -5,6 +5,7 @@ use super::scan::{ingest, note_skip, parse_recursive, skip_rows, walk, Ingested,
 use crate::{Command, Context, EngineError, Outcome, ParamSpec, Params, Result};
 use icatalog_catalog::{Asset, AssetQuery};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub(crate) struct Update;
@@ -161,11 +162,15 @@ impl Command for Update {
             if !in_scope || seen.contains(&a.path) {
                 continue;
             }
-            if std::fs::symlink_metadata(p).is_err() {
-                missing += 1;
-                if !a.missing {
-                    ctx.catalog().set_asset_missing(a.id, true)?;
+            match std::fs::symlink_metadata(p) {
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    missing += 1;
+                    if !a.missing {
+                        ctx.catalog().set_asset_missing(a.id, true)?;
+                    }
                 }
+                Err(_) => errors += 1,
+                Ok(_) => {}
             }
         }
         let mut rows: Vec<Vec<String>> = [

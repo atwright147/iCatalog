@@ -760,6 +760,14 @@ IDs without silently normalising them. The server refuses to start with a
 historical invalid ID, because its snapshot header cannot carry that ID.
 No schema, wire format or Taskfile change is needed.
 
+## D77. Distinguish absent media from inaccessible media (2026-11-10)
+
+Update marks an unwalked asset missing only when its path probe returns
+`NotFound`. Other probe errors count as scan errors and preserve the asset's
+previous missing state, since a permissions or I/O failure does not prove
+that the file is gone. Offline source handling is unchanged. No schema,
+command or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

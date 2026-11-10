@@ -335,6 +335,26 @@ fn missing_then_restored() {
     assert_eq!(all(&ctx).len(), 2);
 }
 
+#[cfg(unix)]
+#[test]
+fn unreadable_nested_directory_does_not_mark_existing_asset_missing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (mut ctx, dir) = setup("unreadable-nested");
+    let nested = dir.join("sub");
+    let asset = all(&ctx).into_iter().find(|a| a.name == "b.png").unwrap();
+    let original = std::fs::metadata(&nested).unwrap().permissions();
+    std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let inaccessible = std::fs::read_dir(&nested).is_err();
+    let outcome = update(&mut ctx, Some(&dir));
+    std::fs::set_permissions(&nested, original).unwrap();
+    if inaccessible {
+        assert_eq!(metric(&outcome, "missing"), 0);
+        assert!(metric(&outcome, "errors") > 0);
+        assert!(!ctx.catalog().asset(asset.id).unwrap().unwrap().missing);
+    }
+}
+
 #[test]
 fn no_path_mode() {
     let (mut ctx, dir) = setup("nopath");
