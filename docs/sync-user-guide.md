@@ -168,9 +168,9 @@ Use the IDs from the current local catalogue, including when editing Collection 
 
 Read the output even when the command exits successfully: deferred sync and reported conflicts are normal results, not proof that every edit reached the server. Keep the backup paths printed by sync until you have checked the result.
 
-Use the real catalogue file path for sync. A symlink is refused; on Unix,
-a catalogue with multiple hard links is also refused. Replacement would leave
-the other pathname stale (D74).
+Use the real catalogue file path for sync. A symlink is refused; on Unix and
+Windows, a catalogue with multiple hard links is also refused. Replacement would leave
+the other pathname stale (D74/D81).
 
 Uploads contain user edits, but refreshing a catalogue currently downloads the whole SQLite catalogue. A small rating change can therefore be followed by a much larger download, particularly with an embedded preview store.
 

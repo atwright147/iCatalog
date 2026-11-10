@@ -24,10 +24,10 @@ Afterward `replica_base` stores the last server generation plus a bounded binary
 
 Do original imports and rescans on the server or a standalone catalogue. To start a replica, use `clone` and then edit, or manually copy the server catalogue and run `sync` before editing. Existing local-only work remains recoverable from the first-sync backup; it is not automatically merged without a known base.
 
-Run `sync` with the real catalogue filename, not a symlink. On Unix, use a
-separate copy rather than a hard-linked catalogue. Sync and preview fetches
+Run `sync` with the real catalogue filename, not a symlink. On Unix and Windows,
+use a separate copy rather than a hard-linked catalogue. Sync and preview fetches
 check the pathname before contacting the server; catalogue sync checks again
-before replacement (D74). Replacing one linked name would leave its other
+before replacement (D74/D81). Replacing one linked name would leave its other
 name behind as a stale, separate copy.
 
 ## Conflict policy and retries

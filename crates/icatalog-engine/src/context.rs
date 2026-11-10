@@ -63,7 +63,7 @@ impl Context {
     }
 
     /// Require a regular pathname before replacing this catalogue file.
-    /// Replacing a symlink would detach the new replica from its original target.
+    /// Replacing a linked pathname would detach the new replica from its aliases.
     pub fn ensure_replaceable_path(&self) -> Result<()> {
         let metadata = std::fs::symlink_metadata(&self.path)?;
         let kind = metadata.file_type();
@@ -81,6 +81,16 @@ impl Context {
         {
             use std::os::unix::fs::MetadataExt;
             if metadata.nlink() > 1 {
+                return Err(EngineError::Unsupported(
+                    "sync cannot replace a catalogue with hard links; use a separate copy".into(),
+                ));
+            }
+        }
+        #[cfg(windows)]
+        {
+            let file = std::fs::File::open(&self.path)?;
+            let info = winapi_util::file::information(&file)?;
+            if info.number_of_links() > 1 {
                 return Err(EngineError::Unsupported(
                     "sync cannot replace a catalogue with hard links; use a separate copy".into(),
                 ));

@@ -9,5 +9,8 @@ license = "MIT"
 icatalog-catalog = { path = "../icatalog-catalog" }
 icatalog-media = { path = "../icatalog-media" }
 
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"
+
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

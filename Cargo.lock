@@ -1946,6 +1946,7 @@ dependencies = [
  "icatalog-catalog",
  "icatalog-media",
  "image",
+ "winapi-util",
 ]
 
 [[package]]

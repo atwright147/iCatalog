@@ -223,7 +223,7 @@ fn sync_refuses_a_catalogue_symlink_without_splitting_the_replica() {
     assert_eq!(std::fs::read(&target).unwrap(), original);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn sync_refuses_a_catalogue_hard_link_without_splitting_the_replica() {
     let dir = temp_dir("hardlink-sync");
@@ -236,6 +236,9 @@ fn sync_refuses_a_catalogue_hard_link_without_splitting_the_replica() {
     let mut replica = Context::open(&alias).unwrap();
 
     let error = client::sync_once(&mut replica, &UreqTransport::new(), &url).unwrap_err();
+    assert!(error.to_string().contains("hard links"), "{error}");
+    let hash = format!("sha256:{}", "0".repeat(64));
+    let error = client::fetch_preview(&replica, &UreqTransport::new(), &url, &hash).unwrap_err();
     assert!(error.to_string().contains("hard links"), "{error}");
     assert_eq!(std::fs::read(&alias).unwrap(), original);
     assert_eq!(std::fs::read(&target).unwrap(), original);

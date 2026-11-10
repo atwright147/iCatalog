@@ -98,8 +98,10 @@ Replica cloning (D45) uses `Context::for_destination`, an in-memory session carr
 
 Ordinary sync and preview fetches require a regular catalogue pathname before
 any network work. Catalogue sync rechecks immediately before replacement
-(D74). Symlinks, and multi-link files on Unix, are refused because replacing
-one pathname would split the replica from its other name.
+(D74/D81). Symlinks, and multi-link files on Unix and Windows, are refused
+because replacing one pathname would split the replica from its other name.
+Windows link counts come from a safe handle-information wrapper in a
+Windows-only engine dependency.
 
 Desktop sync workers and recovery reopening use an existing, initialised
 catalogue (D75). Only the explicit desktop startup/Init path creates one;

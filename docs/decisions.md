@@ -792,6 +792,15 @@ keeps the delete and changed asset/thumbnail atomic; user annotations and
 keywords remain authoritative and are not reseeded on Update. No migration,
 command or Taskfile change is needed.
 
+## D81. Check Windows catalogue hard-link counts (2026-11-10)
+
+Extend D74's replacement guard to Windows by opening the catalogue file and
+reading its handle's link count through `winapi-util`'s safe file-information
+wrapper. Refuse a count above one before sync or preview fetch, and check
+again before replacement. The existing HTTP sync regression runs on Windows
+CI as well as Unix. This adds a Windows-only engine dependency and a focused
+Windows CI job; no schema, protocol or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

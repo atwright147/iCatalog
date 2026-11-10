@@ -6,6 +6,13 @@ on:
 permissions:
   contents: read
 jobs:
+  windows-hard-link:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked -p icatalog-sync --test sync sync_refuses_a_catalogue_hard_link_without_splitting_the_replica -- --exact
   headless-and-visual:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
