@@ -77,6 +77,9 @@ begin `file:`. Empty and `:memory:` paths are rejected for disk commands.
 Import skips a path already catalogued and content currently present at another
 path. After Update changes an asset's bytes, its old UID remains stable but no
 longer makes the old bytes count as a duplicate (D66).
+Update hashes files even when size and stored modification time match, so a
+same-size replacement with the original timestamp refreshes the asset and
+thumbnail (D70). An unchanged file is read in bounded chunks without decoding.
 Paths containing non-UTF-8 bytes are reported as skipped during import/update
 until the catalogue path model can represent them byte-exactly.
 Desktop Import rejects a selected non-UTF-8 directory before dispatch and

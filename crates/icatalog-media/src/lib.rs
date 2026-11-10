@@ -18,7 +18,7 @@ mod xmp;
 pub use xmp::{parse_xmp, read_xmp, xmp_packet, XmpData};
 
 use std::fmt;
-use std::io::{BufRead, Cursor, Seek};
+use std::io::{BufRead, Cursor, Read, Seek};
 
 use exif::{In, Tag, Value};
 use image::{metadata::Orientation, DynamicImage, ImageFormat, ImageReader, Limits};
@@ -348,7 +348,36 @@ fn decode_image(bytes: &[u8]) -> Result<DynamicImage> {
 
 /// SHA-256 of `bytes` as `sha256:<lowercase hex>`.
 pub fn content_hash(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
+    format_content_hash(&Sha256::digest(bytes))
+}
+
+/// SHA-256 of a reader without retaining its bytes; also returns bytes read.
+/// Callers can wrap the reader in `take` to enforce their own size limit.
+pub fn content_hash_reader(mut reader: impl Read) -> std::io::Result<(String, u64)> {
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut count = 0u64;
+    loop {
+        let n = match reader.read(&mut buffer) {
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        if n == 0 {
+            break;
+        }
+        count = count
+            .checked_add(u64::try_from(n).map_err(std::io::Error::other)?)
+            .ok_or_else(|| std::io::Error::other("content length exceeds u64"))?;
+        let chunk = buffer
+            .get(..n)
+            .ok_or_else(|| std::io::Error::other("reader returned an oversized chunk"))?;
+        hasher.update(chunk);
+    }
+    Ok((format_content_hash(&hasher.finalize()), count))
+}
+
+fn format_content_hash(digest: &[u8]) -> String {
     let mut s = String::from("sha256:");
     for b in digest {
         s.push_str(&format!("{b:02x}"));
@@ -391,6 +420,17 @@ mod tests {
         assert_eq!((p.format.as_str(), p.width, p.height), ("png", 8, 4));
         let j = probe(&jpeg(8, 4)).unwrap();
         assert_eq!((j.format.as_str(), j.width, j.height), ("jpeg", 8, 4));
+    }
+
+    #[test]
+    fn streamed_content_hash_matches_in_memory_hash() {
+        let bytes = vec![0x5a; 200_000];
+        let (hash, count) = content_hash_reader(Cursor::new(&bytes)).unwrap();
+        assert_eq!(count, bytes.len() as u64);
+        assert_eq!(hash, content_hash(&bytes));
+        let (limited, count) = content_hash_reader(Cursor::new(&bytes).take(17)).unwrap();
+        assert_eq!(count, 17);
+        assert_eq!(limited, content_hash(&bytes[..17]));
     }
 
     #[test]

@@ -2,6 +2,7 @@
 use crate::{Context, Result};
 use icatalog_catalog::{Annotation, Asset, AssetMeta, MetadataRaw, Thumbnail as CatalogThumbnail};
 use icatalog_media::XmpData;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub(super) const MAX_DEPTH: usize = 64;
@@ -405,13 +406,31 @@ pub(super) fn ingest(
                 .as_deref()
                 != Some(derived_from.as_str());
             if !needs_thumbnail_repair {
-                if folder_changed {
-                    ctx.catalog().update_asset(a)?;
+                // Size and second-resolution mtime can remain unchanged after
+                // replacement. Hash before taking the unchanged fast path.
+                let Ok(file) = std::fs::File::open(path) else {
+                    return Ok(Ingested::Failed);
+                };
+                let Ok((current_hash, read_len)) =
+                    icatalog_media::content_hash_reader(file.take(MAX_FILE.saturating_add(1)))
+                else {
+                    return Ok(Ingested::Failed);
+                };
+                if read_len > MAX_FILE {
+                    return Ok(Ingested::Skipped(SkipReason::TooLarge));
                 }
-                if a.missing {
-                    ctx.catalog().set_asset_missing(a.id, false)?;
+                if read_len != md.len() {
+                    return Ok(Ingested::Failed);
                 }
-                return Ok(Ingested::Unchanged);
+                if a.content_hash.as_deref() == Some(current_hash.as_str()) {
+                    if folder_changed {
+                        ctx.catalog().update_asset(a)?;
+                    }
+                    if a.missing {
+                        ctx.catalog().set_asset_missing(a.id, false)?;
+                    }
+                    return Ok(Ingested::Unchanged);
+                }
             }
         }
     }

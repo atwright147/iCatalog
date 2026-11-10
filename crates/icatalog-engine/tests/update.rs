@@ -93,6 +93,50 @@ fn changed_keeps_uid_and_refreshes() {
 }
 
 #[test]
+fn same_size_and_mtime_with_new_bytes_refreshes_hash_and_thumbnail() {
+    let (mut ctx, dir) = setup("same-size-mtime");
+    let path = dir.join("same.bmp");
+    image::RgbImage::from_pixel(32, 24, image::Rgb([10, 20, 30]))
+        .save(&path)
+        .unwrap();
+    assert_eq!(metric(&update(&mut ctx, Some(&dir)), "added"), 1);
+    let before = ctx
+        .catalog()
+        .asset_by_path(path.to_str().unwrap())
+        .unwrap()
+        .unwrap();
+    let thumbnail_before = ctx.catalog().thumbnail(before.id, 256).unwrap().unwrap();
+    let metadata = std::fs::metadata(&path).unwrap();
+    let modified = metadata.modified().unwrap();
+
+    image::RgbImage::from_pixel(32, 24, image::Rgb([200, 40, 50]))
+        .save(&path)
+        .unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), metadata.len());
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        modified
+    );
+
+    let outcome = update(&mut ctx, Some(&dir));
+    assert_eq!(metric(&outcome, "changed"), 1);
+    let after = ctx.catalog().asset(before.id).unwrap().unwrap();
+    assert_eq!(after.uid, before.uid);
+    assert_eq!(after.file_size, before.file_size);
+    assert_eq!(after.mtime, before.mtime);
+    assert_ne!(after.content_hash, before.content_hash);
+    let thumbnail_after = ctx.catalog().thumbnail(before.id, 256).unwrap().unwrap();
+    assert_ne!(thumbnail_after.bytes, thumbnail_before.bytes);
+    assert_eq!(metric(&update(&mut ctx, Some(&dir)), "changed"), 0);
+}
+
+#[test]
 fn failed_thumbnail_write_rolls_back_asset_change_and_retry_repairs_it() {
     let (mut ctx, dir) = setup("thumbnail-write-failure");
     let before = all(&ctx).into_iter().find(|a| a.name == "a.png").unwrap();

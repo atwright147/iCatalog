@@ -102,7 +102,7 @@ Status: Accepted.
 Context: M2 needed a way to bring a catalogue back in line with disk.
 Decision:
 - **Missing is a flag, never a delete:** migration v3 adds `asset.missing INTEGER NOT NULL DEFAULT 0` (+ index). `update` sets it for catalogued files that are gone from disk and clears it when they reappear.
-- **`uid` stays stable on content change (D10):** a file at a known path whose bytes changed keeps its `uid`; `content_hash`, size, mtime, dimensions, EXIF metadata and the grid thumbnail are refreshed in place (`insert_thumbnail` now replaces the same `(asset_id, size_class)`). Unchanged size+mtime skips reading the file.
+- **`uid` stays stable on content change (D10):** a file at a known path whose bytes changed keeps its `uid`; `content_hash`, size, mtime, dimensions, EXIF metadata and the grid thumbnail are refreshed in place (`insert_thumbnail` now replaces the same `(asset_id, size_class)`). The original size+mtime fast path is superseded by D70.
 - **Command `update [--path <dir>] [--recursive false]`:** with `--path`, walk that tree (shared bounded walk with `import`), ingest new files, refresh changed ones, and flag catalogued assets inside the directory that are absent. Without `--path`, the roots are the distinct parent directories of catalogued assets, scanned non-recursively; any catalogued path that no longer exists is flagged. Output: scanned/added/changed/unchanged/skipped/missing/errors plus per-reason skip counts, same as `import`. Per-file failures are counted, never fatal; invalid params return `Err`.
 - Catalog API: `asset_by_path`, `update_asset`, `set_asset_missing`. Walk and ingest are shared with `import` in `commands/scan.rs`.
 Consequences: a moved file is flagged missing at its old path and is not re-added at the new path (its content hash already exists, so it counts as unchanged); move detection is not built. A new path whose content duplicates an existing asset is likewise left un-added.
@@ -690,6 +690,15 @@ link a verified file, then fail when reopening it. Reject this special path
 in clone's existing destination preflight before contacting the server. An
 explicit disk path such as `./:memory:` remains a literal filename. This
 changes no sync protocol, schema, or publication policy for ordinary paths.
+
+## D70. Hash apparent unchanged files during Update (2026-11-10)
+
+File size and the stored modification time in seconds can both stay the same
+when a file's bytes change. Update now streams a bounded SHA-256 hash before
+taking the unchanged fast path. A matching hash skips media decode and leaves
+the thumbnail untouched; a different hash follows the existing refresh path
+while preserving the asset UID. This adds disk reads to unchanged rescans but
+keeps them memory bounded. No schema, command, or Taskfile change is needed.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
