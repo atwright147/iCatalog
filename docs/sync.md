@@ -24,6 +24,12 @@ Afterward `replica_base` stores the last server generation plus a bounded binary
 
 Do original imports and rescans on the server or a standalone catalogue. To start a replica, use `clone` and then edit, or manually copy the server catalogue and run `sync` before editing. Existing local-only work remains recoverable from the first-sync backup; it is not automatically merged without a known base.
 
+Run `sync` with the real catalogue filename, not a symlink. On Unix, use a
+separate copy rather than a hard-linked catalogue. Sync and preview fetches
+check the pathname before contacting the server; catalogue sync checks again
+before replacement (D74). Replacing one linked name would leave its other
+name behind as a stale, separate copy.
+
 ## Conflict policy and retries
 
 Annotation changes carry the stable asset UID, the baseline revision and the complete desired rating/label/keyword-name set. A revision covers that entire set, so two different fields on the same asset can conflict. A new keyword is named directly and created by the server when needed. Existing captions, headlines, creators and copyright fields remain intact when a replica edits a rating or label; those text fields and all media/thumbnail/metadata data are excluded from uploads.

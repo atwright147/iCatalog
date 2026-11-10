@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use std::path::{Path, PathBuf};
 
 /// An open catalogue session.
@@ -62,11 +62,39 @@ impl Context {
         &mut self.catalog
     }
 
+    /// Require a regular pathname before replacing this catalogue file.
+    /// Replacing a symlink would detach the new replica from its original target.
+    pub fn ensure_replaceable_path(&self) -> Result<()> {
+        let metadata = std::fs::symlink_metadata(&self.path)?;
+        let kind = metadata.file_type();
+        if kind.is_symlink() {
+            return Err(EngineError::Unsupported(
+                "sync cannot replace a catalogue symlink; open its real file path".into(),
+            ));
+        }
+        if !kind.is_file() {
+            return Err(EngineError::Unsupported(
+                "sync requires a regular catalogue file".into(),
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if metadata.nlink() > 1 {
+                return Err(EngineError::Unsupported(
+                    "sync cannot replace a catalogue with hard links; use a separate copy".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Replace the on-disk catalogue with `temp` (a verified catalogue file on
     /// the same filesystem), closing the connection so the rename is atomic,
     /// then reopen it. On failure the existing file is left in place and the
     /// connection is reopened. Used by the sync client's download-and-swap.
     pub fn replace_catalogue_file(&mut self, temp: &Path) -> Result<()> {
+        self.ensure_replaceable_path()?;
         let placeholder = icatalog_catalog::Catalog::open_in_memory()?;
         let old = std::mem::replace(&mut self.catalog, placeholder);
         drop(old);

@@ -47,6 +47,7 @@ pub fn info(t: &dyn Transport, base: &str) -> Result<CatalogueInfo> {
 /// The SQLite write reservation prevents another local writer from changing
 /// the state being uploaded/backed up while network requests are in flight.
 pub fn sync_once(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncReport> {
+    ctx.ensure_replaceable_path()?;
     let mode: String = ctx
         .catalog()
         .connection()
@@ -193,6 +194,7 @@ fn sync_locked(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncR
 
 /// On-demand, pull-only preview cache. Already verified local bytes need no HTTP request.
 pub fn fetch_preview(ctx: &Context, t: &dyn Transport, base: &str, hash: &str) -> Result<bool> {
+    ctx.ensure_replaceable_path()?;
     if !icatalog_catalog::valid_preview_hash(hash) {
         return Err(SyncError::Protocol("invalid preview hash".into()));
     }

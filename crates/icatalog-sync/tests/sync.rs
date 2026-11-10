@@ -200,6 +200,47 @@ fn temp_files(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg(unix)]
+#[test]
+fn sync_refuses_a_catalogue_symlink_without_splitting_the_replica() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("symlink-sync");
+    let (server, url) = seed(&dir);
+    let target = dir.join("target.sqlite");
+    std::fs::copy(&server, &target).unwrap();
+    let link = dir.join("link.sqlite");
+    symlink(&target, &link).unwrap();
+    let original = std::fs::read(&target).unwrap();
+    let mut replica = Context::open(&link).unwrap();
+
+    let error = client::sync_once(&mut replica, &UreqTransport::new(), &url).unwrap_err();
+    assert!(error.to_string().contains("symlink"), "{error}");
+    let hash = format!("sha256:{}", "0".repeat(64));
+    let error = client::fetch_preview(&replica, &UreqTransport::new(), &url, &hash).unwrap_err();
+    assert!(error.to_string().contains("symlink"), "{error}");
+    assert!(link.is_symlink());
+    assert_eq!(std::fs::read(&target).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_refuses_a_catalogue_hard_link_without_splitting_the_replica() {
+    let dir = temp_dir("hardlink-sync");
+    let (server, url) = seed(&dir);
+    let target = dir.join("target.sqlite");
+    std::fs::copy(&server, &target).unwrap();
+    let alias = dir.join("alias.sqlite");
+    std::fs::hard_link(&target, &alias).unwrap();
+    let original = std::fs::read(&target).unwrap();
+    let mut replica = Context::open(&alias).unwrap();
+
+    let error = client::sync_once(&mut replica, &UreqTransport::new(), &url).unwrap_err();
+    assert!(error.to_string().contains("hard links"), "{error}");
+    assert_eq!(std::fs::read(&alias).unwrap(), original);
+    assert_eq!(std::fs::read(&target).unwrap(), original);
+}
+
 #[test]
 fn different_asset_edits_merge_and_idle_sync_has_no_upload_or_generation_change() {
     let dir = temp_dir("independent");

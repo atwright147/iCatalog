@@ -730,6 +730,17 @@ failure without changing its asset. If an extra byte crosses the 512 MiB
 cap, count it as skipped for size instead. This closes the unbounded-read race
 for both Import and Update. No schema, command or Taskfile change is needed.
 
+## D74. Refuse linked catalogue paths during sync (2026-11-10)
+
+A sync opened through a catalogue symlink used to back up its target and then
+rename the downloaded replica over the symlink. That left the target stale
+while reporting success. A hard-linked file can split the same way on Unix.
+Require a regular, unlinked file pathname before catalogue sync or preview
+fetch, and check again immediately before replacement. Report an actionable
+error directing the user to the real path or a separate copy. Read-only
+opening of a symlink remains available. No schema, protocol or Taskfile
+change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

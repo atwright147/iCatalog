@@ -96,6 +96,11 @@ special in-memory disk paths (D65); explicit test sessions use
 
 Replica cloning (D45) uses `Context::for_destination`, an in-memory session carrying the intended output path. The CLI selects this constructor for `clone`, then uses normal registry dispatch, so merely invoking the command cannot create/open/migrate the destination file. The L3 clone command and ordinary sync share staged download validation and baseline preparation. Clone publishes the verified file using a same-filesystem hard link, which atomically refuses any existing destination, then reopens the session on the completed replica. Existing files, symlinks, SQLite sidecars, and the bare `:memory:` path are rejected before transfer (D69). No schema, dependency or HTTP endpoint change; Desktop clone/connect controls are implemented in D46.
 
+Ordinary sync and preview fetches require a regular catalogue pathname before
+any network work. Catalogue sync rechecks immediately before replacement
+(D74). Symlinks, and multi-link files on Unix, are refused because replacing
+one pathname would split the replica from its other name.
+
 May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
 
 Commands return `Err` for any input (hostile params included). A fuzz-style test over every command **EXISTS** at `crates/icatalog-engine/tests/adversarial.rs` and must stay green.
