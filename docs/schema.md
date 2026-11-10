@@ -24,7 +24,7 @@ Engine command writes are grouped in a single deferred transaction (D23), with r
 ```sql
 -- catalogue-level metadata (single row)
 CREATE TABLE catalogue (
-  id          TEXT PRIMARY KEY,        -- per-catalogue id (see sync.md)
+  id          TEXT PRIMARY KEY,        -- 1–1024 printable ASCII bytes, no edge spaces (see sync.md)
   generation  INTEGER NOT NULL,        -- advanced transactionally on catalogue-data writes
   created_utc TEXT NOT NULL,
   schema_version INTEGER NOT NULL

@@ -1,4 +1,5 @@
-use crate::{time, Command, Context, Outcome, ParamSpec, Params, Result};
+use crate::{time, Command, Context, EngineError, Outcome, ParamSpec, Params, Result};
+use icatalog_catalog::valid_catalogue_id;
 
 pub(crate) struct Init;
 
@@ -15,7 +16,7 @@ impl Command for Init {
                 name: "id",
                 required: false,
                 positional: false,
-                doc: "catalogue id; generated if omitted",
+                doc: "catalogue id: 1-1024 printable ASCII bytes, no leading/trailing spaces; generated if omitted",
             },
             ParamSpec {
                 name: "created",
@@ -36,6 +37,11 @@ impl Command for Init {
             .get("id")
             .map(str::to_owned)
             .unwrap_or_else(time::generate_catalogue_id);
+        if !valid_catalogue_id(&id) {
+            return Err(EngineError::BadParam(
+                "catalogue id must be 1-1024 printable ASCII bytes without leading or trailing spaces".into(),
+            ));
+        }
         let created = params
             .get("created")
             .map(str::to_owned)

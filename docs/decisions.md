@@ -751,6 +751,15 @@ transfer into a dialog error until the user restores and reopens the file.
 The ordinary desktop startup can still create a new catalogue. No schema,
 protocol or Taskfile change is needed.
 
+## D76. Constrain catalogue IDs to the sync transport (2026-11-10)
+
+New catalogue IDs are 1–1024 printable ASCII bytes, with no leading or
+trailing whitespace. Internal spaces are allowed. Validate at both the
+command and catalogue API boundaries; the sync protocol rejects invalid
+IDs without silently normalising them. The server refuses to start with a
+historical invalid ID, because its snapshot header cannot carry that ID.
+No schema, wire format or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

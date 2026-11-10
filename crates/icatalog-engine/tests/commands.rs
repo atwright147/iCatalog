@@ -74,6 +74,40 @@ fn init_twice() {
 }
 
 #[test]
+fn init_rejects_ids_that_cannot_round_trip_through_sync() {
+    let ids = [
+        String::new(),
+        " padded".into(),
+        "padded ".into(),
+        "line\nbreak".into(),
+        "nonascii-é".into(),
+        "x".repeat(1025),
+    ];
+    for id in ids {
+        let mut ctx = Context::open_in_memory().unwrap();
+        let mut params = Params::new();
+        params.set("id", &id);
+        assert!(
+            matches!(
+                dispatch(&mut ctx, "init", &params),
+                Err(EngineError::BadParam(_))
+            ),
+            "accepted {id:?}"
+        );
+        assert!(ctx.catalog().catalogue().unwrap().is_none());
+    }
+
+    let mut ctx = Context::open_in_memory().unwrap();
+    let mut params = Params::new();
+    params.set("id", "custom:library_1");
+    dispatch(&mut ctx, "init", &params).unwrap();
+    assert_eq!(
+        ctx.catalog().catalogue().unwrap().unwrap().id,
+        "custom:library_1"
+    );
+}
+
+#[test]
 fn status_and_open() {
     let (mut ctx, p) = inited("status");
     let r = rows(dispatch(&mut ctx, "status", &Params::new()).unwrap());

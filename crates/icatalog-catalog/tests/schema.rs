@@ -3,6 +3,21 @@
 use icatalog_catalog::*;
 
 #[test]
+fn catalogue_id_must_be_safe_for_sync_transport() {
+    let c = Catalog::open_in_memory().unwrap();
+    for id in ["", " leading", "trailing ", "line\nbreak", "nonascii-é"] {
+        assert!(matches!(
+            c.insert_catalogue(id, "2026-11-10T00:00:00Z"),
+            Err(CatalogError::InvalidCatalogueId)
+        ));
+        assert!(c.catalogue().unwrap().is_none());
+    }
+    c.insert_catalogue("Family Photos", "2026-11-10T00:00:00Z")
+        .unwrap();
+    assert_eq!(c.catalogue().unwrap().unwrap().id, "Family Photos");
+}
+
+#[test]
 fn open_existing_refuses_missing_and_special_paths_and_preserves_existing_data() {
     let path = tmp("open-existing");
     assert!(Catalog::open_existing(&path).is_err());

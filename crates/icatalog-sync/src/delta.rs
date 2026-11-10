@@ -1,7 +1,7 @@
 //! Bounded v2 binary messages. Lengths are checked before slicing/allocation.
 use crate::{Result, SyncError};
 use icatalog_catalog::{
-    AnnotationState, CollectionState, SmartRules, MAX_SYNC_BYTES, MAX_SYNC_ROWS,
+    valid_catalogue_id, AnnotationState, CollectionState, SmartRules, MAX_SYNC_BYTES, MAX_SYNC_ROWS,
 };
 use std::collections::BTreeSet;
 
@@ -101,7 +101,7 @@ fn opt_text(out: &mut Vec<u8>, s: &Option<String>) -> Result<()> {
 }
 
 pub fn encode(id: &str, changes: &[Change]) -> Result<Vec<u8>> {
-    if !valid_uid(id) {
+    if !valid_catalogue_id(id) {
         return Err(bad());
     }
     validate(changes)?;
@@ -231,7 +231,7 @@ pub fn decode(bytes: &[u8]) -> Result<(String, Vec<Change>)> {
         return Err(bad());
     }
     let id = r.text()?;
-    if id.is_empty() || id.len() > 1024 {
+    if !valid_catalogue_id(&id) {
         return Err(bad());
     }
     let n = r.count(MAX_SYNC_ROWS * 2)?;

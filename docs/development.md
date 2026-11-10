@@ -73,7 +73,8 @@ EXISTS: `cargo run -p icatalog-cli -- <command> <catalogue>` with `init`, `open`
 
 Catalogue paths are opened as literal filenames (D65), including names that
 begin `file:`. Empty and `:memory:` paths are rejected for disk commands.
-Only CLI `init` creates a missing catalogue; `clone` publishes a verified new
+`init --id` accepts 1–1024 printable ASCII bytes without leading or trailing
+spaces; omit it for a generated ID. Only CLI `init` creates a missing catalogue; `clone` publishes a verified new
 destination, and every other CLI command requires an existing file (D72).
 
 Import skips a path already catalogued and content currently present at another

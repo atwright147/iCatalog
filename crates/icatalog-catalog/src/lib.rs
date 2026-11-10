@@ -36,6 +36,16 @@ pub use smart::SmartRules;
 /// Shared user-facing product name; executable, crate and file names stay lowercase.
 pub const APP_NAME: &str = "iCatalog";
 
+/// Catalogue IDs must round-trip through sync's line response and HTTP header.
+pub const MAX_CATALOGUE_ID_BYTES: usize = 1024;
+
+pub fn valid_catalogue_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_CATALOGUE_ID_BYTES
+        && id.trim() == id
+        && id.bytes().all(|b| b == b' ' || b.is_ascii_graphic())
+}
+
 const MIGRATIONS: &[&str] = &[
     include_str!("v1.sql"),
     include_str!("v2.sql"),
@@ -58,6 +68,8 @@ pub enum CatalogError {
     InvalidVersion(i64),
     /// A query exceeds a supported input bound.
     InvalidQuery(&'static str),
+    /// A catalogue ID cannot be represented safely by sync.
+    InvalidCatalogueId,
 }
 
 impl fmt::Display for CatalogError {
@@ -70,6 +82,7 @@ impl fmt::Display for CatalogError {
             ),
             CatalogError::InvalidVersion(v) => write!(f, "invalid schema version {v}"),
             CatalogError::InvalidQuery(message) => write!(f, "invalid query: {message}"),
+            CatalogError::InvalidCatalogueId => write!(f, "invalid catalogue id: use 1-1024 printable ASCII bytes without leading or trailing spaces"),
         }
     }
 }
@@ -250,6 +263,9 @@ impl Catalog {
     }
 
     pub fn insert_catalogue(&self, id: &str, created_utc: &str) -> Result<()> {
+        if !valid_catalogue_id(id) {
+            return Err(CatalogError::InvalidCatalogueId);
+        }
         self.conn.execute(
             "INSERT INTO catalogue (id, generation, created_utc, schema_version) VALUES (?1, 0, ?2, ?3)",
             params![id, created_utc, self.schema_version()?],

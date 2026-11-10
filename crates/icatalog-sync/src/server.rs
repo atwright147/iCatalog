@@ -4,7 +4,7 @@ use crate::{
     protocol::{self, HEADER_GENERATION, HEADER_ID, PATH_CATALOGUE, PATH_INFO},
     util, Result, SyncError,
 };
-use icatalog_catalog::{CatalogError, MAX_SYNC_BYTES};
+use icatalog_catalog::{valid_catalogue_id, CatalogError, MAX_SYNC_BYTES};
 use icatalog_engine::Context;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -14,6 +14,15 @@ pub fn bind(addr: &str) -> Result<Server> {
     Server::http(addr).map_err(|e| SyncError::Http(format!("cannot bind {addr}: {e}")))
 }
 pub fn serve_loop(server: Server, ctx: &mut Context) -> Result<()> {
+    let row = ctx
+        .catalog()
+        .catalogue()?
+        .ok_or_else(|| SyncError::Protocol("server catalogue is not initialised".into()))?;
+    if !valid_catalogue_id(&row.id) {
+        return Err(SyncError::Protocol(
+            "server catalogue has an invalid id; use a valid catalogue or create a new one".into(),
+        ));
+    }
     if ctx.catalog().is_replica()? {
         return Err(SyncError::Protocol(
             "a synced replica cannot serve as the authoritative catalogue".into(),
