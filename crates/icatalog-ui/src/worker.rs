@@ -1,10 +1,25 @@
 //! Background command execution; all catalogue behaviour stays in the engine.
 use icatalog_engine::{dispatch_guarded, Context, EngineError, Outcome, Params, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 
 pub struct Worker {
     handle: Option<JoinHandle<Result<Outcome>>>,
+}
+
+pub(crate) fn open_initialized_existing(path: &Path) -> Result<Context> {
+    if std::fs::metadata(path)?.len() == 0 {
+        return Err(EngineError::BadParam(
+            "catalogue file is empty; restore a backup or initialise a new file".into(),
+        ));
+    }
+    let context = Context::open_existing(path)?;
+    if context.catalog().catalogue()?.is_none() {
+        return Err(EngineError::BadParam(
+            "catalogue is not initialised; restore a backup or initialise a new file".into(),
+        ));
+    }
+    Ok(context)
 }
 
 impl Worker {
@@ -12,10 +27,10 @@ impl Worker {
         let handle = std::thread::Builder::new()
             .name("icatalog-command".into())
             .spawn(move || {
-                let mut context = if id == "clone" {
-                    Context::for_destination(path)?
-                } else {
-                    Context::open(path)?
+                let mut context = match id.as_str() {
+                    "clone" => Context::for_destination(path)?,
+                    "init" => Context::open(path)?,
+                    _ => open_initialized_existing(&path)?,
                 };
                 if icatalog_engine::find_command(&id).is_some() {
                     dispatch_guarded(&mut context, &id, &params)
@@ -60,6 +75,23 @@ mod tests {
                 assert!(std::time::Instant::now() < deadline);
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
+        }
+    }
+
+    #[test]
+    fn sync_worker_does_not_create_a_missing_catalogue() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.sqlite");
+        let mut worker = Worker::start(path.clone(), "sync".into(), Params::new()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(result) = worker.poll() {
+                assert!(result.is_err());
+                assert!(!path.exists());
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 }

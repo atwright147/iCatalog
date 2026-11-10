@@ -35,6 +35,76 @@ fn sync_now(h: &mut Harness<'_, App>) {
 }
 
 #[test]
+fn reopen_after_sync_keeps_missing_and_empty_catalogues_as_errors() {
+    let fixture = Fixture::new();
+    let path = fixture.path();
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().ctx = Context::for_destination(&path).unwrap();
+
+    std::fs::remove_file(&path).unwrap();
+    h.state_mut().reopen_after_sync();
+    assert!(!path.exists());
+    assert!(h.state().catalogue_error.is_some());
+
+    std::fs::write(&path, b"").unwrap();
+    h.state_mut().reopen_after_sync();
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+    assert!(h.state().catalogue_error.is_some());
+
+    std::fs::remove_file(&path).unwrap();
+    drop(Context::open(&path).unwrap());
+    h.state_mut().reopen_after_sync();
+    assert!(h.state().catalogue_error.is_some());
+}
+
+#[test]
+fn completed_sync_reports_an_error_if_its_catalogue_disappears_before_reopen() {
+    let fixture = Fixture::new();
+    let url = server(fixture.path());
+    let client = fixture.dir.path().join("reopen-race.sqlite");
+    let mut h = fixture.harness([800.0, 600.0]);
+    connect(&mut h, &url, client.clone());
+    h.get_by_label("Close").click();
+    settle(&mut h);
+
+    let blocker = Context::open(&client).unwrap();
+    blocker
+        .catalog()
+        .connection()
+        .execute_batch("BEGIN IMMEDIATE")
+        .unwrap();
+    menu(&mut h, "Sync…");
+    h.get_by_label("Sync now").click();
+    h.run_steps(3);
+    assert!(h.state().sync_job.is_some());
+    blocker
+        .catalog()
+        .connection()
+        .execute_batch("ROLLBACK")
+        .unwrap();
+    drop(blocker);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let result = loop {
+        if let Some(result) = h.state_mut().worker.as_mut().unwrap().poll() {
+            break result;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    assert!(result.is_ok());
+    h.state_mut().worker = None;
+    std::fs::remove_file(&client).unwrap();
+    h.state_mut().finish_sync(result);
+
+    assert!(!client.exists());
+    assert!(h.state().catalogue_error.is_some());
+    assert!(h.state().status.contains("Cannot reopen"));
+    let dialog = h.state().sync_dialog.as_ref().unwrap();
+    assert!(dialog.result.is_none());
+    assert!(dialog.error.as_ref().unwrap().contains("Cannot reopen"));
+}
+
+#[test]
 fn desktop_clone_first_edits_push_pull_and_idle_refresh_the_live_session() {
     let fixture = Fixture::new();
     let server_path = fixture.dir.path().join("server.sqlite");

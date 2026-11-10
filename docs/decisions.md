@@ -741,6 +741,16 @@ error directing the user to the real path or a separate copy. Read-only
 opening of a symlink remains available. No schema, protocol or Taskfile
 change is needed.
 
+## D75. Validate desktop catalogue reopening after sync (2026-11-10)
+
+Desktop workers use create-capable opening only for `init`; `clone` prepares
+its destination without opening it. Other workers and sync recovery require
+an existing, nonempty catalogue file with an initialised catalogue row.
+Recovery failures keep the error visible and turn an otherwise successful
+transfer into a dialog error until the user restores and reopens the file.
+The ordinary desktop startup can still create a new catalogue. No schema,
+protocol or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

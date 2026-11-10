@@ -123,6 +123,11 @@ For CLI use, close the app, run `icatalog sync … --url …`, then reopen it. S
 
 The desktop remembers the URL in `<catalogue>.sync-url` beside the local catalogue, using a bounded, atomically replaced settings file. It contains only the server address, survives catalogue refreshes and is not part of the synced database. If saving settings fails, the dialog reports it separately; the completed sync still stands. Moving/renaming a catalogue requires entering the address again unless its settings file is moved too. A malformed settings file is reported and can be corrected by entering the address in the sync dialog.
 
+If the local catalogue disappears or is empty while desktop sync is running,
+reopening reports an error and leaves the file absent or empty. Restore the
+catalogue from a backup, then use **Reopen catalogue**; recovery does not
+initialise a replacement file (D75).
+
 | Change | Where to make it |
 |---|---|
 | Rating, label, keywords | Any established client copy or the server, including photos with captions or credits; those text fields are preserved |

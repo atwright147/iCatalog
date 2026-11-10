@@ -295,7 +295,7 @@ impl App {
     }
 
     pub(super) fn reopen_after_sync(&mut self) {
-        match Context::open(&self.path) {
+        match worker::open_initialized_existing(&self.path) {
             Ok(ctx) => {
                 self.ctx = ctx;
                 self.catalogue_error = None;
@@ -358,13 +358,15 @@ impl App {
                 message.push_str(&format!("\nCannot remember server address: {error}"));
             }
         }
-        if let Some(error) = &self.catalogue_error {
+        let reopen_error = self.catalogue_error.clone();
+        if let Some(error) = &reopen_error {
             message.push_str(&format!("\n{error}"));
         }
-        self.status = message.lines().next().unwrap_or("Sync finished").to_owned();
+        self.status = reopen_error
+            .unwrap_or_else(|| message.lines().next().unwrap_or("Sync finished").to_owned());
         if let Some(dialog) = &mut self.sync_dialog {
             dialog.pending = false;
-            if result.is_ok() {
+            if result.is_ok() && self.catalogue_error.is_none() {
                 dialog.result = Some(message);
             } else {
                 dialog.error = Some(message);

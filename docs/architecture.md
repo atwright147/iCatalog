@@ -101,6 +101,10 @@ any network work. Catalogue sync rechecks immediately before replacement
 (D74). Symlinks, and multi-link files on Unix, are refused because replacing
 one pathname would split the replica from its other name.
 
+Desktop sync workers and recovery reopening use an existing, initialised
+catalogue (D75). Only the explicit desktop startup/Init path creates one;
+a missing or empty file during sync keeps the recovery error visible.
+
 May never leak into the engine: egui/eframe/winit/rfd types, window or widget state, terminal formatting. Only pure view/window state belongs to the shell.
 
 Commands return `Err` for any input (hostile params included). A fuzz-style test over every command **EXISTS** at `crates/icatalog-engine/tests/adversarial.rs` and must stay green.
