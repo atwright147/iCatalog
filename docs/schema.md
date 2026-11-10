@@ -221,8 +221,9 @@ Every asset and Collection has a revision row. Triggers track rating/label and k
 The `edit` command avoids an annotation update when requested rating/label
 values are already present, so its no-op result preserves the timestamp and
 generation (D82). Catalogue text queries use a connection-local Rust
-Unicode-lowercase substring function for name/path and Smart Collection
-text/camera/lens matching (D83). These changes need no migration.
+Unicode case-folded substring function for name/path and Smart Collection
+text/camera/lens matching (D83/D84). This also matches context-sensitive forms
+such as Greek sigma and expansions such as ß/ss. These changes need no migration.
 
 `replica_base` contains the last accepted server generation and a bounded binary baseline of user-editable values/revisions (codec in `icatalog-sync::delta`). It is established in a verified download before replacement, or before initial publication by `clone` (D45). Cloned replicas can immediately upload their first user edits; only manually seeded/untracked copies need the backup-first initial sync. Its presence identifies a replica; no manual mode flag or baseline sidecar is needed. Triggers reject media/metadata/source/folder/preview-setting writes on replicas. Rating/label edits update an existing annotation row while preserving any server-owned caption, headline, creator and copyright; inserting or changing that text on a replica remains forbidden. Collection edits remain available, but deletion is unsupported there. This baseline replaces D19 fingerprint markers, which are ignored on upgrade. First v2 sync backs up the previous local state and establishes the server baseline without uploading unknown local edits.
 

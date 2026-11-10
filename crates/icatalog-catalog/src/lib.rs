@@ -208,6 +208,8 @@ fn sqlite_literal_path(path: &Path) -> std::path::PathBuf {
 }
 
 fn register_text_search(conn: &Connection) -> Result<()> {
+    use caseless::default_case_fold_str;
+
     conn.create_scalar_function(
         "icatalog_contains_ci",
         2,
@@ -217,7 +219,7 @@ fn register_text_search(conn: &Connection) -> Result<()> {
             let needle: Option<String> = ctx.get(1)?;
             Ok(match (haystack, needle) {
                 (Some(haystack), Some(needle)) => {
-                    haystack.to_lowercase().contains(&needle.to_lowercase())
+                    default_case_fold_str(&haystack).contains(&default_case_fold_str(&needle))
                 }
                 _ => false,
             })

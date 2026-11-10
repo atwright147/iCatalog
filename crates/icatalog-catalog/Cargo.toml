@@ -6,4 +6,5 @@ description = "iCatalog SQLite catalogue schema, migrations and model"
 license = "MIT"
 
 [dependencies]
+caseless = "0.2.2"
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }

@@ -315,6 +315,12 @@ mod tests {
         let path_id = c
             .insert_asset(&mk("path", "/Été/summer.jpg", "summer.jpg"))
             .unwrap();
+        let sigma_id = c
+            .insert_asset(&mk("sigma", "/photos/ΟΣ.jpg", "ΟΣ.jpg"))
+            .unwrap();
+        let sharp_s_id = c
+            .insert_asset(&mk("sharp-s", "/photos/Straße.jpg", "Straße.jpg"))
+            .unwrap();
 
         let q = AssetQuery {
             text_like: Some("CAFÉ".into()),
@@ -331,6 +337,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(c.query_assets(&q).unwrap()), vec![path_id]);
+        let q = AssetQuery {
+            text_like: Some("ΟΣ".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![sigma_id]);
+        let q = AssetQuery {
+            text_like: Some("STRASSE".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(c.query_assets(&q).unwrap()), vec![sharp_s_id]);
     }
 
     #[test]

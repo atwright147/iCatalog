@@ -821,6 +821,15 @@ and ASCII-case-insensitive format rules retain their existing behavior.
 `icatalog-catalog` enables rusqlite's `functions` feature; there is no schema,
 protocol, command or Taskfile change.
 
+## D84. Fold Unicode case for catalogue substring searches (2026-11-10)
+
+Use Unicode default case folding through the pure-Rust `caseless` crate in the
+existing SQLite text predicate. Lowercasing a whole string is context-sensitive:
+`ΟΣ.jpg` lowercases its sigma differently from the standalone query `ΟΣ`.
+Case folding also handles expansions such as ß/ss. Name/path and Smart text,
+camera and lens filters share the predicate. Exact keywords remain exact. No
+schema, protocol, command or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
