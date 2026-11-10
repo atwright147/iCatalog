@@ -82,6 +82,9 @@ longer makes the old bytes count as a duplicate (D66).
 Update hashes files even when size and stored modification time match, so a
 same-size replacement with the original timestamp refreshes the asset and
 thumbnail (D70). An unchanged file is read in bounded chunks without decoding.
+Import and Update stop a full-file read if a source grows past its observed
+size or 512 MiB cap; a size change is counted as a per-file failure (or a
+size skip at the cap), leaving the previous asset untouched (D73).
 Paths containing non-UTF-8 bytes are reported as skipped during import/update
 until the catalogue path model can represent them byte-exactly.
 Desktop Import rejects a selected non-UTF-8 directory before dispatch and

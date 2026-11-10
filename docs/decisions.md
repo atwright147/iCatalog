@@ -720,6 +720,16 @@ file, including for read-only commands and failed edits. Existing catalogue
 behavior, desktop startup, schema, sync protocol and Taskfile commands are
 unchanged.
 
+## D73. Bound import and Update reads after metadata inspection (2026-11-10)
+
+The 512 MiB metadata check does not guarantee a source remains that size
+until the later full-file read. Read at most the observed length plus one
+byte and request only the observed size for the buffer. An extra byte or
+early EOF means the source changed during scanning; count it as a per-file
+failure without changing its asset. If an extra byte crosses the 512 MiB
+cap, count it as skipped for size instead. This closes the unbounded-read race
+for both Import and Update. No schema, command or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

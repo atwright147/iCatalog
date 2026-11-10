@@ -7,6 +7,59 @@ use std::path::{Path, PathBuf};
 
 pub(super) const MAX_DEPTH: usize = 64;
 pub(super) const MAX_FILE: u64 = 512 * 1024 * 1024;
+#[derive(Debug, PartialEq, Eq)]
+enum SourceReadError {
+    Io,
+    Changed,
+    TooLarge,
+}
+
+fn read_source(
+    reader: impl Read,
+    observed_len: u64,
+    max_len: u64,
+) -> std::result::Result<Vec<u8>, SourceReadError> {
+    if observed_len > max_len {
+        return Err(SourceReadError::TooLarge);
+    }
+    let capacity = usize::try_from(observed_len).map_err(|_| SourceReadError::TooLarge)?;
+    let read_limit = observed_len
+        .checked_add(1)
+        .ok_or(SourceReadError::TooLarge)?;
+    let mut reader = reader.take(read_limit);
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .map_err(|_| SourceReadError::Io)?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = match reader.read(&mut buffer) {
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(SourceReadError::Io),
+        };
+        if n == 0 {
+            break;
+        }
+        let next_len = bytes
+            .len()
+            .checked_add(n)
+            .ok_or(SourceReadError::TooLarge)?;
+        let next_len = u64::try_from(next_len).map_err(|_| SourceReadError::TooLarge)?;
+        if next_len > max_len {
+            return Err(SourceReadError::TooLarge);
+        }
+        if next_len > observed_len {
+            return Err(SourceReadError::Changed);
+        }
+        let chunk = buffer.get(..n).ok_or(SourceReadError::Io)?;
+        bytes.extend_from_slice(chunk);
+    }
+    if u64::try_from(bytes.len()).map_err(|_| SourceReadError::TooLarge)? != observed_len {
+        return Err(SourceReadError::Changed);
+    }
+    Ok(bytes)
+}
 const EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw",
     "pef", "raf",
@@ -434,8 +487,13 @@ pub(super) fn ingest(
             }
         }
     }
-    let Ok(bytes) = std::fs::read(path) else {
-        return Ok(Ingested::Failed);
+    let bytes = match std::fs::File::open(path)
+        .map_err(|_| SourceReadError::Io)
+        .and_then(|file| read_source(file, md.len(), MAX_FILE))
+    {
+        Ok(bytes) => bytes,
+        Err(SourceReadError::TooLarge) => return Ok(Ingested::Skipped(SkipReason::TooLarge)),
+        Err(SourceReadError::Changed | SourceReadError::Io) => return Ok(Ingested::Failed),
     };
     let preview: Option<Vec<u8>> = if has_raw_ext(path) {
         match icatalog_media::raw_preview(&bytes) {
@@ -581,4 +639,38 @@ pub(super) fn ingest(
         seed_xmp(ctx, asset_id, &data)?;
     }
     Ok(Ingested::Added { errors })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn source_read_stops_when_bytes_grow_past_observed_size_or_cap() {
+        let mut grown = Cursor::new(vec![7u8; 1024]);
+        assert!(matches!(
+            read_source(&mut grown, 8, 64),
+            Err(SourceReadError::Changed)
+        ));
+        assert_eq!(grown.position(), 9);
+
+        let mut too_large = Cursor::new(vec![7u8; 1024]);
+        assert!(matches!(
+            read_source(&mut too_large, 64, 64),
+            Err(SourceReadError::TooLarge)
+        ));
+        assert_eq!(too_large.position(), 65);
+
+        let mut shrunk = Cursor::new(vec![7u8; 7]);
+        assert!(matches!(
+            read_source(&mut shrunk, 8, 64),
+            Err(SourceReadError::Changed)
+        ));
+        assert_eq!(
+            read_source(Cursor::new(vec![7u8; 8]), 8, 64).unwrap(),
+            vec![7u8; 8]
+        );
+    }
 }
