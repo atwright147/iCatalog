@@ -897,6 +897,17 @@ fn clone_refuses_existing_files_directories_and_orphan_sqlite_sidecars() {
     assert!(temp_files(&dir).is_empty());
 }
 
+#[test]
+fn clone_rejects_the_in_memory_path_before_contacting_the_server() {
+    let path = std::path::Path::new(":memory:");
+    assert!(!path.exists());
+    let mut ctx = Context::for_destination(path).unwrap();
+    let result = icatalog_sync::clone_catalogue(&mut ctx, &NoCloneRequests, "http://example");
+    let message = result.unwrap_err().to_string();
+    assert!(message.contains("on-disk filename"), "{message}");
+    assert!(!path.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn clone_refuses_dangling_symlinks_and_handles_non_utf8_destination_paths() {

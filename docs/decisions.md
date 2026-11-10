@@ -682,6 +682,15 @@ display conversion for the import target: a replacement-character sibling
 could otherwise be imported instead. This mirrors CLI text-argument rejection
 until the engine and catalogue can carry byte-exact media paths.
 
+## D69. Reject the in-memory name before clone publication (2026-11-10)
+
+`Catalog::open` reserves the exact path `:memory:` for explicit in-memory
+catalogues (D65). A clone used to accept that destination, download and hard
+link a verified file, then fail when reopening it. Reject this special path
+in clone's existing destination preflight before contacting the server. An
+explicit disk path such as `./:memory:` remains a literal filename. This
+changes no sync protocol, schema, or publication policy for ordinary paths.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

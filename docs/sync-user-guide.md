@@ -83,7 +83,7 @@ From this repository, the equivalent is `task cli:clone -- local.sqlite --url ht
 
 Clone downloads a consistent copy while the server remains running, verifies it, preserves its catalogue identity and records the starting point for your future edits. It reports the catalogue ID, generation and download size. The resulting local replica is ready to use immediately: **do not run `init` or copy a file first, and no separate first sync is required.** Your first edits after cloning will be uploaded by your next ordinary sync.
 
-The destination directory must already exist. Clone refuses an existing destination, including an empty file, symlink or existing SQLite sidecar. Choose another filename if you already have local work; use `sync` to update an established replica. A failed download or validation leaves no new destination file, so you can correct the reported problem and retry. Clone does not upload anything or modify the server catalogue. An unreachable server makes clone fail rather than reporting a successful deferred sync.
+The destination directory must already exist. Clone refuses an existing destination, including an empty file, symlink or existing SQLite sidecar, and rejects the bare `:memory:` path before connecting. Choose another filename if you already have local work; use `sync` to update an established replica. A failed download or validation leaves no new destination file, so you can correct the reported problem and retry. Clone does not upload anything or modify the server catalogue. An unreachable server makes clone fail rather than reporting a successful deferred sync.
 
 Open the cloned catalogue:
 

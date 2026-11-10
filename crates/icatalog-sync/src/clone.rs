@@ -17,6 +17,12 @@ pub struct CloneReport {
 }
 
 fn require_absent(path: &std::path::Path) -> Result<()> {
+    if path == std::path::Path::new(":memory:") {
+        return Err(SyncError::Protocol(
+            "clone requires an on-disk filename; ':memory:' is reserved for in-memory catalogues"
+                .into(),
+        ));
+    }
     if path.file_name().is_none() {
         return Err(SyncError::Protocol(
             "clone requires a new catalogue filename".into(),
