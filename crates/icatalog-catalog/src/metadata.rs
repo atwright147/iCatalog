@@ -86,6 +86,16 @@ impl Catalog {
         Ok(())
     }
 
+    /// Remove all extracted rows for one asset and scheme. Used when changed
+    /// source bytes no longer contain a previously captured metadata packet.
+    pub fn delete_metadata_raw_for_asset_scheme(&self, asset_id: i64, scheme: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM metadata_raw WHERE asset_id = ?1 AND scheme = ?2",
+            params![asset_id, scheme],
+        )?;
+        Ok(())
+    }
+
     pub fn metadata_raw_for_asset(&self, asset_id: i64) -> Result<Vec<MetadataRaw>> {
         self.metadata_raw_query(asset_id, None)
     }

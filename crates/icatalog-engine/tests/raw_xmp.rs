@@ -286,6 +286,40 @@ fn edit_survives_update() {
 }
 
 #[test]
+fn changed_media_without_xmp_clears_old_packet_but_keeps_user_edits() {
+    for (tag, filename, original, replacement) in [
+        ("jpeg-lost-xmp", "a.jpg", jpeg_xmp(7), jpeg(24, 16, 99)),
+        (
+            "raw-lost-xmp",
+            "a.dng",
+            dng(Some(&jpeg(32, 24, 5)), Some(XMP)),
+            dng(Some(&jpeg(40, 30, 99)), None),
+        ),
+    ] {
+        let (mut ctx, dir, base) = setup(tag);
+        let file = dir.join(filename);
+        std::fs::write(&file, original).unwrap();
+        go(&mut ctx, "import", &dir);
+        let id = only_asset(&ctx);
+        assert_eq!(xmp_rows(&ctx, id), 1);
+        let mut p = Params::new();
+        p.set("id", id.to_string())
+            .set("rating", "4")
+            .set("keyword", "foo");
+        dispatch(&mut ctx, "edit", &p).unwrap();
+
+        std::fs::write(&file, replacement).unwrap();
+        let outcome = go(&mut ctx, "update", &dir);
+        assert_eq!(metric(&outcome, "changed"), 1);
+        assert_eq!(xmp_rows(&ctx, id), 0);
+        assert_eq!(ctx.catalog().annotation(id).unwrap().unwrap().rating, 4);
+        assert!(kws(&ctx, id).contains(&"foo".to_string()));
+        drop(ctx);
+        let _ = std::fs::remove_dir_all(base);
+    }
+}
+
+#[test]
 fn raw_without_preview_skipped() {
     let (mut ctx, dir, base) = setup("nop");
     std::fs::write(dir.join("a.dng"), dng(None, Some(XMP))).unwrap();

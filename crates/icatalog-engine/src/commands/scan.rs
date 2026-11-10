@@ -310,6 +310,8 @@ fn capture_xmp(
     primary: &[u8],
     fallback: Option<&[u8]>,
 ) -> Result<Option<XmpData>> {
+    ctx.catalog()
+        .delete_metadata_raw_for_asset_scheme(asset_id, "xmp_packet")?;
     let Some(packet) = icatalog_media::xmp_packet(primary)
         .or_else(|| fallback.and_then(icatalog_media::xmp_packet))
     else {

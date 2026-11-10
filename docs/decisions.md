@@ -783,6 +783,15 @@ Import and Update share one parser for `--recursive`. The default is true;
 it. Any other value returns a bad-parameter error before an import creates
 source, folder or asset rows. No schema or Taskfile change is needed.
 
+## D80. Replace raw XMP with changed media bytes (2026-11-10)
+
+On a successful changed-media ingest, clear the asset's stored `xmp_packet`
+rows before capturing an XMP packet from the new bytes. A replacement with
+no XMP therefore removes stale extracted metadata. The command transaction
+keeps the delete and changed asset/thumbnail atomic; user annotations and
+keywords remain authoritative and are not reseeded on Update. No migration,
+command or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
