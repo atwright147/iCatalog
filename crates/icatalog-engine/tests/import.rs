@@ -75,6 +75,30 @@ fn non_recursive_and_dupes() {
 }
 
 #[test]
+fn invalid_recursive_value_leaves_import_unstarted() {
+    let (mut ctx, base, dir) = setup("invalid-recursive");
+    for value in ["fals", "", "TRUE"] {
+        assert!(matches!(
+            run(&mut ctx, &dir, Some(value)),
+            Err(EngineError::BadParam(_))
+        ));
+        assert!(ctx.catalog().all_sources().unwrap().is_empty());
+        assert!(ctx.catalog().all_folders().unwrap().is_empty());
+        assert!(ctx
+            .catalog()
+            .query_assets(&AssetQuery::default())
+            .unwrap()
+            .is_empty());
+    }
+    assert_eq!(
+        metric(run(&mut ctx, &dir, Some("no")).unwrap(), "imported"),
+        2
+    );
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+#[test]
 fn import_after_update_uses_current_hash_and_never_duplicates_a_path() {
     let (mut ctx, base, dir) = setup("changed-content-dedupe");
     run(&mut ctx, &dir, None).unwrap();

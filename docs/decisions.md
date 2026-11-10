@@ -776,6 +776,13 @@ from saving `--label` as a keyword. Single-dash negative values continue to
 reach command validation. A literal value beginning with `--` is not accepted
 by this CLI syntax. No engine, schema or Taskfile change is needed.
 
+## D79. Parse recursive scan options strictly (2026-11-10)
+
+Import and Update share one parser for `--recursive`. The default is true;
+`true`, `1`, and `yes` enable recursion, while `false`, `0`, and `no` disable
+it. Any other value returns a bad-parameter error before an import creates
+source, folder or asset rows. No schema or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

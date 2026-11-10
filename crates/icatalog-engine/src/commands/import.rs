@@ -43,7 +43,7 @@ impl Command for Import {
     }
     fn run(&self, ctx: &mut Context, params: &Params) -> Result<Outcome> {
         let root = params.require("path")?;
-        let recursive = parse_recursive(params.get("recursive"));
+        let recursive = parse_recursive(params.get("recursive"))?;
         let kind = params.get("kind").unwrap_or("local");
         if !SOURCE_KINDS.contains(&kind) {
             return Err(EngineError::BadParam(format!(

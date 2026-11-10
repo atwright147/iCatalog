@@ -105,7 +105,7 @@ The table below mirrors `AGENTS.md` section 4; rows marked EXISTS are built. The
 |---|---|---|
 | `init` / `new` | `icatalog init photos.sqlite` | Create an empty catalogue |
 | `open` | `icatalog open photos.sqlite` | Validate an existing catalogue and print a summary; a missing file is an error |
-| `import` | `icatalog import photos.sqlite --path ~/Pictures --kind removable` | Import a directory (EXISTS, raster only; builds a source + folder tree, D21) or a `.ivc`/`.mpcatalog` (not built) |
+| `import` | `icatalog import photos.sqlite --path ~/Pictures --kind removable` | Import a directory (EXISTS, raster only; builds a source + folder tree, D21) or a `.ivc`/`.mpcatalog` (not built). `--recursive` accepts `true`/`1`/`yes` or `false`/`0`/`no` (default true); other values fail before import (D79). |
 | `list` / `find` | `icatalog find photos.sqlite beach` | Browse and search |
 | `update` | `icatalog update photos.sqlite` | Rescan folders for added/changed/missing files (EXISTS, D14); an absent source root is reported `offline` and never marked missing (D21). A path is marked missing only after a `NotFound` probe; access errors are counted and preserve its prior state (D77). Unreadable files are counted/skipped; a catalogue write failure aborts and rolls back the rescan. A decodable replacement is required before its asset and thumbnail advance. |
 | `edit` | `icatalog edit photos.sqlite --id 3 --rating 5 --keyword sunset` | Set one asset's keywords, rating and label (EXISTS, D16). Use `--keyword-exact` or `--remove-keyword-exact` for one name containing commas. |

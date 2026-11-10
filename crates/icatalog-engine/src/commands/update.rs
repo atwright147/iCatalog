@@ -38,13 +38,7 @@ impl Command for Update {
     }
     fn run(&self, ctx: &mut Context, params: &Params) -> Result<Outcome> {
         require_catalogue(ctx)?;
-        let recursive_param = params.get("recursive");
-        let recursive = parse_recursive(recursive_param);
-        if let Some(v) = recursive_param {
-            if !matches!(v, "true" | "false" | "0" | "1" | "yes" | "no") {
-                return Err(EngineError::BadParam(format!("bad recursive value: {v}")));
-            }
-        }
+        let recursive = parse_recursive(params.get("recursive"))?;
         let all = ctx.catalog().query_assets(&AssetQuery::default())?;
         let sources = ctx.catalog().all_sources()?;
         let folders = ctx.catalog().all_folders()?;

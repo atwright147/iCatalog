@@ -1,5 +1,5 @@
 //! Shared bounded directory walk and per-file ingest, used by `import` and `update`.
-use crate::{Context, Result};
+use crate::{Context, EngineError, Result};
 use icatalog_catalog::{Annotation, Asset, AssetMeta, MetadataRaw, Thumbnail as CatalogThumbnail};
 use icatalog_media::XmpData;
 use std::io::Read;
@@ -71,9 +71,14 @@ const EXTS: &[&str] = &[
 const RAW_EXTS: &[&str] = &["dng", "cr2", "cr3", "nef", "arw", "pef", "raf"];
 
 /// Parse the optional `recursive` param (default true).
-pub(super) fn parse_recursive(v: Option<&str>) -> bool {
-    v.map(|v| !matches!(v, "false" | "0" | "no"))
-        .unwrap_or(true)
+pub(super) fn parse_recursive(v: Option<&str>) -> Result<bool> {
+    match v {
+        None | Some("true" | "1" | "yes") => Ok(true),
+        Some("false" | "0" | "no") => Ok(false),
+        Some(value) => Err(EngineError::BadParam(format!(
+            "bad recursive value: {value}"
+        ))),
+    }
 }
 
 /// Regular files found by [`walk`] plus the number of directory/entry errors.
