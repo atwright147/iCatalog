@@ -178,7 +178,7 @@ Boundary: app code reads `ivc` output only; it never copies iView/Expression/Pha
 
 ## 7. Media decoding seam
 
-EXIF orientation transforms stay in `icatalog-media` (D31): `thumbnail_jpeg_with_orientation` generates oriented JPEG pixels, while `decode_rgba_with_orientation` supports older stored thumbnails. Import/update pass the same orientation written to `asset_meta`, including for RAW previews. The desktop supplies stored orientation only when `thumbnail.orientation_applied` is false, so grid and detail textures share the result without double rotation. No original media access or catalogue writes are needed for this display fallback.
+EXIF orientation transforms stay in `icatalog-media` (D31): `thumbnail_jpeg_with_orientation` generates oriented JPEG pixels, while `decode_rgba_with_orientation` supports older stored thumbnails. Import/update pass the same orientation written to `asset_meta`, including for RAW previews. BMP/GIF skip unsupported EXIF parsing after content probing, so valid images do not count as metadata errors (D93). The desktop supplies stored orientation only when `thumbnail.orientation_applied` is false, so grid and detail textures share the result without double rotation. No original media access or catalogue writes are needed for this display fallback.
 
 **Decided** (D8; built today: the raster slice of D13 and the RAW embedded-preview + embedded XMP read slice of D17, hand-rolled with no new dependency):
 

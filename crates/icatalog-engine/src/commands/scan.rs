@@ -215,10 +215,18 @@ struct PreparedDerived {
     errors: u64,
 }
 
-fn prepare_derived(image_bytes: &[u8], exif_bytes: &[u8]) -> Option<PreparedDerived> {
-    let (exif, errors) = match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
-        Ok(d) => (d, 0),
-        Err(_) => (Default::default(), 1),
+fn prepare_derived(
+    image_bytes: &[u8],
+    exif_bytes: &[u8],
+    exif_supported: bool,
+) -> Option<PreparedDerived> {
+    let (exif, errors) = if exif_supported {
+        match icatalog_media::read_exif(std::io::Cursor::new(exif_bytes)) {
+            Ok(d) => (d, 0),
+            Err(_) => (Default::default(), 1),
+        }
+    } else {
+        (Default::default(), 0)
     };
     let thumbnail = icatalog_media::thumbnail_jpeg_with_orientation(
         image_bytes,
@@ -527,6 +535,10 @@ pub(super) fn ingest(
         Some(p) if !raw_has_exif(&bytes) => p,
         _ => &bytes,
     };
+    // The EXIF reader does not recognize BMP or GIF containers. Use the
+    // probed content format, since a filename extension need not match it.
+    let exif_supported =
+        preview.is_some() || matches!(info.format.as_str(), "jpeg" | "png" | "tiff" | "webp");
     let (format, width, height) = if preview.is_some() {
         let ext = path
             .extension()
@@ -572,7 +584,7 @@ pub(super) fn ingest(
             }
             return Ok(Ingested::Unchanged);
         }
-        let Some(prepared) = prepare_derived(image_bytes, exif_bytes) else {
+        let Some(prepared) = prepare_derived(image_bytes, exif_bytes, exif_supported) else {
             return Ok(Ingested::Skipped(if preview.is_some() {
                 SkipReason::RawNoPreview
             } else {
@@ -594,7 +606,7 @@ pub(super) fn ingest(
     if ctx.catalog().has_content_hash(&hash)? {
         return Ok(Ingested::Duplicate);
     }
-    let Some(prepared) = prepare_derived(image_bytes, exif_bytes) else {
+    let Some(prepared) = prepare_derived(image_bytes, exif_bytes, exif_supported) else {
         return Ok(Ingested::Skipped(if preview.is_some() {
             SkipReason::RawNoPreview
         } else {

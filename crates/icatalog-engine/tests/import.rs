@@ -64,6 +64,27 @@ fn import_dedupe_thumbs() {
 }
 
 #[test]
+fn bmp_and_gif_import_and_update_without_exif_errors() {
+    let (mut ctx, base, dir) = setup("non-exif-containers");
+    png(&dir.join("photo.bmp"), 19, 13, 23);
+    png(&dir.join("animation.gif"), 15, 11, 47);
+
+    let imported = run(&mut ctx, &dir, None).unwrap();
+    assert_eq!(metric(imported.clone(), "imported"), 5);
+    assert_eq!(metric(imported, "errors"), 0);
+
+    png(&dir.join("photo.bmp"), 21, 14, 91);
+    png(&dir.join("animation.gif"), 16, 12, 113);
+    let mut update = Params::new();
+    update.set("path", dir.to_str().unwrap());
+    let updated = dispatch(&mut ctx, "update", &update).unwrap();
+    assert_eq!(metric(updated.clone(), "changed"), 2);
+    assert_eq!(metric(updated, "errors"), 0);
+    drop(ctx);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+#[test]
 fn non_recursive_and_dupes() {
     let (mut ctx, base, dir) = setup("b");
     let o = run(&mut ctx, &dir, Some("false")).unwrap();

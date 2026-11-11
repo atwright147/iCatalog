@@ -918,6 +918,15 @@ choice to declared TIFF/CR3 candidates and bounded RAF/fallback scans. Keep
 the existing candidate count, byte-size and header checks, and copy only the
 chosen preview. No schema, dependency or command change is needed.
 
+## D93. Count EXIF errors only for supported containers (2026-11-11)
+
+The EXIF reader recognizes JPEG, PNG, TIFF, WebP and supported RAW containers,
+but rejects valid BMP and GIF files as unknown formats. Import and update use
+the probed content format to skip EXIF parsing for BMP/GIF, retaining empty
+metadata and a normal thumbnail without incrementing the error count. RAW
+files still try their container or embedded preview. EXIF parse failures in
+supported containers continue to count as errors. No schema or command change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
