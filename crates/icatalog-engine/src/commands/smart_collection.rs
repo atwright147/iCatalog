@@ -25,7 +25,7 @@ pub(super) fn parse(params: &Params) -> Result<SmartRules> {
         min_rating: params.get_i64("min-rating")?,
         max_rating: params.get_i64("max-rating")?,
         label: params.get_i64("label")?,
-        keyword: text("keyword"),
+        keyword: params.get("keyword").map(str::to_owned),
         text: text("text"),
     };
     rules

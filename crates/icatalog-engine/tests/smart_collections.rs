@@ -25,6 +25,31 @@ fn fixture() -> Context {
 }
 
 #[test]
+fn exact_keyword_rule_preserves_surrounding_spaces() {
+    let mut c = fixture();
+    let keyword = c.catalog().ensure_keyword(" travel ", None).unwrap();
+    c.catalog().add_asset_keyword(1, keyword).unwrap();
+    run(
+        &mut c,
+        &[
+            ("action", "create-smart"),
+            ("name", "Spaced"),
+            ("keyword", " travel "),
+        ],
+    );
+    assert_eq!(c.catalog().collection_assets(1).unwrap(), vec![1]);
+    assert_eq!(
+        c.catalog()
+            .smart_rules(1)
+            .unwrap()
+            .unwrap()
+            .keyword
+            .as_deref(),
+        Some(" travel ")
+    );
+}
+
+#[test]
 fn maximum_rules_preview_save_list_and_clear_with_atomic_validation() {
     let mut c = fixture();
     let before = c.catalog().connection().total_changes();

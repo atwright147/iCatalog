@@ -830,6 +830,14 @@ Case folding also handles expansions such as ß/ss. Name/path and Smart text,
 camera and lens filters share the predicate. Exact keywords remain exact. No
 schema, protocol, command or Taskfile change is needed.
 
+## D85. Preserve exact Smart keyword whitespace (2026-11-10)
+
+Treat a Smart Collection keyword rule as an exact keyword name, including
+leading and trailing spaces. Keep trimming other rule inputs, but pass the
+keyword field byte-for-byte through the desktop and engine command. Validation
+still rejects an all-whitespace rule. No schema, sync protocol or Taskfile
+change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

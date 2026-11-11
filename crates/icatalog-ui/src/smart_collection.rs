@@ -176,7 +176,14 @@ impl RuleInputs {
             ("text", &self.text),
         ] {
             if !value.trim().is_empty() {
-                params.set(key, value.trim());
+                params.set(
+                    key,
+                    if key == "keyword" {
+                        value
+                    } else {
+                        value.trim()
+                    },
+                );
             }
         }
         if let Some(rating) = self.rating {
@@ -198,4 +205,21 @@ fn field(ui: &mut egui::Ui, caption: &str, value: &mut String, hint: &str) {
     )
     .labelled_by(label.id);
     ui.end_row();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuleInputs;
+    use icatalog_engine::Params;
+
+    #[test]
+    fn exact_keyword_input_keeps_its_spaces() {
+        let inputs = RuleInputs {
+            keyword: " travel ".into(),
+            ..Default::default()
+        };
+        let mut params = Params::new();
+        inputs.apply(&mut params);
+        assert_eq!(params.get("keyword"), Some(" travel "));
+    }
 }
