@@ -890,6 +890,15 @@ window layer cannot receive Finder document-open events, so its bundle does
 not claim the extension yet. Windows ZIPs do not install a file association.
 This changes no SQLite schema version, sync protocol or command id.
 
+## D90. Skip unchanged Smart Collection writes (2026-11-11)
+
+An identical `set-rules` or rename request must leave catalogue generation and
+the Collection's sync revision unchanged. Add a null-safe value comparison to
+the Smart rule upsert and a changed-name condition to rename. A missing
+collection still returns an error. Real rule or name changes continue through
+the existing revision/generation triggers. No migration, protocol or command
+change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

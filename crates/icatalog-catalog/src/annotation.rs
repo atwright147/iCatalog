@@ -81,11 +81,18 @@ impl Catalog {
     /// Rename either collection kind, preserving its id, members and rules.
     pub fn rename_collection(&self, id: i64, name: &str) -> Result<()> {
         let changed = self.conn.execute(
-            "UPDATE collection SET name=?2 WHERE id=?1",
+            "UPDATE collection SET name=?2 WHERE id=?1 AND name IS NOT ?2",
             params![id, name],
         )?;
         if changed == 0 {
-            return Err(CatalogError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+            let exists: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM collection WHERE id=?1)",
+                [id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(CatalogError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+            }
         }
         Ok(())
     }

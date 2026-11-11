@@ -196,7 +196,17 @@ impl Catalog {
         rules.validate()?;
         self.conn.execute("INSERT INTO smart_collection(collection_id,format,captured_from,captured_to,camera,lens,min_rating,max_rating,label,keyword,text)
             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
-            ON CONFLICT(collection_id) DO UPDATE SET format=excluded.format,captured_from=excluded.captured_from,captured_to=excluded.captured_to,camera=excluded.camera,lens=excluded.lens,min_rating=excluded.min_rating,max_rating=excluded.max_rating,label=excluded.label,keyword=excluded.keyword,text=excluded.text",
+            ON CONFLICT(collection_id) DO UPDATE SET format=excluded.format,captured_from=excluded.captured_from,captured_to=excluded.captured_to,camera=excluded.camera,lens=excluded.lens,min_rating=excluded.min_rating,max_rating=excluded.max_rating,label=excluded.label,keyword=excluded.keyword,text=excluded.text
+            WHERE smart_collection.format IS NOT excluded.format
+               OR smart_collection.captured_from IS NOT excluded.captured_from
+               OR smart_collection.captured_to IS NOT excluded.captured_to
+               OR smart_collection.camera IS NOT excluded.camera
+               OR smart_collection.lens IS NOT excluded.lens
+               OR smart_collection.min_rating IS NOT excluded.min_rating
+               OR smart_collection.max_rating IS NOT excluded.max_rating
+               OR smart_collection.label IS NOT excluded.label
+               OR smart_collection.keyword IS NOT excluded.keyword
+               OR smart_collection.text IS NOT excluded.text",
             params![id,rules.format,rules.captured_from,rules.captured_to,rules.camera,rules.lens,rules.min_rating,rules.max_rating,rules.label,rules.keyword,rules.text])?;
         Ok(())
     }

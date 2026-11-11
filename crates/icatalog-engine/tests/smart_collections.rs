@@ -50,6 +50,32 @@ fn exact_keyword_rule_preserves_surrounding_spaces() {
 }
 
 #[test]
+fn identical_set_rules_command_is_a_sync_no_op() {
+    let mut c = fixture();
+    run(
+        &mut c,
+        &[
+            ("action", "create-smart"),
+            ("name", "Rated"),
+            ("min-rating", "4"),
+        ],
+    );
+    let before = c.catalog().collection_states().unwrap();
+    let generation = c.catalog().generation().unwrap();
+    run(
+        &mut c,
+        &[
+            ("action", "set-rules"),
+            ("id", "1"),
+            ("name", "Rated"),
+            ("min-rating", "4"),
+        ],
+    );
+    assert_eq!(c.catalog().collection_states().unwrap(), before);
+    assert_eq!(c.catalog().generation().unwrap(), generation);
+}
+
+#[test]
 fn maximum_rules_preview_save_list_and_clear_with_atomic_validation() {
     let mut c = fixture();
     let before = c.catalog().connection().total_changes();

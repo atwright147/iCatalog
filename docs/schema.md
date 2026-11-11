@@ -24,6 +24,11 @@ filename or SQLite header alone is not a catalogue identity check.
 
 Engine command writes are grouped in a single deferred transaction (D23), with rollback on error, panic or failed commit. This does not change the schema version. Direct catalogue CRUD callers manage their own transaction boundaries.
 
+Smart rule and Collection name updates write only when values change (D90).
+An identical save therefore does not advance catalogue generation or a
+Collection's sync revision. Null-to-value and value-to-null rule changes still
+write and use the existing triggers.
+
 ## 3. DDL (v1-v6, implemented; later columns are marked inline)
 
 ```sql

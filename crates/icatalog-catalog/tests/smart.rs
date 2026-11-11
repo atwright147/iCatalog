@@ -20,6 +20,39 @@ fn smart(c: &Catalog, rules: SmartRules) -> i64 {
 }
 
 #[test]
+fn saving_identical_smart_rules_and_name_does_not_advance_sync_state() {
+    let c = fixture();
+    let rules = SmartRules {
+        keyword: Some("Keep".into()),
+        max_rating: Some(4),
+        ..Default::default()
+    };
+    let id = smart(&c, rules.clone());
+    let state = || {
+        let generation = c.generation().unwrap().unwrap();
+        let revision: i64 = c
+            .connection()
+            .query_row(
+                "SELECT revision FROM sync_revision WHERE kind='collection' AND entity_id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        (generation, revision)
+    };
+    let original = state();
+    c.set_smart_rules(id, &rules).unwrap();
+    c.rename_collection(id, "Smart").unwrap();
+    assert_eq!(state(), original);
+    let changed = SmartRules {
+        max_rating: None,
+        ..rules
+    };
+    c.set_smart_rules(id, &changed).unwrap();
+    assert_eq!(state(), (original.0 + 1, original.1 + 1));
+}
+
+#[test]
 fn unicode_case_variants_match_smart_text_camera_and_lens() {
     let c = Catalog::open_in_memory().unwrap();
     c.insert_catalogue("unicode-smart", "t").unwrap();
