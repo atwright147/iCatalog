@@ -1985,13 +1985,17 @@ fn interaction_create_collection_modal_failure_retry_and_busy_controls() {
 fn visual_snapshots() {
     let fixture = Fixture::new();
     let mut h = fixture.harness([1100.0, 720.0]);
-    // Mesa and Metal differ by two red-channel levels at two pixels of the
-    // clipped green thumbnail. CI's measured YIQ distance is below 1.0.
-    // Keep a zero failed-pixel allowance and the normal tolerance elsewhere.
-    let clipped_thumbnail_options = h
+    // Hosted Mesa and local Metal differ by at most two channel levels at
+    // thumbnail edges and antialiased glyphs in these reviewed snapshots.
+    // Keep zero failed pixels and the normal tolerance on other snapshots.
+    let linux_pixel_rounding_options = h
         .options()
         .clone()
         .threshold(egui_kittest::OsThreshold::new(0.6).linux(1.0));
+    let linux_glyph_rounding_options = h
+        .options()
+        .clone()
+        .threshold(egui_kittest::OsThreshold::new(0.6).linux(3.0));
     h.run();
     h.snapshot("catalogue-grid");
     h.get(
@@ -2011,7 +2015,7 @@ fn visual_snapshots() {
     h.snapshot("catalogue-list");
     let mut narrow = fixture.harness([800.0, 600.0]);
     narrow.run();
-    narrow.snapshot_options("catalogue-narrow", &clipped_thumbnail_options);
+    narrow.snapshot_options("catalogue-narrow", &linux_pixel_rounding_options);
     let mut results = h.take_snapshot_results();
     results.extend(narrow.take_snapshot_results());
     let expanded_fixture = Fixture::new();
@@ -2029,13 +2033,19 @@ fn visual_snapshots() {
     settle(&mut expanded);
     expanded.event(egui::Event::PointerGone);
     expanded.run();
-    expanded.snapshot("catalogue-collections-expanded");
+    expanded.snapshot_options(
+        "catalogue-collections-expanded",
+        &linux_glyph_rounding_options,
+    );
     results.extend(expanded.take_snapshot_results());
     expanded.get_by_label("Collection 39").scroll_to_me();
     settle(&mut expanded);
     expanded.event(egui::Event::PointerGone);
     expanded.run();
-    expanded.snapshot("catalogue-collections-scrolled");
+    expanded.snapshot_options(
+        "catalogue-collections-scrolled",
+        &linux_glyph_rounding_options,
+    );
     results.extend(expanded.take_snapshot_results());
     let folders_fixture = Fixture::new();
     let device_name = "A very long device name that should truncate inside the sidebar";
@@ -2204,7 +2214,7 @@ fn visual_snapshots() {
     settle(&mut counts);
     counts.event(egui::Event::PointerGone);
     counts.run();
-    counts.snapshot_options("catalogue-collection-counts", &clipped_thumbnail_options);
+    counts.snapshot_options("catalogue-collection-counts", &linux_pixel_rounding_options);
     results.extend(counts.take_snapshot_results());
 
     let rich_fixture = Fixture::new();
@@ -2234,7 +2244,7 @@ fn visual_snapshots() {
         settle(&mut inspector);
         inspector.event(egui::Event::PointerGone);
         inspector.run();
-        inspector.snapshot(name);
+        inspector.snapshot_options(name, &linux_pixel_rounding_options);
         results.extend(inspector.take_snapshot_results());
     }
     for (name, theme, scroll) in [
@@ -2265,7 +2275,12 @@ fn visual_snapshots() {
         }
         inspector.event(egui::Event::PointerGone);
         inspector.run();
-        inspector.snapshot(name);
+        let options = if scroll {
+            &linux_glyph_rounding_options
+        } else {
+            &linux_pixel_rounding_options
+        };
+        inspector.snapshot_options(name, options);
         results.extend(inspector.take_snapshot_results());
     }
     let mut rich = rich_fixture.harness([1100.0, 720.0]);
