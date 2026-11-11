@@ -119,6 +119,7 @@ struct TreeState<'a> {
 #[cfg(target_os = "macos")]
 struct NativeMenu {
     _menu: muda::Menu,
+    _quit: muda::MenuItem,
     import: muda::MenuItem,
     update: muda::MenuItem,
     connect: muda::MenuItem,
@@ -207,12 +208,18 @@ fn install_native_menu(
 ) -> Option<NativeMenu> {
     #[cfg(target_os = "macos")]
     {
-        use muda::accelerator::Accelerator;
-        use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+        use muda::accelerator::{Accelerator, Code, Modifiers};
+        use muda::{Menu, MenuEvent, MenuItem, Submenu};
 
         let menu = Menu::new();
         let app_menu = Submenu::new(APP_NAME, true);
         let file_menu = Submenu::new("File", true);
+        let quit = MenuItem::with_id(
+            "app.quit",
+            format!("Quit {APP_NAME}"),
+            true,
+            Some(Accelerator::new(Modifiers::META, Code::KeyQ)),
+        );
         let import = MenuItem::with_id("file.import", "Import…", true, None::<Accelerator>);
         let update = MenuItem::with_id("file.update", "Update", true, None::<Accelerator>);
         let connect = MenuItem::with_id(
@@ -223,9 +230,9 @@ fn install_native_menu(
         );
         let sync = MenuItem::with_id("file.sync", "Sync…", true, None::<Accelerator>);
 
-        // Keep the standard app menu (Quit/⌘Q): installing our menu replaces
-        // NSApp's main menu wholesale.
-        let built = app_menu.append(&PredefinedMenuItem::quit(None)).is_ok()
+        // Route Quit/⌘Q through the same pending-worker close guard as the
+        // window button. The predefined item calls NSApp terminate directly.
+        let built = app_menu.append(&quit).is_ok()
             && file_menu
                 .append_items(&[&import, &update, &connect, &sync])
                 .is_ok()
@@ -260,6 +267,7 @@ fn install_native_menu(
         }
         Some(NativeMenu {
             _menu: menu,
+            _quit: quit,
             import,
             update,
             connect,
@@ -446,6 +454,15 @@ impl App {
         }
         #[cfg(not(target_os = "macos"))]
         let _ = enabled;
+    }
+
+    fn close_allowed(&mut self) -> bool {
+        if self.worker.is_some() {
+            self.status = "A command is running; wait for it to finish before closing.".into();
+            false
+        } else {
+            true
+        }
     }
 
     fn poll_worker(&mut self) {
@@ -1692,10 +1709,9 @@ impl eframe::App for App {
         if self.worker.is_some() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(50));
-            if ui.ctx().input(|input| input.viewport().close_requested()) {
+            if ui.ctx().input(|input| input.viewport().close_requested()) && !self.close_allowed() {
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.status = "A command is running; wait for it to finish before closing.".into();
             }
         }
         if self.sync_job.is_some() || self.catalogue_error.is_some() {
@@ -1732,6 +1748,12 @@ impl eframe::App for App {
         // Native macOS menu clicks arrive through the handler installed in
         // `install_native_menu`; drain them before drawing.
         while let Ok(id) = self.menu_events.try_recv() {
+            if id == "app.quit" {
+                if self.close_allowed() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                continue;
+            }
             if self.worker.is_some()
                 || self.create_collection.is_some()
                 || self.sync_dialog.is_some()

@@ -934,6 +934,15 @@ label and then stable device ID, and start a new sidebar header whenever either
 value changes. Selection and collapse state continue to use the device ID, so
 each header controls only its own sources. No catalogue or command change.
 
+## D95. Route macOS Quit through the pending-command guard (2026-11-11)
+
+The native predefined Quit item invokes AppKit termination directly, bypassing
+egui's window close request and its pending-worker cancellation. Install a
+normal native Quit menu item with Command-Q and route its event through the
+same close guard as the window button. A running command keeps the app open
+and reports why; an idle app sends the normal viewport close command. Keep
+the native menu item enabled so a busy Quit request can explain the delay.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

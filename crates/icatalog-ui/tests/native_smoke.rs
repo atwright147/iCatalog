@@ -167,6 +167,7 @@ fn native_menu_dialog_update_and_quit() {
             delay 0.05
         end repeat
         if appMenuName is not "{APP_NAME}" then error "Expected {APP_NAME} app menu, got: " & appMenuName
+        if not (exists menu item "Quit {APP_NAME}" of menu 1 of menu bar item 2 of menu bar 1) then error "No routed Quit menu item"
         log "Application menu name verified"
         click menu bar item "File" of menu bar 1
         click menu item "Update" of menu "File" of menu bar item "File" of menu bar 1

@@ -23,6 +23,16 @@ pub(crate) fn open_initialized_existing(path: &Path) -> Result<Context> {
 }
 
 impl Worker {
+    #[cfg(test)]
+    pub(crate) fn blocked_for_test(release: std::sync::mpsc::Receiver<()>) -> Self {
+        Self {
+            handle: Some(std::thread::spawn(move || {
+                let _ = release.recv();
+                Ok(Outcome::Text("test worker finished".into()))
+            })),
+        }
+    }
+
     pub fn start(path: PathBuf, id: String, params: Params) -> std::io::Result<Self> {
         let handle = std::thread::Builder::new()
             .name("icatalog-command".into())

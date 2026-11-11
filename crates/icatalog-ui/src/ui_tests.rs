@@ -235,6 +235,25 @@ fn seed_folder_tree(fixture: &Fixture, device_name: &str) {
 }
 
 #[test]
+fn native_quit_event_waits_for_a_pending_worker() {
+    let fixture = Fixture::new();
+    let mut h = fixture.harness([800.0, 600.0]);
+    let (menu_tx, menu_rx) = std::sync::mpsc::channel();
+    h.state_mut().menu_events = menu_rx;
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    h.state_mut().worker = Some(worker::Worker::blocked_for_test(release_rx));
+
+    menu_tx.send("app.quit".into()).unwrap();
+    h.run_steps(2);
+    assert!(h.state().worker.is_some());
+    assert!(h.state().status.contains("wait for it to finish"));
+
+    release_tx.send(()).unwrap();
+    settle(&mut h);
+    assert!(h.state_mut().close_allowed());
+}
+
+#[test]
 fn distinct_devices_with_the_same_label_keep_separate_headers_and_filters() {
     let fixture = Fixture::new();
     let ctx = open_catalogue(&fixture.path()).unwrap();
