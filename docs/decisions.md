@@ -899,6 +899,16 @@ collection still returns an error. Real rule or name changes continue through
 the existing revision/generation triggers. No migration, protocol or command
 change is needed.
 
+## D91. Bound malformed XMP entity scans (2026-11-11)
+
+An entity is recognized only when its semicolon follows at most ten entity-name
+bytes. Inspect at most those eleven bytes after `&` while decoding, rather
+than searching the entire remaining packet on each malformed ampersand. This
+keeps a bounded XMP
+packet linear to decode, including packets full of invalid entities. Valid
+named and numeric entity behavior is unchanged. No dependency, schema or
+command change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

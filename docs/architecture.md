@@ -82,6 +82,10 @@ Import uses exact path and current content-hash checks for duplicates (D66).
 Historical UIDs remain stable after Update and do not suppress reimport of
 their old bytes.
 
+The media layer's tolerant XMP entity decoder scans only the bounded entity
+name window after each `&` (D91), so malformed metadata cannot make import
+time grow quadratically with packet length.
+
 **EXISTS** (D18): the sync commands `clone`, `sync` and `serve` live in `icatalog-sync` (L3), not the engine (L2 must not depend on L3). `icatalog-sync` exposes the same shape (`commands()`, `find_command`, `dispatch_guarded`); the L4 shells merge the two registries and dispatch engine-first. The sync registry is not part of `icatalog-engine`, so the engine's fuzz test covers only its own commands; `crates/icatalog-sync/tests/sync.rs` covers hostile sync params.
 
 The L4 CLI and desktop entry points use `args_os` (D61). CLI parsing preserves catalogue path bytes, validates text arguments and rejects long options absent from that command's registry `ParamSpec` before opening the catalogue (D71). Filesystems that refuse a byte-exact catalogue path produce an ordinary open error; no lossy substitute is used. The engine's `Params` and catalogue asset paths remain UTF-8 strings; accepting arbitrary filesystem bytes for imported media would require a separate model design.

@@ -222,7 +222,13 @@ fn decode_entities(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(rest.get(..i).unwrap_or(""));
         let after = rest.get(i + 1..).unwrap_or("");
-        let semi = after.find(';').filter(|&e| e <= 10);
+        // Entity names are at most ten bytes here. Searching all of `after`
+        // for every malformed '&' makes a packet of ampersands quadratic.
+        let semi = after
+            .as_bytes()
+            .iter()
+            .take(11)
+            .position(|&byte| byte == b';');
         let decoded = semi.and_then(|e| {
             let name = after.get(..e)?;
             let ch = match name {
@@ -568,6 +574,18 @@ mod tests {
     fn entities() {
         let d = parse_xmp("<dc:subject><rdf:Bag><rdf:li>a&amp;b &#65;&#x42; &lt;&bogus;</rdf:li></rdf:Bag></dc:subject>");
         assert_eq!(d.keywords, ["a&b AB <&bogus;"]);
+    }
+
+    #[test]
+    fn malformed_entities_have_bounded_scan_cost() {
+        let malformed = "&".repeat(2 * 1024 * 1024);
+        let started = std::time::Instant::now();
+        assert_eq!(decode_entities(&malformed), malformed);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "malformed entities must be scanned in linear time"
+        );
+        assert_eq!(decode_entities("&bad&stillbad; &amp;"), "&bad&stillbad; &");
     }
 
     #[test]
