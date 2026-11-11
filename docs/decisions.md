@@ -953,7 +953,8 @@ path and metadata inspector screenshots the existing Linux YIQ tolerance 1.0.
 Give expanded/scrolled Collections and the light scrolled-inspector screenshot
 3.0, the lowest reported threshold at which their isolated glyph pixels pass.
 Retain the default 0.6 on other screenshots and platforms, zero failing pixels,
-and the existing baseline images. Hosted validation of this adjustment is open.
+and the existing baseline images. The hosted Linux workspace and visual checks
+passed after this adjustment, alongside the Windows hard-link job.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
