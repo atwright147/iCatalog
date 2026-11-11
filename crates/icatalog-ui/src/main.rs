@@ -1844,9 +1844,12 @@ impl eframe::App for App {
                     if parent.is_none() {
                         // Group sources under their device (This Mac, disc, share).
                         children.sort_by(|a, b| {
-                            folder_device(a, devices)
+                            let left_device = folder_device(a, devices);
+                            let right_device = folder_device(b, devices);
+                            left_device
                                 .1
-                                .cmp(&folder_device(b, devices).1)
+                                .cmp(&right_device.1)
+                                .then_with(|| left_device.0.cmp(&right_device.0))
                                 .then_with(|| {
                                     a.path
                                         .as_deref()
@@ -1855,12 +1858,12 @@ impl eframe::App for App {
                                 })
                         });
                     }
-                    let mut last_device: Option<String> = None;
+                    let mut last_device: Option<(Option<String>, String)> = None;
                     for f in children {
                         if parent.is_none() {
                             let (did, dev) = folder_device(f, devices);
-                            if last_device.as_deref() != Some(dev.as_str()) {
-                                last_device = Some(dev.clone());
+                            if last_device.as_ref() != Some(&(did.clone(), dev.clone())) {
+                                last_device = Some((did.clone(), dev.clone()));
                                 ui.add_space(6.0);
                                 let key = did.clone().unwrap_or_else(|| "Other".to_string());
                                 ui.horizontal(|ui| {

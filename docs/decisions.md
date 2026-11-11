@@ -927,6 +927,13 @@ metadata and a normal thumbnail without incrementing the error count. RAW
 files still try their container or embedded preview. EXIF parse failures in
 supported containers continue to count as errors. No schema or command change.
 
+## D94. Group desktop devices by identity as well as label (2026-11-11)
+
+Two distinct devices may have the same display label. Sort root folders by
+label and then stable device ID, and start a new sidebar header whenever either
+value changes. Selection and collapse state continue to use the device ID, so
+each header controls only its own sources. No catalogue or command change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

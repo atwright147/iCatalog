@@ -234,6 +234,56 @@ fn seed_folder_tree(fixture: &Fixture, device_name: &str) {
         .unwrap();
 }
 
+#[test]
+fn distinct_devices_with_the_same_label_keep_separate_headers_and_filters() {
+    let fixture = Fixture::new();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch(
+            "INSERT INTO source(id,label,identity,device_id,device_label) VALUES
+             (1,'First','/synthetic/first','device-one','Shared'),
+             (2,'Second','/synthetic/second','device-two','Shared');
+             UPDATE folder SET source_id=1 WHERE id=1;
+             UPDATE folder SET source_id=2 WHERE id=2;",
+        )
+        .unwrap();
+    drop(ctx);
+
+    let mut h = fixture.harness([1100.0, 720.0]);
+    let headers = h
+        .query_all(
+            By::new()
+                .label("Shared")
+                .role(egui::accesskit::Role::Button),
+        )
+        .map(|node| node.rect().center())
+        .collect::<Vec<_>>();
+    assert_eq!(headers.len(), 2);
+
+    click_position(&mut h, headers[0]);
+    settle(&mut h);
+    assert_eq!(
+        h.state().folder_sel,
+        FolderSelection::Device("device-one".into())
+    );
+    assert_eq!(
+        h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+
+    click_position(&mut h, headers[1]);
+    settle(&mut h);
+    assert_eq!(
+        h.state().folder_sel,
+        FolderSelection::Device("device-two".into())
+    );
+    assert_eq!(
+        h.state().assets.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![3]
+    );
+}
+
 fn click_position(h: &mut Harness<'_, App>, pos: egui::Pos2) {
     h.hover_at(pos);
     h.run_steps(1);
