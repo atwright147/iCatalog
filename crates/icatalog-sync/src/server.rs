@@ -8,7 +8,11 @@ use icatalog_catalog::{valid_catalogue_id, CatalogError, MAX_SYNC_BYTES};
 use icatalog_engine::Context;
 use std::collections::BTreeMap;
 use std::io::Read;
+use std::sync::mpsc;
+use std::time::Duration;
 use tiny_http::{Header, Request, Response, Server};
+
+const MAX_PENDING_UPLOADS: usize = 4;
 
 pub fn bind(addr: &str) -> Result<Server> {
     Server::http(addr).map_err(|e| SyncError::Http(format!("cannot bind {addr}: {e}")))
@@ -28,9 +32,55 @@ pub fn serve_loop(server: Server, ctx: &mut Context) -> Result<()> {
             "a synced replica cannot serve as the authoritative catalogue".into(),
         ));
     }
+    // Only body reads run on workers. Catalogue access stays on this thread,
+    // so a client that stops sending an edit batch cannot block other clients.
+    let (completed_tx, completed_rx) = mpsc::channel();
+    let mut pending_uploads = 0usize;
     loop {
-        let request = server.recv().map_err(SyncError::Io)?;
-        if let Err(e) = handle(request, ctx) {
+        while let Ok((request, body)) = completed_rx.try_recv() {
+            pending_uploads = pending_uploads.saturating_sub(1);
+            if let Err(e) = finish_edits(request, body, ctx) {
+                eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
+            }
+        }
+        let request = if pending_uploads == 0 {
+            Some(server.recv().map_err(SyncError::Io)?)
+        } else {
+            server
+                .recv_timeout(Duration::from_millis(100))
+                .map_err(SyncError::Io)?
+        };
+        let Some(request) = request else { continue };
+        let (path, _) = protocol::split_url(request.url());
+        let is_edit = request.method().as_str() == "POST" && path == "/annotations";
+        if is_edit {
+            if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {
+                if let Err(e) = respond_text(request, 413, "edit batch exceeds 64 MiB") {
+                    eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
+                }
+                continue;
+            }
+            if pending_uploads >= MAX_PENDING_UPLOADS {
+                if let Err(e) = respond_text(request, 503, "too many pending uploads; retry") {
+                    eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
+                }
+                continue;
+            }
+            let sender = completed_tx.clone();
+            match std::thread::Builder::new()
+                .name("icatalog-upload-body".into())
+                .spawn(move || {
+                    let mut request = request;
+                    let body = read_edit_body(&mut request);
+                    let _ = sender.send((request, body));
+                }) {
+                Ok(_) => pending_uploads += 1,
+                Err(e) => eprintln!(
+                    "{} serve: cannot start upload reader: {e}",
+                    icatalog_catalog::APP_NAME
+                ),
+            }
+        } else if let Err(e) = handle(request, ctx) {
             eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
         }
     }
@@ -144,11 +194,19 @@ fn handle_edits(mut request: Request, ctx: &mut Context) -> Result<()> {
     if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {
         return respond_text(request, 413, "edit batch exceeds 64 MiB");
     }
+    let body = read_edit_body(&mut request);
+    finish_edits(request, body, ctx)
+}
+fn read_edit_body(request: &mut Request) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     request
         .as_reader()
         .take(MAX_SYNC_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+fn finish_edits(request: Request, body: std::io::Result<Vec<u8>>, ctx: &mut Context) -> Result<()> {
+    let bytes = body?;
     if bytes.len() > MAX_SYNC_BYTES {
         return respond_text(request, 413, "edit batch exceeds 64 MiB");
     }

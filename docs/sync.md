@@ -48,9 +48,13 @@ Plain HTTP is implemented using `tiny_http` and `ureq`. Upgrade both peers for p
 |---|---|
 | `GET /info` | UTF-8 lines `protocol=2`, `id=<catalogue-id>`, `generation=<nonnegative integer>` |
 | `GET /catalogue` | Consistent SQLite snapshot; `X-Catalogue-Id` and `X-Generation` describe that exact snapshot |
-| `POST /annotations` | Bounded binary v2 batch of annotation and Collection changes; 200 reply includes generation and conflict keys; malformed/wrong-ID batches return 400; oversized batches return 413 |
+| `POST /annotations` | Bounded binary v2 batch of annotation and Collection changes; 200 reply includes generation and conflict keys; malformed/wrong-ID batches return 400; oversized batches return 413; more than four concurrent body reads return retryable 503 |
 | `POST /catalogue` | 405; snapshot uploads are retired |
 | `GET /preview/<sha>` | Referenced JPEG bytes; hash must be exactly 64 lowercase hexadecimal characters; invalid hash 400, unavailable/unreferenced hash 404 |
+
+The server reads upload bodies on at most four workers and applies completed
+batches on its catalogue thread (D88). A stalled upload cannot hold up GETs or
+another edit batch. Clients can retry a 503 when upload readers are occupied.
 
 `GET /info` is capped at 8 KiB, snapshots at 4 GiB, edit messages/baselines at 64 MiB and previews at 16 MiB. User-state reads are bounded to 100,000 assets/Collections and 100,000 keywords or members per entity, subject also to the total byte bound. Oversized catalogues return an actionable error rather than allocating from untrusted counts. Redirects are disabled; connection and total request timeouts are bounded.
 

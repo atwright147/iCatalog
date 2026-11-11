@@ -7,6 +7,7 @@ use icatalog_sync::{
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 
@@ -68,6 +69,70 @@ fn sync_params(url: &str) -> Params {
     let mut p = Params::new();
     p.set("url", url);
     p
+}
+
+#[test]
+fn stalled_edit_body_does_not_block_other_sync_clients() {
+    let dir = temp_dir("stalled-edit-body");
+    let server = make_catalogue(&dir, "server.sqlite", "test", 0);
+    let port = start_server(server);
+    let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stalled
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .unwrap();
+    stalled
+        .write_all(b"POST /annotations HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2048\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    // The interim response proves the server has begun reading this body.
+    let mut interim = [0; 256];
+    let n = stalled.read(&mut interim).unwrap();
+    assert!(String::from_utf8_lossy(&interim[..n]).starts_with("HTTP/1.1 100"));
+    let mut reader = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    reader
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .unwrap();
+    reader
+        .write_all(b"GET /info HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut bytes = [0; 256];
+    let n = reader.read(&mut bytes).unwrap();
+    assert!(
+        String::from_utf8_lossy(&bytes[..n]).starts_with("HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&bytes[..n])
+    );
+    let mut editor = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    editor
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .unwrap();
+    editor
+        .write_all(b"POST /annotations HTTP/1.1\r\nHost: localhost\r\nContent-Length: 7\r\nConnection: close\r\n\r\ninvalid")
+        .unwrap();
+    let n = editor.read(&mut bytes).unwrap();
+    assert!(String::from_utf8_lossy(&bytes[..n]).starts_with("HTTP/1.1 400"));
+    let mut stalled_uploads = vec![stalled];
+    for _ in 1..4 {
+        let mut upload = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        upload
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        upload
+            .write_all(b"POST /annotations HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2048\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let n = upload.read(&mut interim).unwrap();
+        assert!(String::from_utf8_lossy(&interim[..n]).starts_with("HTTP/1.1 100"));
+        stalled_uploads.push(upload);
+    }
+    let mut overflow = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    overflow
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .unwrap();
+    overflow
+        .write_all(b"POST /annotations HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2048\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let n = overflow.read(&mut interim).unwrap();
+    assert!(String::from_utf8_lossy(&interim[..n]).starts_with("HTTP/1.1 503"));
+    drop(stalled_uploads);
 }
 
 #[test]

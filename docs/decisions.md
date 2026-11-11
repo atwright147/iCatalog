@@ -861,6 +861,15 @@ does not reset navigation because the catalogue was not replaced.
 This changes only desktop view state, with no schema, protocol or Taskfile
 change.
 
+## D88. Keep the sync server responsive to stalled edit bodies (2026-11-11)
+
+Read at most four `POST /annotations` bodies on bounded worker threads, then
+return each completed body to the server's single catalogue thread for decode
+and transactional application. This keeps a client that stops sending bytes
+from blocking catalogue and preview GETs or other edit batches. A fifth
+concurrent upload receives HTTP 503 and can retry; body and batch size limits
+remain unchanged. No schema, protocol version, endpoint or Taskfile change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
