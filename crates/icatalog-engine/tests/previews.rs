@@ -86,6 +86,26 @@ fn missing_or_corrupt_external_bytes_abort_conversion_without_losing_references(
         assert!(icatalog_engine::previews::read(c.catalog(), c.path(), h).is_err());
     }
 }
+
+#[test]
+fn generate_repairs_corrupt_cached_preview_from_valid_media() {
+    let (root, mut c) = fixture("repair-corrupt");
+    command(&mut c, "external").unwrap();
+    command(&mut c, "generate").unwrap();
+    let preview = c.catalog().preview(1).unwrap().unwrap();
+    let disk = root.join("previews").join(format!("{}.jpg", preview.hash));
+    std::fs::write(&disk, b"corrupt").unwrap();
+    assert!(command(&mut c, "generate")
+        .unwrap()
+        .render()
+        .contains("generated 1"));
+    assert_eq!(c.catalog().preview(1).unwrap(), Some(preview.clone()));
+    assert!(
+        icatalog_engine::previews::read(c.catalog(), c.path(), &preview.hash)
+            .unwrap()
+            .is_some()
+    );
+}
 #[test]
 fn changed_media_invalidates_preview_and_replica_generation_is_rejected() {
     let (_, mut c) = fixture("invalidation");

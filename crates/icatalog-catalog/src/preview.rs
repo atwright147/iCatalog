@@ -92,7 +92,7 @@ impl Catalog {
             .optional()?
             .flatten();
         if length.is_some_and(|n| n < 0 || n > MAX_PREVIEW_BYTES as i64) {
-            return Err(CatalogError::InvalidQuery("preview exceeds 16 MiB"));
+            return Err(CatalogError::CorruptPreview);
         }
         Ok(self
             .conn

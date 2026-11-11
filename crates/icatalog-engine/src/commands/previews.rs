@@ -67,7 +67,8 @@ impl Command for Previews {
         for asset in assets {
             if let Some(p) = ctx.catalog().preview(asset.id)? {
                 if Some(p.source_hash.as_str()) == asset.content_hash.as_deref()
-                    && crate::previews::read(ctx.catalog(), ctx.path(), &p.hash)?.is_some()
+                    && crate::previews::read_recoverable(ctx.catalog(), ctx.path(), &p.hash)?
+                        .is_some()
                 {
                     cached += 1;
                     continue;

@@ -69,6 +69,8 @@ pub enum CatalogError {
     InvalidVersion(i64),
     /// A query exceeds a supported input bound.
     InvalidQuery(&'static str),
+    /// A stored preview exceeds the supported size bound.
+    CorruptPreview,
     /// A catalogue ID cannot be represented safely by sync.
     InvalidCatalogueId,
 }
@@ -83,6 +85,7 @@ impl fmt::Display for CatalogError {
             ),
             CatalogError::InvalidVersion(v) => write!(f, "invalid schema version {v}"),
             CatalogError::InvalidQuery(message) => write!(f, "invalid query: {message}"),
+            CatalogError::CorruptPreview => write!(f, "stored preview exceeds 16 MiB"),
             CatalogError::InvalidCatalogueId => write!(f, "invalid catalogue id: use 1-1024 printable ASCII bytes without leading or trailing spaces"),
         }
     }

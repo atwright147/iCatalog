@@ -696,6 +696,19 @@ fn previews_are_external_pull_only_verified_and_cached_without_original_media() 
         .unwrap()
         .unwrap();
     assert_eq!(icatalog_engine::previews::hash(&bytes), hash);
+    std::fs::write(
+        client_dir.join("previews").join(format!("{hash}.jpg")),
+        b"corrupt",
+    )
+    .unwrap();
+    assert!(client::fetch_preview(&c, &t, &url, &hash).unwrap());
+    assert_eq!(t.gets.get(), 2);
+    assert_eq!(
+        icatalog_engine::previews::read(c.catalog(), c.path(), &hash)
+            .unwrap()
+            .unwrap(),
+        bytes
+    );
     let r = UreqTransport::new()
         .get(&format!("{url}/preview/{}", "a".repeat(64)))
         .unwrap();

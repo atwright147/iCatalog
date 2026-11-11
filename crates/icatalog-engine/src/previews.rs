@@ -45,7 +45,14 @@ pub fn read(c: &Catalog, path: &Path, hash: &str) -> Result<Option<Vec<u8>>> {
     if !c.preview_is_referenced(hash)? {
         return Ok(None);
     }
-    let bytes = if let Some(bytes) = c.preview_bytes(hash)? {
+    let embedded = match c.preview_bytes(hash) {
+        Ok(bytes) => bytes,
+        Err(icatalog_catalog::CatalogError::CorruptPreview) => {
+            return Err(EngineError::CorruptPreview)
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let bytes = if let Some(bytes) = embedded {
         bytes
     } else {
         let dir = parent(path).join("previews");
@@ -65,11 +72,16 @@ pub fn read(c: &Catalog, path: &Path, hash: &str) -> Result<Option<Vec<u8>>> {
         bytes
     };
     if bytes.len() > MAX_PREVIEW_BYTES || self::hash(&bytes) != hash {
-        return Err(EngineError::Internal(
-            "preview failed its SHA-256 check".into(),
-        ));
+        return Err(EngineError::CorruptPreview);
     }
     Ok(Some(bytes))
+}
+/// Treat only invalid cached bytes as absent, leaving I/O and catalogue failures visible.
+pub fn read_recoverable(c: &Catalog, path: &Path, hash: &str) -> Result<Option<Vec<u8>>> {
+    match read(c, path, hash) {
+        Err(EngineError::CorruptPreview) => Ok(None),
+        other => other,
+    }
 }
 fn write_external(path: &Path, hash: &str, bytes: &[u8]) -> Result<()> {
     let dir = store_dir(path)?;

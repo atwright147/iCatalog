@@ -198,7 +198,7 @@ pub fn fetch_preview(ctx: &Context, t: &dyn Transport, base: &str, hash: &str) -
     if !icatalog_catalog::valid_preview_hash(hash) {
         return Err(SyncError::Protocol("invalid preview hash".into()));
     }
-    if icatalog_engine::previews::read(ctx.catalog(), ctx.path(), hash)?.is_some() {
+    if icatalog_engine::previews::read_recoverable(ctx.catalog(), ctx.path(), hash)?.is_some() {
         return Ok(false);
     }
     if !ctx.catalog().is_replica()? || !ctx.catalog().preview_is_referenced(hash)? {

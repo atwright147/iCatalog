@@ -838,6 +838,15 @@ keyword field byte-for-byte through the desktop and engine command. Validation
 still rejects an all-whitespace rule. No schema, sync protocol or Taskfile
 change is needed.
 
+## D86. Repair corrupt preview caches from their source (2026-11-11)
+
+Distinguish corrupt preview bytes from I/O and catalogue failures. Explicit
+Generate treats a corrupt referenced blob as absent and rebuilds it when its
+original media still matches the recorded source hash. `sync --preview` treats
+a corrupt local cache as absent and downloads a verified replacement. Storage
+conversion still fails on missing or corrupt bytes, preserving its previous
+representation. No schema, protocol, command or Taskfile change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

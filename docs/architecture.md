@@ -124,8 +124,8 @@ Folders rows (D42) use selectable buttons filling the remaining sidebar width, w
 Folder browsing (D43) sets `AssetQuery::folder_recursive` for desktop selections. The catalogue query follows `folder.parent_id` with a recursive CTE using `UNION` to deduplicate visited ids and terminate cycles. It filters the selected folder and descendants before ordering/paging, composing with search and other filters. Expansion state does not affect membership. Exact-folder queries remain the API default; the shell holds only selection/expansion state. No schema, command or dependency change.
 
 Asset name/path substring filters and Smart Collection text/camera/lens rules
-use a Rust Unicode-lowercase SQLite function registered on each catalogue
-connection (D83). Their predicates remain in SQL before ordering and paging.
+use a Rust Unicode case-folding SQLite function registered on each catalogue
+connection (D83/D84). Their predicates remain in SQL before ordering and paging.
 The engine `edit` command skips annotation writes when a requested rating or
 label already has that value (D82), preserving timestamps and generation.
 

@@ -15,6 +15,8 @@ pub enum EngineError {
     Unsupported(String),
     /// Internal failure (e.g. a caught panic).
     Internal(String),
+    /// A referenced preview has invalid bytes.
+    CorruptPreview,
 }
 
 /// Engine result type.
@@ -29,6 +31,7 @@ impl fmt::Display for EngineError {
             EngineError::UnknownCommand(id) => write!(f, "unknown command '{id}'"),
             EngineError::Unsupported(m) => write!(f, "unsupported: {m}"),
             EngineError::Internal(m) => write!(f, "internal error: {m}"),
+            EngineError::CorruptPreview => write!(f, "preview failed its size or SHA-256 check"),
         }
     }
 }
