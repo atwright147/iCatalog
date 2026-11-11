@@ -1,3 +1,6 @@
+prefix_rule(pattern=["git", "add"], decision="allow")
+prefix_rule(pattern=["git", "commit"], decision="allow")
+
 prefix_rule(pattern=["task", "check"], decision="allow")
 prefix_rule(pattern=["task", "ci"], decision="allow")
 prefix_rule(pattern=["task", "lint"], decision="allow")
