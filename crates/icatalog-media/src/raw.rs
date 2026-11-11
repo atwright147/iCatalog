@@ -43,7 +43,7 @@ pub fn is_raw(bytes: &[u8]) -> bool {
     sniff(bytes).is_some()
 }
 
-/// Return the largest embedded JPEG preview found in a RAW container.
+/// Return the highest-resolution embedded JPEG preview found in a RAW container.
 pub fn raw_preview(bytes: &[u8]) -> Result<Vec<u8>> {
     let kind = sniff(bytes).ok_or_else(|| err("not a supported RAW container"))?;
     let mut cands: Vec<(usize, usize)> = Vec::new();
@@ -52,30 +52,39 @@ pub fn raw_preview(bytes: &[u8]) -> Result<Vec<u8>> {
         Kind::Raf => {}
         Kind::Cr3 => cr3_candidates(bytes, 0, bytes.len(), 0, &mut 0, &mut cands),
     }
-    // Largest first.
-    cands.sort_by_key(|&(_, len)| std::cmp::Reverse(len));
+    cands.sort_unstable();
     cands.dedup();
-    for &(off, len) in &cands {
-        if let Some(j) = valid_jpeg(bytes, off, len) {
-            return Ok(j);
-        }
+    if let Some(j) = best_jpeg(bytes, &cands) {
+        return Ok(j.to_vec());
     }
     // Fallback: bounded JPEG segment walk. A TIFF that declared candidates but
     // none were usable is treated as corrupt rather than scanned.
     if kind == Kind::Tiff && !cands.is_empty() {
         return Err(err("declared JPEG preview is unusable"));
     }
-    let mut scanned = scan_jpegs(bytes, 0);
-    scanned.sort_by_key(|&(_, len)| std::cmp::Reverse(len));
-    for &(off, len) in &scanned {
-        if let Some(j) = valid_jpeg(bytes, off, len) {
-            return Ok(j);
-        }
+    let scanned = scan_jpegs(bytes, 0);
+    if let Some(j) = best_jpeg(bytes, &scanned) {
+        return Ok(j.to_vec());
     }
     Err(err("no usable embedded JPEG preview"))
 }
 
-fn valid_jpeg(bytes: &[u8], off: usize, len: usize) -> Option<Vec<u8>> {
+fn best_jpeg<'a>(bytes: &'a [u8], candidates: &[(usize, usize)]) -> Option<&'a [u8]> {
+    let mut best: Option<(u64, usize, &'a [u8])> = None;
+    for &(off, len) in candidates {
+        if let Some((area, jpeg)) = valid_jpeg(bytes, off, len) {
+            if best
+                .as_ref()
+                .is_none_or(|(best_area, best_len, _)| (area, len) > (*best_area, *best_len))
+            {
+                best = Some((area, len, jpeg));
+            }
+        }
+    }
+    best.map(|(_, _, jpeg)| jpeg)
+}
+
+fn valid_jpeg(bytes: &[u8], off: usize, len: usize) -> Option<(u64, &[u8])> {
     if !(4..=MAX_PREVIEW).contains(&len) {
         return None;
     }
@@ -88,7 +97,9 @@ fn valid_jpeg(bytes: &[u8], off: usize, len: usize) -> Option<Vec<u8>> {
     if !info.format.eq_ignore_ascii_case("jpeg") {
         return None;
     }
-    Some(slice.to_vec())
+    let width = u64::try_from(info.width).ok()?;
+    let height = u64::try_from(info.height).ok()?;
+    Some((width.checked_mul(height)?, slice))
 }
 
 /// Find the end (exclusive) of the JPEG starting at `start`, by walking segments.
@@ -594,6 +605,22 @@ mod tests {
         let big = jpeg(64, 64);
         let f = tiff(true, &[small, big.clone()], false);
         assert_eq!(raw_preview(&f).unwrap(), big);
+    }
+
+    #[test]
+    fn higher_resolution_preview_wins_even_when_its_jpeg_is_smaller() {
+        let noisy_small = jpeg(64, 64);
+        let mut flat_large = Vec::new();
+        JpegEncoder::new(&mut flat_large)
+            .encode(&vec![0; 160 * 160 * 3], 160, 160, ExtendedColorType::Rgb8)
+            .unwrap();
+        assert!(noisy_small.len() > flat_large.len());
+        let tiff_file = tiff(true, &[noisy_small.clone(), flat_large.clone()], false);
+        assert!(raw_preview(&tiff_file).unwrap() == flat_large);
+        let mut raf_file = RAF_MAGIC.to_vec();
+        raf_file.extend_from_slice(&noisy_small);
+        raf_file.extend_from_slice(&flat_large);
+        assert!(raw_preview(&raf_file).unwrap() == flat_large);
     }
 
     #[test]

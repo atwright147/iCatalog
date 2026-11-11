@@ -909,6 +909,15 @@ packet linear to decode, including packets full of invalid entities. Valid
 named and numeric entity behavior is unchanged. No dependency, schema or
 command change is needed.
 
+## D92. Choose RAW previews by pixel resolution (2026-11-11)
+
+Among usable embedded JPEGs, select the largest pixel area from validated
+header dimensions. Encoded byte size is only a tie-breaker; noisy low-resolution
+JPEGs can be larger on disk than clean high-resolution previews. Apply the same
+choice to declared TIFF/CR3 candidates and bounded RAF/fallback scans. Keep
+the existing candidate count, byte-size and header checks, and copy only the
+chosen preview. No schema, dependency or command change is needed.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
