@@ -13,6 +13,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --locked -p icatalog-sync --test sync sync_refuses_a_catalogue_hard_link_without_splitting_the_replica -- --exact
+      - run: cargo test --locked -p icatalog-cli --test release_packaging desktop_archive_contains_both_executables_and_a_working_cli -- --exact
+      - run: pwsh -NoProfile -File packaging/windows/test-association.ps1
   headless-and-visual:
     runs-on: ubuntu-24.04
     timeout-minutes: 25

@@ -27,6 +27,108 @@ fn import_rejects_a_non_utf8_directory_instead_of_substituting_its_name() {
     let valid = PathBuf::from("photos-�");
     assert_eq!(import_params(&valid).unwrap().get("path"), Some("photos-�"));
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_open_requires_an_existing_catalogue_and_preserves_a_busy_session() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let mut h = first.harness([900.0, 650.0]);
+    let original = h.state().path.clone();
+    let missing = first.dir.path().join("missing.icatalog");
+    h.state_mut().open_finder_catalogue(missing.clone());
+    assert_eq!(h.state().path, original);
+    assert!(!missing.exists());
+    assert!(h.state().status.contains("Cannot open Finder catalogue"));
+
+    h.state_mut().create_collection = Some(CreateCollectionDialog::default());
+    h.state_mut().open_finder_catalogue(second.path());
+    assert_eq!(h.state().path, original);
+    assert!(h
+        .state()
+        .status
+        .contains("Finish the current command or draft"));
+
+    h.state_mut().create_collection = None;
+    h.state_mut().open_finder_catalogue(second.path());
+    assert_eq!(h.state().path, second.path());
+    assert!(h.state().status.contains("Opened catalogue from Finder"));
+    assert_eq!(h.state().assets.len(), 3);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_process_serial_argument_does_not_swallow_catalogue_paths() {
+    assert!(is_finder_process_serial_number(Path::new("-psn_0_12345")));
+    assert!(!is_finder_process_serial_number(Path::new(
+        "-psn_library.icatalog"
+    )));
+    assert!(!is_finder_process_serial_number(Path::new(
+        "-psn_0_12345.icatalog"
+    )));
+    assert!(!is_finder_process_serial_number(Path::new("-psn_0_")));
+    assert!(ignore_finder_launch_argument(
+        Path::new("-psn_0_12345"),
+        true,
+        false
+    ));
+    assert!(!ignore_finder_launch_argument(
+        Path::new("-psn_0_12345"),
+        true,
+        true
+    ));
+    assert!(!ignore_finder_launch_argument(
+        Path::new("-psn_0_12345"),
+        false,
+        false
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_reopen_of_same_path_refreshes_a_replaced_catalogue_file() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let path = first.path();
+    let mut h = first.harness([900.0, 650.0]);
+    let replacement = open_catalogue(&second.path()).unwrap();
+    replacement
+        .catalog()
+        .connection()
+        .execute("UPDATE asset SET name='Replacement.bmp' WHERE id=1", [])
+        .unwrap();
+    drop(replacement);
+    std::fs::rename(second.path(), &path).unwrap();
+    h.state_mut().open_finder_catalogue(path.clone());
+    assert_eq!(h.state().path, path);
+    assert!(h
+        .state()
+        .assets
+        .iter()
+        .any(|asset| asset.name == "Replacement.bmp"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_open_preserves_the_current_catalogue_when_initial_refresh_fails() {
+    let current = Fixture::new();
+    let damaged = Fixture::new();
+    let damaged_path = damaged.path();
+    let mut h = current.harness([900.0, 650.0]);
+    let original = h.state().path.clone();
+    let ctx = open_catalogue(&damaged_path).unwrap();
+    ctx.catalog()
+        .connection()
+        .execute_batch("DROP TABLE source")
+        .unwrap();
+    drop(ctx);
+    assert!(Context::open_existing(&damaged_path).is_ok());
+
+    h.state_mut().open_finder_catalogue(damaged_path);
+    assert_eq!(h.state().path, original);
+    assert_eq!(h.state().assets.len(), 3);
+    assert!(h.state().status.contains("Cannot open Finder catalogue"));
+}
 #[path = "rating_tests.rs"]
 mod rating_tests;
 #[path = "rename_tests.rs"]

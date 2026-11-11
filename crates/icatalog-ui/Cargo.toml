@@ -19,6 +19,7 @@ rfd = "0.17"
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+fmv-macos-events = "=0.1.0"
 muda = "0.21.2"
 objc2-app-kit = "0.3.2"
 objc2-foundation = "0.3.2"

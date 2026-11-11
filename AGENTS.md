@@ -173,6 +173,8 @@ Screenshot comparisons keep a zero failed-pixel allowance. On Linux only, `catal
 
 Native macOS smoke tests isolate the production binary in a temporary app bundle with a unique executable name and bundle identifier, guard the target PID, and wait for menu/picker readiness (D24). Diagnostics are `target/ui-smoke/native-stderr.log` and `native-automation.log`.
 
+Desktop `.icatalog` associations (D97): Linux packages and the macOS bundle declare the type. The macOS desktop receives Finder cold/running open events through the UI-only `fmv-macos-events` adapter, opens existing catalogues after identity validation, and keeps the current catalogue during pending work or invalid opens. The Windows ZIP supplies an opt-in per-user `associate.ps1` helper and `README.txt`; Windows chooses the default in its system UI. Existing `.sqlite` names remain openable but are not registered. Native Finder smoke and the Windows registry test cover the new paths.
+
 `log/devlog.md` EXISTS (gitignored): append a terse entry per task and read its "Still open" bullets when picking work. Create app crates inside `crates/` as they appear.
 
 ## 7. Before you finish a task

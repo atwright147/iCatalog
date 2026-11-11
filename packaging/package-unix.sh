@@ -47,6 +47,7 @@ elif [[ "$target" == aarch64-apple-darwin ]]; then
   <key>CFBundleVersion</key><string>${version%%-*}</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
+$(bash packaging/macos-document-types.sh crates/icatalog-ui/Cargo.toml)
 </dict></plist>
 EOF
   plutil -lint "$bundle/Info.plist"

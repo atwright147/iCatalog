@@ -55,17 +55,130 @@ fn main() -> ExitCode {
 }
 
 fn run() -> eframe::Result<()> {
-    let path = std::env::args_os()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| default_catalogue_path(Path::new(".")));
-    let ctx = open_catalogue(&path).map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
+    let argument = std::env::args_os().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        APP_NAME,
-        options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, ctx, path)))),
-    )
+    #[cfg(target_os = "macos")]
+    {
+        // Finder delivers documents as Apple events, often during launch and
+        // never as an argv path. Keep the handler alive until winit returns.
+        let (registration, inbox) = fmv_macos_events::Registration::install();
+        let result = eframe::run_native(
+            APP_NAME,
+            options,
+            Box::new(move |cc| {
+                inbox.set_wake({
+                    let repaint = cc.egui_ctx.clone();
+                    move || repaint.request_repaint()
+                });
+                let mut finder_paths = Vec::new();
+                let mut quit_requested = false;
+                for event in inbox.drain() {
+                    match event {
+                        fmv_macos_events::Event::Open(paths) => finder_paths.extend(paths),
+                        fmv_macos_events::Event::Quit => quit_requested = true,
+                    }
+                }
+                let finder_count = finder_paths.len();
+                let finder_path = finder_paths.pop();
+                let default = || default_catalogue_path(&macos_default_directory());
+                let bundled = std::env::current_exe()
+                    .ok()
+                    .is_some_and(|exe| is_macos_bundle(&exe));
+                let explicit = argument
+                    .filter(|path| !ignore_finder_launch_argument(path, bundled, path.exists()));
+                let (path, ctx, error) = if let Some(path) = finder_path {
+                    match Context::open_existing(&path) {
+                        Ok(ctx) => (path, ctx, None),
+                        Err(err) => {
+                            let fallback = explicit.unwrap_or_else(default);
+                            let ctx = open_catalogue(&fallback)?;
+                            (
+                                fallback,
+                                ctx,
+                                Some(format!("Cannot open Finder catalogue: {err}")),
+                            )
+                        }
+                    }
+                } else {
+                    let path = explicit.unwrap_or_else(default);
+                    let ctx = open_catalogue(&path)?;
+                    (path, ctx, None)
+                };
+                let mut app = App::new(cc, ctx, path);
+                app.mac_events = Some(inbox);
+                if let Some(error) = error {
+                    app.status = error;
+                } else if finder_count > 1 && app.status.is_empty() {
+                    app.status = format!(
+                        "Opened the last of {finder_count} catalogues sent by Finder; only one can be open."
+                    );
+                }
+                if quit_requested {
+                    cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                Ok(Box::new(app))
+            }),
+        );
+        drop(registration);
+        result
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = argument.unwrap_or_else(|| default_catalogue_path(Path::new(".")));
+        let ctx =
+            open_catalogue(&path).map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
+        eframe::run_native(
+            APP_NAME,
+            options,
+            Box::new(move |cc| Ok(Box::new(App::new(cc, ctx, path)))),
+        )
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_default_directory() -> PathBuf {
+    let bundled = std::env::current_exe()
+        .ok()
+        .is_some_and(|exe| is_macos_bundle(&exe));
+    if bundled {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        PathBuf::from(".")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn is_macos_bundle(executable: &Path) -> bool {
+    executable
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .is_some_and(|bundle| bundle.extension().is_some_and(|ext| ext == "app"))
+}
+
+#[cfg(target_os = "macos")]
+fn is_finder_process_serial_number(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(value) = path.as_os_str().as_bytes().strip_prefix(b"-psn_") else {
+        return false;
+    };
+    let mut parts = value.split(|byte| *byte == b'_');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(first), Some(second), None) => {
+            !first.is_empty()
+                && !second.is_empty()
+                && first.iter().all(u8::is_ascii_digit)
+                && second.iter().all(u8::is_ascii_digit)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ignore_finder_launch_argument(path: &Path, bundled: bool, exists: bool) -> bool {
+    bundled && !exists && is_finder_process_serial_number(path)
 }
 
 fn default_catalogue_path(dir: &Path) -> PathBuf {
@@ -175,6 +288,8 @@ struct App {
     catalogue_error: Option<String>,
     attempted_thumbnails: HashSet<i64>,
     visible_thumbnails: HashSet<i64>,
+    #[cfg(target_os = "macos")]
+    mac_events: Option<fmv_macos_events::Inbox>,
 }
 
 struct PendingCollectionToggle {
@@ -296,6 +411,15 @@ impl App {
         menu: Option<NativeMenu>,
         menu_events: std::sync::mpsc::Receiver<String>,
     ) -> Self {
+        Self::with_menu_and_refresh_result(ctx, path, menu, menu_events).0
+    }
+
+    fn with_menu_and_refresh_result(
+        ctx: Context,
+        path: PathBuf,
+        menu: Option<NativeMenu>,
+        menu_events: std::sync::mpsc::Receiver<String>,
+    ) -> (Self, icatalog_engine::Result<()>) {
         let saved_url = sync_ui::load_url(&path);
         let mut app = App {
             ctx,
@@ -341,13 +465,18 @@ impl App {
             catalogue_error: None,
             attempted_thumbnails: HashSet::new(),
             visible_thumbnails: HashSet::new(),
+            #[cfg(target_os = "macos")]
+            mac_events: None,
         };
-        app.refresh();
+        let refresh_result = app.try_refresh();
+        if let Err(error) = &refresh_result {
+            app.status = format!("Cannot refresh catalogue: {error}");
+        }
         if let Err(error) = saved_url {
             app.status = format!("Cannot read saved sync server: {error}");
         }
         app.set_menu_enabled(true);
-        app
+        (app, refresh_result)
     }
 
     fn refresh(&mut self) {
@@ -462,6 +591,73 @@ impl App {
             false
         } else {
             true
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn handle_mac_events(&mut self, egui_ctx: &egui::Context) {
+        let Some(inbox) = &self.mac_events else {
+            return;
+        };
+        for event in inbox.drain() {
+            match event {
+                fmv_macos_events::Event::Open(paths) => {
+                    let count = paths.len();
+                    if let Some(path) = paths.into_iter().last() {
+                        self.open_finder_catalogue(path);
+                        if count > 1 {
+                            self.status.push_str(&format!(
+                                " Finder sent {count} catalogues; only the last was opened."
+                            ));
+                        }
+                    }
+                }
+                fmv_macos_events::Event::Quit => {
+                    if self.close_allowed() {
+                        egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn open_finder_catalogue(&mut self, path: PathBuf) {
+        if self.worker.is_some()
+            || self.sync_job.is_some()
+            || self.create_collection.is_some()
+            || self.sync_dialog.is_some()
+            || self.catalogue_error.is_some()
+            || !self.keyword_input.is_empty()
+        {
+            self.status =
+                "Finish the current command or draft, then reopen the catalogue from Finder."
+                    .into();
+            return;
+        }
+        let ctx = match Context::open_existing(&path) {
+            Ok(ctx) => ctx,
+            Err(error) => {
+                self.status = format!("Cannot open Finder catalogue: {error}");
+                return;
+            }
+        };
+        let (_, empty_receiver) = std::sync::mpsc::channel();
+        let (mut next, refresh_result) =
+            App::with_menu_and_refresh_result(ctx, path, None, empty_receiver);
+        if let Err(error) = refresh_result {
+            self.status = format!("Cannot open Finder catalogue: {error}");
+            return;
+        }
+        next.menu = self.menu.take();
+        let (_, empty_receiver) = std::sync::mpsc::channel();
+        next.menu_events = std::mem::replace(&mut self.menu_events, empty_receiver);
+        let inbox = self.mac_events.take();
+        *self = next;
+        self.mac_events = inbox;
+        self.set_menu_enabled(true);
+        if self.status.is_empty() {
+            self.status = "Opened catalogue from Finder.".into();
         }
     }
 
@@ -1692,6 +1888,8 @@ fn collection_params(action: &str, collection: i64, assets: &[i64]) -> Params {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
+        #[cfg(target_os = "macos")]
+        self.handle_mac_events(ui.ctx());
         // A new press either starts the second click or another interaction;
         // neither may leave a delayed deselection behind.
         if ui.input(|i| {

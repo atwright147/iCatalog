@@ -67,10 +67,12 @@ Desktop legibility (D33) uses larger interface/caption text and List metadata, s
 
 Desktop release automation (D34) exists for published releases: Windows x64/ARM64 ZIPs, macOS ARM64 `.app` + CLI archive, and Linux x86-64 Debian `.deb`, Fedora `.rpm` and Arch `.pkg.tar.zst`. Manual dispatch produces workflow artifacts only by default; `release_tag` builds the tag's application with current workflow packaging and uploads to its existing release. Hosted v0.1.0 recovery passed all four builds, all three Linux installation checks and final upload. All six original assets and SHA256SUMS are published and their digests verified. Arch constraints are guarded by a generated-metadata regression. macOS Intel/universal releases are no longer targeted. Developer ID signing/notarization and Windows publisher signing remain open. D58 adds two static NAS CLI archives and native CI jobs for future runs; hosted execution/publication remains unverified.
 
-New catalogue filenames prefer `.icatalog` (D89), and Linux desktop packages
-register that extension. Existing `.sqlite` names remain supported and are
-verified from their contents before migration. macOS Finder document-open
-handling and Windows file association remain open.
+New catalogue filenames prefer `.icatalog` (D89). Linux desktop packages and
+the macOS bundle register that extension; Finder cold/running open events
+switch the native desktop to a verified existing catalogue (D97). The Windows
+ZIP includes an opt-in per-user registration helper for Open with and Default
+apps; Windows retains the user's default-app choice. Existing `.sqlite` names
+remain supported and are verified from their contents before migration.
 
 Docker/Compose NAS packaging (D60) exists for x86-64/ARM64 static CLI builds. The scratch image uses a non-root numeric user and a minimal generated build context. Compose persists the catalogue directory, mounts media/rootfs read-only, injects init for stop-signal forwarding and defaults to loopback publication. `serve` refuses missing catalogues without SQLite creation; initialization/import remain explicit. Disposable runtime checks cover previews, permissions, clone/edit/Collection sync and persistence after server replacement; native CI also exercises the supplied Compose lifecycle. [Setup and maintenance](nas-docker.md). Hosted container execution and registry publication remain unverified/unbuilt respectively; no systemd installer.
 

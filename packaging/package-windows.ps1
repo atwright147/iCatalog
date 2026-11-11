@@ -17,4 +17,4 @@ $arch = if ($Target -eq 'x86_64-pc-windows-msvc') { 'x64' } else { 'arm64' }
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 $archive = Join-Path $outputDir "icatalog-$version-windows-$arch.zip"
 # Build with the static MSVC runtime (see release.yml), so no redistributable is required.
-Compress-Archive -LiteralPath "$binaryDir/icatalog.exe", "$binaryDir/icatalog-ui.exe" -DestinationPath $archive -Force
+Compress-Archive -LiteralPath "$binaryDir/icatalog.exe", "$binaryDir/icatalog-ui.exe", 'packaging/windows/associate.ps1', 'packaging/windows/README.txt' -DestinationPath $archive -Force

@@ -114,12 +114,125 @@ fn isolated_executable(root: &Path) -> PathBuf {
 <key>CFBundleIdentifier</key><string>org.icatalog.native-smoke.p{}</string>
 <key>CFBundleExecutable</key><string>{executable_name}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleDocumentTypes</key><array><dict>
+  <key>CFBundleTypeName</key><string>iCatalog Catalogue</string>
+  <key>CFBundleTypeRole</key><string>Editor</string>
+  <key>LSItemContentTypes</key><array><string>org.icatalog.catalogue</string></array>
+</dict></array>
+<key>UTExportedTypeDeclarations</key><array><dict>
+  <key>UTTypeIdentifier</key><string>org.icatalog.catalogue</string>
+  <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+  <key>UTTypeTagSpecification</key><dict>
+    <key>public.filename-extension</key><array><string>icatalog</string></array>
+  </dict>
+</dict></array>
 </dict></plist>"#,
             std::process::id()
         ),
     )
     .unwrap();
     executable
+}
+
+struct FinderApp {
+    pid: u32,
+    executable: PathBuf,
+}
+
+impl Drop for FinderApp {
+    fn drop(&mut self) {
+        if process_id_for(&self.executable) == Some(self.pid) {
+            let _ = Command::new("kill").arg(self.pid.to_string()).status();
+        }
+    }
+}
+
+fn process_id_for(executable: &Path) -> Option<u32> {
+    let output = Command::new("ps")
+        .args(["-A", "-o", "pid=,command="])
+        .output()
+        .ok()?;
+    let needle = executable
+        .canonicalize()
+        .ok()?
+        .to_string_lossy()
+        .into_owned();
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim().split_once(' ')?;
+            if command.trim_start().starts_with(&needle) {
+                pid.parse::<u32>().ok()
+            } else {
+                None
+            }
+        })
+        .next()
+}
+
+fn process_has_catalogue(pid: u32, catalogue: &Path) -> bool {
+    let Ok(output) = Command::new("lsof")
+        .args(["-nP", "-p", &pid.to_string(), "-Fn"])
+        .output()
+    else {
+        return false;
+    };
+    let Ok(canonical) = catalogue.canonicalize() else {
+        return false;
+    };
+    let target = format!("n{}", canonical.display());
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line == target)
+}
+
+#[test]
+#[ignore = "requires logged-in macOS LaunchServices; task ui:smoke"]
+fn finder_opens_catalogues_on_cold_and_running_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first.icatalog");
+    let second = dir.path().join("second catalogue.icatalog");
+    for path in [&first, &second] {
+        let mut ctx = Context::open(path).unwrap();
+        dispatch_guarded(&mut ctx, "init", &Params::new()).unwrap();
+    }
+    let executable = isolated_executable(dir.path());
+    let bundle = dir.path().join("iCatalog.app");
+    let opened = Command::new("open")
+        .arg("-n")
+        .arg("-a")
+        .arg(&bundle)
+        .arg(&first)
+        .output()
+        .unwrap();
+    assert!(
+        opened.status.success(),
+        "{}",
+        String::from_utf8_lossy(&opened.stderr)
+    );
+    let mut pid = None;
+    wait_for("Finder cold launch to open the first catalogue", || {
+        pid = process_id_for(&executable);
+        pid.is_some_and(|id| process_has_catalogue(id, &first))
+    });
+    let app = FinderApp {
+        pid: pid.unwrap(),
+        executable,
+    };
+    let opened = Command::new("open")
+        .arg("-a")
+        .arg(&bundle)
+        .arg(&second)
+        .output()
+        .unwrap();
+    assert!(
+        opened.status.success(),
+        "{}",
+        String::from_utf8_lossy(&opened.stderr)
+    );
+    wait_for("Finder running-app event to replace the catalogue", || {
+        process_has_catalogue(app.pid, &second) && !process_has_catalogue(app.pid, &first)
+    });
 }
 
 #[test]

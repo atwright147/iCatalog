@@ -364,6 +364,21 @@ fn desktop_archive_contains_both_executables_and_a_working_cli() {
         let plist =
             std::fs::read_to_string(extracted.join("iCatalog.app/Contents/Info.plist")).unwrap();
         assert!(plist.contains("<string>iCatalog</string>"));
+        assert!(plist.contains("<string>org.icatalog.catalogue</string>"));
+        assert!(plist.contains("<string>icatalog</string>"));
+        assert!(!plist.contains("<string>sqlite</string>"));
+        let role = Command::new("plutil")
+            .args([
+                "-extract",
+                "CFBundleDocumentTypes.0.CFBundleTypeRole",
+                "raw",
+                "--",
+            ])
+            .arg(extracted.join("iCatalog.app/Contents/Info.plist"))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&role.stdout).trim(), "Editor");
+        success(role);
         success(
             Command::new("codesign")
                 .args(["--verify", "--strict"])
@@ -373,18 +388,22 @@ fn desktop_archive_contains_both_executables_and_a_working_cli() {
         );
     }
     #[cfg(windows)]
-    success(
-        Command::new("pwsh")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:EXTRACTED",
-            ])
-            .env("ARCHIVE", &archive)
-            .env("EXTRACTED", &extracted)
-            .output()
-            .unwrap(),
-    );
+    {
+        success(
+            Command::new("pwsh")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:EXTRACTED",
+                ])
+                .env("ARCHIVE", &archive)
+                .env("EXTRACTED", &extracted)
+                .output()
+                .unwrap(),
+        );
+        assert!(extracted.join("associate.ps1").is_file());
+        assert!(extracted.join("README.txt").is_file());
+    }
     assert!(ui.is_file());
     success(Command::new(&cli).arg("--version").output().unwrap());
     let catalogue = scratch.path().join("smoke.sqlite");
@@ -402,4 +421,28 @@ fn desktop_archive_contains_both_executables_and_a_working_cli() {
             .output()
             .unwrap(),
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_document_claim_requires_finder_capable_app_source() {
+    let scratch = tempfile::tempdir().unwrap();
+    let old_manifest = scratch.path().join("old-ui.toml");
+    std::fs::write(&old_manifest, "[package]\nname = \"icatalog-ui\"\n").unwrap();
+    let old = Command::new("bash")
+        .arg("packaging/macos-document-types.sh")
+        .arg(&old_manifest)
+        .current_dir(root())
+        .output()
+        .unwrap();
+    assert!(old.stdout.is_empty());
+    success(old);
+    let current = Command::new("bash")
+        .arg("packaging/macos-document-types.sh")
+        .arg("crates/icatalog-ui/Cargo.toml")
+        .current_dir(root())
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&current.stdout).contains("CFBundleDocumentTypes"));
+    success(current);
 }

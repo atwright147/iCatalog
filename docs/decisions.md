@@ -956,6 +956,31 @@ Retain the default 0.6 on other screenshots and platforms, zero failing pixels,
 and the existing baseline images. The hosted Linux workspace and visual checks
 passed after this adjustment, alongside the Windows hard-link job.
 
+## D97. Register `.icatalog` for native desktop opening (2026-11-11)
+
+The macOS app bundle declares an exported catalogue document type for
+`.icatalog`. Finder delivers a cold or running-app open request as an Apple
+event, not a CLI argument. Use the small UI-only `fmv-macos-events` adapter to
+queue those events while leaving winit's delegate intact; this keeps unsafe
+interop out of the workspace. Open an existing catalogue through the normal
+identity check, switch only after a successful open, and refuse a switch during
+pending work or an unsaved draft. Check the first UI data load before switching,
+and reopen even the current path to pick up an externally replaced SQLite file.
+The release packager emits the document claim only when the packaged app source
+contains the Finder event adapter, so recovery builds from older tags do not
+advertise unsupported opening. A bundled app launched without a document
+places its default catalogue in the user's home directory; command-line paths
+remain byte-exact and the Finder process-serial argument is ignored only for
+bundled launches when it is not an existing path. Native smoke covers cold and
+running-app delivery.
+
+Windows ZIPs include an opt-in PowerShell helper that registers a per-user
+ProgID, Open with entry and Default apps capability for `.icatalog`. It does
+not change the user's protected default-app selection; the user chooses that
+in Windows Settings. Unregister removes only the registration owned by the
+same extracted folder. No `.sqlite` type is registered. Linux's existing
+association is unchanged. No schema, command or sync protocol change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

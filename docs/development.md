@@ -203,12 +203,17 @@ The repo is under git with a root `.gitignore` covering `target/`, `log/`, `*.sq
 
 Use `.icatalog` for new catalogue filenames (D89). The desktop creates
 `catalogue.icatalog` when launched without a path, but reopens an existing
-`catalogue.sqlite` default when the new name is absent. Connect proposes
+`catalogue.sqlite` default when the new name is absent. An unbundled desktop
+uses the working directory; the macOS app bundle uses the user's home
+directory. Connect proposes
 `Library.icatalog`. The CLI accepts explicit filenames without changing their
 suffix; existing `.sqlite` catalogues remain valid. Every existing file is
 checked for the initialized iCatalog schema and identity before any migration
-can write to it. Linux desktop packages associate `.icatalog` with the native
-app. The macOS bundle and Windows ZIP do not register an association yet.
+can write to it. Linux desktop packages and the macOS bundle associate
+`.icatalog` with the native app. Finder launches and running-app open events
+open verified existing catalogues; a busy command or unsaved dialog/draft
+leaves the current catalogue in place and reports a retryable message (D97).
+Windows ZIPs include `associate.ps1` for optional per-user registration.
 
 ## 8. Release builds and packages (D34)
 
@@ -227,11 +232,11 @@ Before tagging, set the versions in both `crates/icatalog-cli/Cargo.toml` and `c
 | Fedora x86-64 | `x86_64-unknown-linux-gnu` | `icatalog-<version>-linux-x86_64.rpm` |
 | Arch x86-64 | `x86_64-unknown-linux-gnu` | `icatalog-<version>-linux-x86_64.pkg.tar.zst` |
 
-Both binaries are included. Windows ZIPs contain `icatalog.exe` and `icatalog-ui.exe`; the release build statically links the MSVC runtime. The macOS archive contains `iCatalog.app` and the standalone `icatalog` CLI; the app is ad-hoc signed for Apple Silicon execution, without Developer ID signing or notarization. Windows publisher signing is not configured. There is no macOS Intel or universal artifact.
+Both binaries are included. Windows ZIPs contain `icatalog.exe`, `icatalog-ui.exe`, `associate.ps1` and `README.txt`; the release build statically links the MSVC runtime. After extracting the ZIP to a permanent folder, run `powershell -NoProfile -File .\associate.ps1 Register` there, then choose iCatalog for `.icatalog` in Settings → Apps → Default apps or Open with. Run `powershell -NoProfile -File .\associate.ps1 Unregister` before moving/removing the folder. The helper registers only for the current user and does not change Windows' protected default-app choice. The macOS archive contains `iCatalog.app` and the standalone `icatalog` CLI; move the app to Applications, then select it in Finder's Open with if needed. The app is ad-hoc signed for Apple Silicon execution, without Developer ID signing or notarization. Windows publisher signing is not configured. There is no macOS Intel or universal artifact.
 
 Linux builds on Ubuntu 22.04 (glibc 2.35 baseline). [FPM 1.17.0](https://fpm.readthedocs.io/en/v1.17.0/cli-reference.html) packages the same binaries in all three native formats, including runtime dependencies and an applications-menu launcher. Packages install `/usr/bin/icatalog`, `/usr/bin/icatalog-ui` and `/usr/share/applications/icatalog.desktop`. Arch constraints must contain no spaces (`glibc>=2.35`); a post-package `.PKGINFO` check rejects malformed dependencies and a missing glibc minimum. Debian/RPM prerelease versions use `~` in place of `-`; Arch uses `_`. Files retain the Cargo version in their names. Install with `sudo apt install ./<asset>.deb`, `sudo dnf install ./<asset>.rpm` or `sudo pacman -U ./<asset>.pkg.tar.zst`.
 
-The build matrix uses native [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): `windows-2022`, `windows-11-arm`, `macos-14` (ARM64), and `ubuntu-22.04`. Each job explicitly installs Go 1.25.10 with [setup-go](https://github.com/actions/setup-go) before building Task 3.53.1, rather than relying on runner software. Go caching is disabled because this is a Rust repository with no `go.sum`. Each job runs CLI/packaging tests. Extracted Windows/macOS archives must create and reopen a synthetic catalogue; the macOS executable must contain only ARM64. Disposable Debian 12, Fedora 43 and current Arch containers install the packages with dependency resolution, check ELF dependencies for both binaries, and create/reopen a catalogue with the installed CLI. These checks do not exercise a graphical desktop.
+The build matrix uses native [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): `windows-2022`, `windows-11-arm`, `macos-14` (ARM64), and `ubuntu-22.04`. Each job explicitly installs Go 1.25.10 with [setup-go](https://github.com/actions/setup-go) before building Task 3.53.1, rather than relying on runner software. Go caching is disabled because this is a Rust repository with no `go.sum`. Each job runs CLI/packaging tests. Extracted Windows/macOS archives must create and reopen a synthetic catalogue, include their association metadata/helper, and the macOS executable must contain only ARM64. The Windows UI workflow runs the helper against the disposable runner's user registry and checks its scoped cleanup. Disposable Debian 12, Fedora 43 and current Arch containers install the packages with dependency resolution, check ELF dependencies for both binaries, and create/reopen a catalogue with the installed CLI. The release checks do not exercise a graphical desktop; `task ui:smoke` covers Finder delivery on a logged-in Mac.
 
 Only after every desktop build, Linux install test and NAS musl job passes does the upload job get `contents: write`, generate `SHA256SUMS` and attach all eight packages plus checksums to the existing release (six desktop packages and two CLI-only NAS archives). Rerunning replaces same-named assets. Builds retain workflow artifacts for 14 days, including manual runs. Build jobs have read-only repository permissions and require no signing secrets.
 
