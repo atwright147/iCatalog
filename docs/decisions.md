@@ -847,6 +847,20 @@ a corrupt local cache as absent and downloads a verified replacement. Storage
 conversion still fails on missing or corrupt bytes, preserving its previous
 representation. No schema, protocol, command or Taskfile change is needed.
 
+## D87. Restore desktop asset selection by stable UID after sync (2026-11-11)
+
+Capture selected asset UIDs and the primary/anchor UID before the desktop
+releases its catalogue reader for sync. After reopening and querying the new
+catalogue, rebuild the view selection from those UIDs; missing or filtered-out
+assets are deselected. Never retain a numeric row ID across catalogue
+replacement because it may identify another asset in an untracked first sync.
+When the reopened catalogue has a replica baseline, that first sync also
+resets a folder or device filter and tree expansion state, whose old numeric
+IDs or labels cannot identify server navigation reliably. An offline deferral
+does not reset navigation because the catalogue was not replaced.
+This changes only desktop view state, with no schema, protocol or Taskfile
+change.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

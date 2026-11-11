@@ -138,6 +138,7 @@ struct App {
     list_details: bool,
     list_metadata: HashMap<i64, Option<list_row::Metadata>>,
     selection: selection::AssetSelection,
+    pending_asset_selection: Option<selection::SelectedUids>,
     marquee: Option<selection::Marquee>,
     textures: HashMap<i64, egui::TextureHandle>,
     annotation: Option<Annotation>,
@@ -299,6 +300,7 @@ impl App {
             list_details: false,
             list_metadata: HashMap::new(),
             selection: selection::AssetSelection::default(),
+            pending_asset_selection: None,
             marquee: None,
             textures: HashMap::new(),
             annotation: None,
@@ -388,7 +390,11 @@ impl App {
             self.worker.is_none() && self.create_collection.is_none() && self.sync_dialog.is_none(),
         );
         self.list_metadata.clear();
-        self.selection.retain(&self.assets);
+        if let Some(selected) = self.pending_asset_selection.take() {
+            self.selection.restore_uids(selected, &self.assets);
+        } else {
+            self.selection.retain(&self.assets);
+        }
         self.selection_membership_for = None;
         self.selection_membership_loaded = false;
         self.marquee = None;

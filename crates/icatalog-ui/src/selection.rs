@@ -10,7 +10,49 @@ pub struct AssetSelection {
     anchor: Option<i64>,
 }
 
+/// Selection identities captured before sync can replace the SQLite file.
+pub struct SelectedUids {
+    ids: HashSet<String>,
+    primary: Option<String>,
+    anchor: Option<String>,
+}
+
 impl AssetSelection {
+    pub fn capture_uids(&self, assets: &[Asset]) -> SelectedUids {
+        SelectedUids {
+            ids: assets
+                .iter()
+                .filter(|asset| self.ids.contains(&asset.id))
+                .map(|asset| asset.uid.clone())
+                .collect(),
+            primary: assets
+                .iter()
+                .find(|asset| Some(asset.id) == self.primary)
+                .map(|asset| asset.uid.clone()),
+            anchor: assets
+                .iter()
+                .find(|asset| Some(asset.id) == self.anchor)
+                .map(|asset| asset.uid.clone()),
+        }
+    }
+
+    pub fn restore_uids(&mut self, selected: SelectedUids, assets: &[Asset]) {
+        self.ids = assets
+            .iter()
+            .filter(|asset| selected.ids.contains(&asset.uid))
+            .map(|asset| asset.id)
+            .collect();
+        self.primary = assets
+            .iter()
+            .find(|asset| selected.primary.as_deref() == Some(asset.uid.as_str()))
+            .map(|asset| asset.id);
+        self.anchor = assets
+            .iter()
+            .find(|asset| selected.anchor.as_deref() == Some(asset.uid.as_str()))
+            .map(|asset| asset.id);
+        self.retain(assets);
+    }
+
     pub fn click(&mut self, id: i64, assets: &[Asset], modifiers: egui::Modifiers) {
         let toggle = modifiers.ctrl || modifiers.command;
         if modifiers.shift {

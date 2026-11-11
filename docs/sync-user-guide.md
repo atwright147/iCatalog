@@ -105,7 +105,7 @@ Before editing a manually copied catalogue, open it in the desktop, choose **Fil
 icatalog sync "$HOME/Pictures/iCatalog/Library.sqlite" --url http://nas:8080
 ```
 
-This first sync establishes the server's current state and saves the previous local file in a timestamped backup, for example `Library.rejected-20261031T120000Z.sqlite`. **Existing edits made before this first sync stay in that backup; they are not uploaded automatically.** This also applies when upgrading a client previously synced with the older protocol. Review and reapply wanted edits using the recovery steps below.
+This first sync establishes the server's current state and saves the previous local file in a timestamped backup, for example `Library.rejected-20261031T120000Z.sqlite`. **Existing edits made before this first sync stay in that backup; they are not uploaded automatically.** This also applies when upgrading a client previously synced with the older protocol. Review and reapply wanted edits using the recovery steps below. In the desktop, an asset remains selected only if its stable identity is present in the downloaded catalogue; a reused row number cannot select a different asset (D87). After server state is installed, a folder or device view returns to All because its previous location may not identify the same place on the server. An offline attempt keeps the current view.
 
 The `rejected` filename is also used for backups made during successful syncs; it does not by itself mean edits were rejected. Keep backups until you have checked the result.
 

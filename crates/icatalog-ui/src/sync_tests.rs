@@ -291,6 +291,72 @@ fn first_sync_requires_acknowledgement_and_keeps_previous_edits_in_backup() {
 }
 
 #[test]
+fn first_sync_restores_asset_selection_by_uid_after_row_ids_change() {
+    let fixture = Fixture::new();
+    let server_path = fixture.dir.path().join("selection-server.sqlite");
+    std::fs::copy(fixture.path(), &server_path).unwrap();
+    let server_ctx = Context::open(&server_path).unwrap();
+    let mut selected = server_ctx.catalog().asset(1).unwrap().unwrap();
+    selected.folder_id = Some(2);
+    server_ctx
+        .catalog()
+        .connection()
+        .execute(
+            "UPDATE asset SET uid='server-only', name='ServerOnly.bmp' WHERE id=1",
+            [],
+        )
+        .unwrap();
+    let new_id = server_ctx.catalog().insert_asset(&selected).unwrap();
+    assert_ne!(new_id, 1);
+    drop(server_ctx);
+
+    let url = server(server_path);
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().folder_sel = FolderSelection::Folder(1);
+    h.state_mut().dirty = true;
+    settle(&mut h);
+    h.state_mut().selection.focus(1);
+    menu(&mut h, "Sync…");
+    h.get_by_label("Server address").type_text(&url);
+    h.get_by_label("Use server state and preserve my current catalogue in a backup")
+        .click();
+    settle(&mut h);
+    h.get_by_label("Sync now").click();
+    settle(&mut h);
+
+    assert!(h.state().replica);
+    assert_eq!(h.state().folder_sel, FolderSelection::All);
+    assert_eq!(h.state().selection.primary, Some(new_id));
+    assert_eq!(h.state().selection.ordered(&h.state().assets), vec![new_id]);
+    assert_eq!(
+        h.state().assets.iter().find(|a| a.id == 1).unwrap().uid,
+        "server-only"
+    );
+}
+
+#[test]
+fn offline_first_sync_keeps_folder_navigation_without_replacement() {
+    let fixture = Fixture::new();
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().folder_sel = FolderSelection::Folder(1);
+    h.state_mut().dirty = true;
+    settle(&mut h);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let offline = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    menu(&mut h, "Sync…");
+    h.get_by_label("Server address").type_text(&offline);
+    h.get_by_label("Use server state and preserve my current catalogue in a backup")
+        .click();
+    settle(&mut h);
+    h.get_by_label("Sync now").click();
+    settle(&mut h);
+    assert!(h.state().status.starts_with("sync deferred:"));
+    assert_eq!(h.state().folder_sel, FolderSelection::Folder(1));
+    assert!(!h.state().replica);
+}
+
+#[test]
 fn offline_sync_keeps_edits_and_reports_deferral_without_claiming_success() {
     let fixture = Fixture::new();
     let url = server(fixture.path());

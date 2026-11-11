@@ -24,7 +24,9 @@ pub(super) struct SyncJob {
     path: PathBuf,
     url: String,
     clone: bool,
+    untracked: bool,
     selected_collections: Option<Vec<String>>,
+    selected_assets: Option<super::selection::SelectedUids>,
 }
 
 fn settings_path(path: &Path) -> PathBuf {
@@ -221,12 +223,14 @@ impl App {
             self.path.clone()
         };
         let mut selected_collections = None;
+        let mut selected_assets = None;
         let prepared = (|| -> Result<(), String> {
             if url.len() > MAX_URL_BYTES {
                 return Err("server address exceeds 8 KiB".into());
             }
             icatalog_sync::validate_server_url(&url).map_err(|e| e.to_string())?;
             if !clone {
+                selected_assets = Some(self.selection.capture_uids(&self.assets));
                 if let FolderSelection::Collections(ids) = &self.folder_sel {
                     let mut uids = Vec::new();
                     for id in ids {
@@ -268,7 +272,9 @@ impl App {
                     path,
                     url,
                     clone,
+                    untracked: !self.replica,
                     selected_collections,
+                    selected_assets,
                 });
                 if let Some(d) = &mut self.sync_dialog {
                     d.pending = true;
@@ -323,6 +329,22 @@ impl App {
         }
         if !job.clone || result.is_ok() {
             self.reopen_after_sync();
+        }
+        if job.untracked && !job.clone && matches!(self.ctx.catalog().is_replica(), Ok(true)) {
+            if matches!(
+                self.folder_sel,
+                FolderSelection::Folder(_) | FolderSelection::Device(_)
+            ) {
+                self.folder_sel = FolderSelection::All;
+            }
+            self.expanded.clear();
+            self.collapsed_devices.clear();
+        }
+        if let Some(selected) = job.selected_assets {
+            // Row ids may now refer to different assets, including after a
+            // backup-first sync of an unrelated local catalogue.
+            self.selection = Default::default();
+            self.pending_asset_selection = Some(selected);
         }
         let mut message = match &result {
             Ok(outcome) => outcome.render(),
