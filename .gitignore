@@ -29,6 +29,7 @@ log/
 .task/
 
 *.sqlite
+*.icatalog
 *.sync-state
 *.sync-url
 

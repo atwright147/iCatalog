@@ -199,7 +199,16 @@ Before finishing a task (**Decided**):
 
 ## 7. Repo caveats
 
-The repo is under git with a root `.gitignore` covering `target/`, `log/` and `*.sqlite` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` (local, gitignored) records a terse entry per task.
+The repo is under git with a root `.gitignore` covering `target/`, `log/`, `*.sqlite` and `*.icatalog` (in addition to `ivc-file-research/samples/.gitignore`). `log/devlog.md` (local, gitignored) records a terse entry per task.
+
+Use `.icatalog` for new catalogue filenames (D89). The desktop creates
+`catalogue.icatalog` when launched without a path, but reopens an existing
+`catalogue.sqlite` default when the new name is absent. Connect proposes
+`Library.icatalog`. The CLI accepts explicit filenames without changing their
+suffix; existing `.sqlite` catalogues remain valid. Every existing file is
+checked for the initialized iCatalog schema and identity before any migration
+can write to it. Linux desktop packages associate `.icatalog` with the native
+app. The macOS bundle and Windows ZIP do not register an association yet.
 
 ## 8. Release builds and packages (D34)
 

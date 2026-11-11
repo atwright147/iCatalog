@@ -139,8 +139,8 @@ impl App {
                     }
                     if ui.button("Choose local file…").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("iCatalog catalogue", &["sqlite"])
-                            .set_file_name("Library.sqlite").save_file() {
+                            .add_filter("iCatalog catalogue", &["icatalog", "sqlite"])
+                            .set_file_name("Library.icatalog").save_file() {
                             dialog.destination = Some(path);
                             dialog.error = None;
                             dialog.result = None;

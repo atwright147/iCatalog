@@ -9,6 +9,17 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+#[test]
+fn linux_desktop_associates_only_icatalog_files() {
+    let desktop = std::fs::read_to_string(root().join("packaging/icatalog.desktop")).unwrap();
+    let mime = std::fs::read_to_string(root().join("packaging/icatalog-mime.xml")).unwrap();
+    assert!(desktop.contains("Exec=icatalog-ui %f"));
+    assert!(desktop.contains("MimeType=application/x-icatalog;"));
+    assert!(mime.contains("type=\"application/x-icatalog\""));
+    assert!(mime.contains("pattern=\"*.icatalog\""));
+    assert!(!mime.contains("*.sqlite"));
+}
+
 fn success(output: Output) {
     assert!(
         output.status.success(),

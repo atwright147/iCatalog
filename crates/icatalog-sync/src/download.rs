@@ -56,7 +56,7 @@ pub(crate) fn prepare(
     drop(file);
     util::verify_catalogue(temp.path(), expect_id)?;
     {
-        let c = icatalog_catalog::Catalog::open(temp.path())?;
+        let c = icatalog_catalog::Catalog::open_existing(temp.path())?;
         let mode: String = c
             .connection()
             .query_row("PRAGMA journal_mode", [], |r| r.get(0))

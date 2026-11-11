@@ -78,7 +78,7 @@ The client requires DELETE journal mode and holds a local SQLite write reservati
 - an authoritative catalogue with no replica baseline;
 - valid, bounded user state for the new baseline.
 
-The client establishes the baseline in the verified temporary database and flushes it. Before replacement it creates and flushes a uniquely named `<stem>.rejected-<UTC timestamp>[-n].sqlite` backup without overwriting an existing file. Failure to back up aborts replacement. It closes its old connection, atomically renames the verified file into place and reopens it. Temporary files are removed on failure. No original media or preview file is deleted by sync. A server generation moving backward relative to a replica baseline is refused.
+The client establishes the baseline in the verified temporary database and flushes it. Before replacement it creates and flushes a uniquely named `<stem>.rejected-<UTC timestamp>[-n].<original extension>` backup without overwriting an existing file (D89; `.icatalog` is used when the source has no extension). Failure to back up aborts replacement. It closes its old connection, atomically renames the verified file into place and reopens it. Temporary files are removed on failure. No original media or preview file is deleted by sync. A server generation moving backward relative to a replica baseline is refused.
 
 ## Preview storage and commands
 

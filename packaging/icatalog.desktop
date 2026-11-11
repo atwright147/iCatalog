@@ -2,7 +2,8 @@
 Type=Application
 Name=iCatalog
 Comment=Browse and organise media catalogues
-Exec=icatalog-ui
+Exec=icatalog-ui %f
+MimeType=application/x-icatalog;
 Terminal=false
 Categories=Graphics;Photography;
 StartupNotify=true

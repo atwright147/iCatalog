@@ -109,10 +109,10 @@ impl Context {
         let old = std::mem::replace(&mut self.catalog, placeholder);
         drop(old);
         if let Err(e) = std::fs::rename(temp, &self.path) {
-            self.catalog = icatalog_catalog::Catalog::open(&self.path)?;
+            self.catalog = icatalog_catalog::Catalog::open_existing(&self.path)?;
             return Err(e.into());
         }
-        self.catalog = icatalog_catalog::Catalog::open(&self.path)?;
+        self.catalog = icatalog_catalog::Catalog::open_existing(&self.path)?;
         Ok(())
     }
 }

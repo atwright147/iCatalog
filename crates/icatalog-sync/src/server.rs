@@ -179,7 +179,7 @@ fn prepare_snapshot(ctx: &Context) -> Result<Snapshot> {
     if std::fs::metadata(temp.path())?.len() > protocol::MAX_SNAPSHOT_BYTES {
         return Ok(Snapshot::TooLarge);
     }
-    let c = icatalog_catalog::Catalog::open(temp.path())?;
+    let c = icatalog_catalog::Catalog::open_existing(temp.path())?;
     let row = c
         .catalogue()?
         .ok_or_else(|| SyncError::Protocol("server catalogue is not initialised".into()))?;

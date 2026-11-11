@@ -10,7 +10,7 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 
 ## 2. Done
 
-- **M0 housekeeping** — repo under git; root `.gitignore` (`target/`, `log/`, `*.sqlite`); `crates/*` workspace members; `log/devlog.md` (local, gitignored).
+- **M0 housekeeping** — repo under git; root `.gitignore` (`target/`, `log/`, `*.sqlite`, `*.icatalog`); `crates/*` workspace members; `log/devlog.md` (local, gitignored).
 - **Development agents (D59)** — five project-scoped Codex roles in `.codex/agents/`: legacy-format research, catalogue/sync, native UI, release/deployment and independent read-only review. [Scope and usage](agents.md); roles run on demand and do not change feature priorities.
 - **M1 schema** — `icatalog-catalog`: schema v1-v8 with migrations, the model + CRUD for every table (including `source` with device provenance and source-rooted folders, D21), `AssetQuery`/`CatalogStats`; round-trip, FK-cascade, constraint, raw-bytes, migration and never-panic tests. The one open piece — the `ivc` import mapping — is M2 work, not schema work.
 
@@ -66,6 +66,11 @@ Details and List share regional date/time display (D53/D54) with numeric regiona
 Desktop legibility (D33) uses larger interface/caption text and List metadata, stronger normal/secondary/selection contrast in both themes, hinted glyphs without fractional variants, and roomier rows. Native display scaling is preserved. Layout checks cover both themes at 1×/1.5×/2×; light and Retina List screenshots supplement existing baselines.
 
 Desktop release automation (D34) exists for published releases: Windows x64/ARM64 ZIPs, macOS ARM64 `.app` + CLI archive, and Linux x86-64 Debian `.deb`, Fedora `.rpm` and Arch `.pkg.tar.zst`. Manual dispatch produces workflow artifacts only by default; `release_tag` builds the tag's application with current workflow packaging and uploads to its existing release. Hosted v0.1.0 recovery passed all four builds, all three Linux installation checks and final upload. All six original assets and SHA256SUMS are published and their digests verified. Arch constraints are guarded by a generated-metadata regression. macOS Intel/universal releases are no longer targeted. Developer ID signing/notarization and Windows publisher signing remain open. D58 adds two static NAS CLI archives and native CI jobs for future runs; hosted execution/publication remains unverified.
+
+New catalogue filenames prefer `.icatalog` (D89), and Linux desktop packages
+register that extension. Existing `.sqlite` names remain supported and are
+verified from their contents before migration. macOS Finder document-open
+handling and Windows file association remain open.
 
 Docker/Compose NAS packaging (D60) exists for x86-64/ARM64 static CLI builds. The scratch image uses a non-root numeric user and a minimal generated build context. Compose persists the catalogue directory, mounts media/rootfs read-only, injects init for stop-signal forwarding and defaults to loopback publication. `serve` refuses missing catalogues without SQLite creation; initialization/import remain explicit. Disposable runtime checks cover previews, permissions, clone/edit/Collection sync and persistence after server replacement; native CI also exercises the supplied Compose lifecycle. [Setup and maintenance](nas-docker.md). Hosted container execution and registry publication remain unverified/unbuilt respectively; no systemd installer.
 

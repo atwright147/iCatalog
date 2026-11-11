@@ -63,6 +63,8 @@ const MIGRATIONS: &[&str] = &[
 pub enum CatalogError {
     /// Underlying SQLite failure.
     Sqlite(rusqlite::Error),
+    /// The file is SQLite, but does not contain an initialized iCatalog schema.
+    NotCatalogue,
     /// The catalogue was written by a newer iCatalog.
     NewerSchema { found: i64, supported: i64 },
     /// A recorded version is not a valid value.
@@ -79,6 +81,7 @@ impl fmt::Display for CatalogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CatalogError::Sqlite(e) => write!(f, "sqlite error: {e}"),
+            CatalogError::NotCatalogue => write!(f, "not an initialized {APP_NAME} catalogue"),
             CatalogError::NewerSchema { found, supported } => write!(
                 f,
                 "catalogue schema version {found} is newer than supported version {supported}; update {APP_NAME}"
@@ -163,6 +166,68 @@ fn latest_version() -> i64 {
     i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX)
 }
 
+/// Check existing files without changing their schema. A SQLite header or a
+/// filename alone does not identify an iCatalog catalogue.
+fn validate_existing(conn: &Connection, allow_uninitialized: bool) -> Result<()> {
+    for sql in [
+        "SELECT id, generation, created_utc, schema_version FROM catalogue LIMIT 0",
+        "SELECT version, applied_utc FROM schema_migrations LIMIT 0",
+        "SELECT id, parent_id, name FROM folder LIMIT 0",
+        "SELECT id, uid, path, name FROM asset LIMIT 0",
+        "SELECT asset_id, size_class, bytes FROM thumbnail LIMIT 0",
+        "SELECT asset_id, scheme, key, seq, value FROM metadata_raw LIMIT 0",
+        "SELECT asset_id, captured_local FROM asset_meta LIMIT 0",
+        "SELECT id, name FROM collection LIMIT 0",
+        "SELECT collection_id, asset_id FROM collection_asset LIMIT 0",
+    ] {
+        conn.prepare(sql).map_err(|_| CatalogError::NotCatalogue)?;
+    }
+    let mut rows = conn
+        .prepare("SELECT id, generation, created_utc, schema_version FROM catalogue LIMIT 2")
+        .map_err(|_| CatalogError::NotCatalogue)?;
+    let mut rows = rows.query([]).map_err(|_| CatalogError::NotCatalogue)?;
+    let row = rows.next().map_err(|_| CatalogError::NotCatalogue)?;
+    if row.is_none() && !allow_uninitialized {
+        return Err(CatalogError::NotCatalogue);
+    }
+    if let Some(row) = row {
+        let _: String = row.get(0).map_err(|_| CatalogError::NotCatalogue)?;
+        let _: i64 = row.get(1).map_err(|_| CatalogError::NotCatalogue)?;
+        let _: String = row.get(2).map_err(|_| CatalogError::NotCatalogue)?;
+        let _: i64 = row.get(3).map_err(|_| CatalogError::NotCatalogue)?;
+    }
+    if rows
+        .next()
+        .map_err(|_| CatalogError::NotCatalogue)?
+        .is_some()
+    {
+        return Err(CatalogError::NotCatalogue);
+    }
+    let (count, min_version, max_version): (i64, Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT COUNT(*), MIN(version), MAX(version) FROM schema_migrations",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|_| CatalogError::NotCatalogue)?;
+    let Some(version) = max_version else {
+        return Err(CatalogError::NotCatalogue);
+    };
+    if version < 0 {
+        return Err(CatalogError::InvalidVersion(version));
+    }
+    if min_version != Some(1) || count != version {
+        return Err(CatalogError::NotCatalogue);
+    }
+    if version > latest_version() {
+        return Err(CatalogError::NewerSchema {
+            found: version,
+            supported: latest_version(),
+        });
+    }
+    Ok(())
+}
+
 fn migrate(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -232,26 +297,55 @@ fn register_text_search(conn: &Connection) -> Result<()> {
 }
 
 impl Catalog {
-    fn from_conn(mut conn: Connection) -> Result<Self> {
+    fn from_conn(mut conn: Connection, existing: bool) -> Result<Self> {
+        if existing {
+            validate_existing(&conn, false)?;
+        }
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         register_text_search(&conn)?;
         migrate(&mut conn)?;
         Ok(Catalog { conn })
     }
 
-    /// Open (creating if absent) a literal catalogue file and apply pending migrations.
+    /// Create a literal catalogue file if absent; validate existing files before
+    /// applying pending migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if path.as_os_str().is_empty() || path == Path::new(":memory:") {
             return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
         }
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        Self::from_conn(Connection::open_with_flags(
-            sqlite_literal_path(path),
-            flags,
-        )?)
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(file) => {
+                drop(file);
+                let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+                Self::from_conn(
+                    Connection::open_with_flags(sqlite_literal_path(path), flags)?,
+                    false,
+                )
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let conn = Connection::open_with_flags(
+                    sqlite_literal_path(path),
+                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                )?;
+                validate_existing(&conn, true)?;
+                Self::from_conn(conn, false)
+            }
+            Err(_) => {
+                // Let SQLite report its native path/access error to callers.
+                Self::from_conn(
+                    Connection::open_with_flags(
+                        sqlite_literal_path(path),
+                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                    )?,
+                    true,
+                )
+            }
+        }
     }
 
     /// Open an existing catalogue without SQLite's create flag, applying pending
@@ -263,15 +357,15 @@ impl Catalog {
             return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
         }
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        Self::from_conn(Connection::open_with_flags(
-            sqlite_literal_path(path),
-            flags,
-        )?)
+        Self::from_conn(
+            Connection::open_with_flags(sqlite_literal_path(path), flags)?,
+            true,
+        )
     }
 
     /// Open a fresh in-memory catalogue.
     pub fn open_in_memory() -> Result<Self> {
-        Self::from_conn(Connection::open_in_memory()?)
+        Self::from_conn(Connection::open_in_memory()?, false)
     }
 
     /// Highest applied schema version.
@@ -492,6 +586,7 @@ mod tests {
         let _ = std::fs::remove_file(&dir);
         {
             let c = Catalog::open(&dir).unwrap();
+            c.insert_catalogue("mig", "2026-11-11T00:00:00Z").unwrap();
             assert_eq!(c.schema_version().unwrap(), latest_version());
         }
         let c = Catalog::open(&dir).unwrap();
@@ -511,6 +606,7 @@ mod tests {
         let _ = std::fs::remove_file(&dir);
         {
             let c = Catalog::open(&dir).unwrap();
+            c.insert_catalogue("newer", "2026-11-11T00:00:00Z").unwrap();
             c.connection()
                 .execute(
                     "INSERT INTO schema_migrations (version, applied_utc) VALUES (?1, 'x')",

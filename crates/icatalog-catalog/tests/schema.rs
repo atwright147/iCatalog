@@ -41,6 +41,89 @@ fn creating_a_catalogue_rejects_ephemeral_special_paths() {
     assert!(Catalog::open(":memory:").is_err());
 }
 
+#[test]
+fn rejected_sqlite_database_is_unchanged_regardless_of_filename() {
+    for suffix in ["sqlite", "icatalog"] {
+        let path = tmp(&format!("unrelated-{suffix}")).with_extension(suffix);
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE notes(message TEXT NOT NULL); INSERT INTO notes VALUES('keep me');",
+            )
+            .unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert!(matches!(
+            Catalog::open_existing(&path),
+            Err(CatalogError::NotCatalogue)
+        ));
+        assert!(matches!(
+            Catalog::open(&path),
+            Err(CatalogError::NotCatalogue)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn partial_catalogue_schema_is_rejected_without_migration() {
+    let path = tmp("partial-catalogue");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE catalogue(id TEXT PRIMARY KEY, generation INTEGER NOT NULL, created_utc TEXT NOT NULL, schema_version INTEGER NOT NULL); INSERT INTO catalogue VALUES('lookalike',0,'today',1);").unwrap();
+    }
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        Catalog::open_existing(&path),
+        Err(CatalogError::NotCatalogue)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn historical_catalogue_ids_remain_openable() {
+    let path = tmp("historical-id");
+    {
+        let c = Catalog::open(&path).unwrap();
+        c.insert_catalogue("temporary", "").unwrap();
+        c.connection()
+            .execute("UPDATE catalogue SET id=' Café family '", [])
+            .unwrap();
+    }
+    let c = Catalog::open_existing(&path).unwrap();
+    assert_eq!(c.catalogue().unwrap().unwrap().id, " Café family ");
+    assert_eq!(c.catalogue().unwrap().unwrap().created_utc, "");
+    drop(c);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn creation_can_resume_an_uninitialized_icatalog_shell() {
+    let path = tmp("retry-init");
+    let first = Catalog::open(&path).unwrap();
+    assert!(first.catalogue().unwrap().is_none());
+    drop(first);
+    assert!(matches!(
+        Catalog::open_existing(&path),
+        Err(CatalogError::NotCatalogue)
+    ));
+    let retry = Catalog::open(&path).unwrap();
+    retry.insert_catalogue("retry", "").unwrap();
+    drop(retry);
+    assert_eq!(
+        Catalog::open_existing(&path)
+            .unwrap()
+            .catalogue()
+            .unwrap()
+            .unwrap()
+            .id,
+        "retry"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
 fn asset(uid: &str, path: &str) -> Asset {
     Asset {
         id: 0,
@@ -502,6 +585,7 @@ fn migrations_apply_once_and_idempotent() {
     let p = tmp("mig");
     {
         let c = Catalog::open(&p).unwrap();
+        c.insert_catalogue("mig", "2026-11-11T00:00:00Z").unwrap();
         assert_eq!(c.schema_version().unwrap(), 8);
         assert_eq!(count(&c, "schema_migrations"), 8);
     }
@@ -518,10 +602,11 @@ fn invalid_and_newer_versions_refused() {
     {
         let conn = rusqlite::Connection::open(&p).unwrap();
         conn.execute_batch(
-            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_utc TEXT NOT NULL);
-             INSERT INTO schema_migrations VALUES (-5, 'x');",
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_utc TEXT NOT NULL);",
         )
         .unwrap();
+        conn.execute_batch(include_str!("../src/v1.sql")).unwrap();
+        conn.execute_batch("INSERT INTO catalogue VALUES('negative',0,'today',1); INSERT INTO schema_migrations VALUES (-5,'x');").unwrap();
     }
     assert!(matches!(
         Catalog::open(&p),
@@ -532,6 +617,7 @@ fn invalid_and_newer_versions_refused() {
     let p = tmp("newer");
     {
         let c = Catalog::open(&p).unwrap();
+        c.insert_catalogue("newer", "2026-11-11T00:00:00Z").unwrap();
         c.connection()
             .execute(
                 "INSERT INTO schema_migrations (version, applied_utc) VALUES (9, 'x')",

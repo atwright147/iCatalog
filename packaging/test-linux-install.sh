@@ -15,6 +15,7 @@ case "${1:-}" in
 esac
 test -x /usr/bin/icatalog-ui
 test -f /usr/share/applications/icatalog.desktop
+test -f /usr/share/mime/packages/icatalog-mime.xml
 # Check direct ELF dependencies of both executables, even without a display.
 for binary in /usr/bin/icatalog /usr/bin/icatalog-ui; do
   links=$(ldd "$binary")
@@ -26,5 +27,5 @@ done
 icatalog --version
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
-icatalog init "$scratch/smoke.sqlite"
-icatalog open "$scratch/smoke.sqlite"
+icatalog init "$scratch/smoke.icatalog"
+icatalog open "$scratch/smoke.icatalog"

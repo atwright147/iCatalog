@@ -56,9 +56,10 @@ EOF
   # Avoid AppleDouble sidecars appearing as extra sealed resources in other extractors.
   COPYFILE_DISABLE=1 tar -czf "$output_dir/icatalog-$version-macos-arm64.tar.gz" -C "$stage" iCatalog.app icatalog
 else
-  install -d "$stage/usr/bin" "$stage/usr/share/applications"
+  install -d "$stage/usr/bin" "$stage/usr/share/applications" "$stage/usr/share/mime/packages"
   install -m 755 "$binary_dir/icatalog" "$binary_dir/icatalog-ui" "$stage/usr/bin/"
   install -m 644 packaging/icatalog.desktop "$stage/usr/share/applications/"
+  install -m 644 packaging/icatalog-mime.xml "$stage/usr/share/mime/packages/"
   # Debian/RPM use ~ for prereleases; Arch forbids '-' in pkgver.
   package_version=${version/-/~}
   common=(-s dir -n icatalog --iteration 1

@@ -87,8 +87,9 @@ including `previews/<sha>.jpg`. Startup never initializes a missing catalogue;
 
 To use an existing authoritative catalogue, stop all writers, preserve a backup,
 and copy the catalogue and its external `previews` directory into the mounted data
-directory. The example uses the filename `catalogue.sqlite`; change the Compose
-command if keeping another filename. Stored media paths are not rewritten: an
+directory. The established Compose example uses `catalogue.sqlite` for existing
+deployments. For a new `.icatalog` file, change the Compose command and the
+maintenance paths to the same name. Stored media paths are not rewritten: an
 existing catalogue that references `/srv/photos` needs its media bind target kept
 at `/srv/photos`, or media reimported into a new catalogue using `/media`. Keep
 those targets stable across container updates.

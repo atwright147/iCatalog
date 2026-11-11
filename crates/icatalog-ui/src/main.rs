@@ -58,7 +58,7 @@ fn run() -> eframe::Result<()> {
     let path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("catalogue.sqlite"));
+        .unwrap_or_else(|| default_catalogue_path(Path::new(".")));
     let ctx = open_catalogue(&path).map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions::default();
     eframe::run_native(
@@ -66,6 +66,18 @@ fn run() -> eframe::Result<()> {
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, ctx, path)))),
     )
+}
+
+fn default_catalogue_path(dir: &Path) -> PathBuf {
+    let preferred = dir.join("catalogue.icatalog");
+    if preferred.exists() {
+        return preferred;
+    }
+    let older = dir.join("catalogue.sqlite");
+    if older.exists() {
+        return older;
+    }
+    preferred
 }
 
 fn open_catalogue(path: &std::path::Path) -> icatalog_engine::Result<Context> {
@@ -2147,5 +2159,20 @@ mod tests {
         std::fs::write(&path, b"not a SQLite database").unwrap();
         assert!(open_catalogue(&path).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn no_argument_startup_reopens_the_previous_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("catalogue.sqlite");
+        assert_eq!(
+            default_catalogue_path(dir.path()),
+            dir.path().join("catalogue.icatalog")
+        );
+        std::fs::write(&older, b"existing").unwrap();
+        assert_eq!(default_catalogue_path(dir.path()), older);
+        let preferred = dir.path().join("catalogue.icatalog");
+        std::fs::write(&preferred, b"new").unwrap();
+        assert_eq!(default_catalogue_path(dir.path()), preferred);
     }
 }

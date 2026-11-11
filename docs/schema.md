@@ -6,6 +6,11 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 
 **Decided:** the own format is SQLite (D7), via `rusqlite` with the `bundled` feature. Legacy `.ivc` is import-only. The initial schema derives from what `ivc` yields (EXISTS): per item `path`, `name`, `format` (4cc), `file_size`, `width`, `height`, `color_space`, `pict`, `jpeg`, `tail_blocks`, `iptc`; plus the `FSM!` folder tree chunk. Spec: `ivc-file-research/docs/ivc-format.md`.
 
+New files conventionally use `.icatalog`; existing `.sqlite` filenames still
+work. Opening an existing file checks the base schema, the single initialized
+catalogue row and migration history before migrations can write (D89). A
+filename or SQLite header alone is not a catalogue identity check.
+
 ## 2. Migrations philosophy
 
 **Proposed:**
@@ -13,7 +18,7 @@ Purpose: catalogue schema and migrations. Status vocabulary: **Decided** (owner 
 - Versioned, **forward-only**, each migration in a single transaction.
 - A `schema_migrations` table records applied versions; it is created in code (not in a migration file) before migrations run.
 - Migrations: `v1.sql` (catalogue, folder, asset, thumbnail, metadata_raw, asset_meta, collection, collection_asset) `v2.sql` (keyword, asset_keyword, annotation, `find` indexes), `v3.sql` (`asset.missing` + index, D14), `v4.sql` (`source`, `folder.source_id`/`folder.path`, D21), `v5.sql` (`source.device_id`/`device_label`, D21), `v6.sql` (`smart_collection` typed rules and membership guards, D35), `v7.sql` (stable Collection UIDs, transactional revisions/generations, replica baseline and previews, D20/D44), and `v8.sql` (inclusive maximum rating and ordered rating bounds, D57). `foreign_keys` is ON for every connection.
-- A catalogue with a newer schema version than the app knows is refused with an actionable error, never opened read-write.
+- A catalogue with a newer schema version than the app knows is refused with an actionable error before migrations write.
 - Every migration has a round-trip test on synthetic data; a never-panic test feeds corrupt or truncated files.
 - Back up before migrating a user catalogue (**Open**: exact mechanism).
 

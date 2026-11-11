@@ -36,6 +36,20 @@ fn init_treats_sqlite_uri_syntax_as_a_literal_filename() {
     }
 }
 
+#[test]
+fn init_can_retry_after_invalid_id_left_an_uninitialized_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("retry.icatalog");
+    let name = path.to_str().unwrap();
+    let invalid = icatalog(&["init", name, "--id", " bad"]);
+    assert!(!invalid.status.success());
+    assert!(path.is_file());
+    let retry = icatalog(&["init", name, "--id", "recovered"]);
+    assert!(retry.status.success(), "{}", s(&retry.stderr));
+    let opened = icatalog(&["open", name]);
+    assert!(opened.status.success(), "{}", s(&opened.stderr));
+}
+
 #[cfg(unix)]
 #[test]
 fn non_utf8_catalogue_path_is_byte_exact_and_text_arguments_fail_cleanly() {

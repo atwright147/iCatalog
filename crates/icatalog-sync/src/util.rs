@@ -79,14 +79,19 @@ pub fn backup_local(local: &Path) -> Result<Option<PathBuf>> {
     let stem = local
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("catalogue"));
+    let extension = local
+        .extension()
+        .unwrap_or_else(|| std::ffi::OsStr::new("icatalog"));
     let stamp = utc_stamp();
     for n in 0..10000u32 {
         let mut name = stem.to_os_string();
         name.push(if n == 0 {
-            format!(".rejected-{stamp}.sqlite")
+            format!(".rejected-{stamp}")
         } else {
-            format!(".rejected-{stamp}-{n}.sqlite")
+            format!(".rejected-{stamp}-{n}")
         });
+        name.push(".");
+        name.push(extension);
         let path = parent_dir(local).join(name);
         match std::fs::OpenOptions::new()
             .write(true)
@@ -113,7 +118,7 @@ pub fn backup_local(local: &Path) -> Result<Option<PathBuf>> {
 
 /// Verify that `path` is a valid iCatalog catalogue with the expected id.
 pub fn verify_catalogue(path: &Path, expect_id: &str) -> Result<()> {
-    let catalog = icatalog_catalog::Catalog::open(path)?;
+    let catalog = icatalog_catalog::Catalog::open_existing(path)?;
     let row = catalog.catalogue()?.ok_or_else(|| {
         SyncError::Integrity(format!("not an {} catalogue", icatalog_catalog::APP_NAME))
     })?;
@@ -167,5 +172,13 @@ mod tests {
         assert!(path.exists());
         drop(temp);
         assert!(!path.exists());
+        let preferred = dir.join("library.icatalog");
+        std::fs::write(&preferred, b"preferred").unwrap();
+        let copy = backup_local(&preferred).unwrap().unwrap();
+        assert_eq!(
+            copy.extension().and_then(|ext| ext.to_str()),
+            Some("icatalog")
+        );
+        assert_eq!(std::fs::read(copy).unwrap(), b"preferred");
     }
 }

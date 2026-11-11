@@ -870,6 +870,26 @@ from blocking catalogue and preview GETs or other edit batches. A fifth
 concurrent upload receives HTTP 503 and can retry; body and batch size limits
 remain unchanged. No schema, protocol version, endpoint or Taskfile change.
 
+## D89. Verify catalogue identity before migration and prefer `.icatalog` (2026-11-11)
+
+An existing SQLite file must have the initialized iCatalog base tables, one
+typed catalogue identity row and a complete migration history before any
+schema write. Reject unrelated or partial databases without changing their
+bytes. `Catalog::open` creates a missing file exclusively, then applies the
+schema; it also permits a structurally valid, uninitialized iCatalog shell so
+an interrupted or invalid `init` can be retried. `open_existing` requires a
+catalogue row. Historical row values remain readable even when they fail
+today's new-ID policy. Existing `.sqlite` names and arbitrary user-chosen
+filenames remain supported because the file contents establish identity.
+
+Prefer `.icatalog` for new desktop files and documentation. A no-argument
+desktop launch reopens the old `catalogue.sqlite` default when no
+`catalogue.icatalog` is present. Rejected sync backups preserve the source
+extension. Linux desktop packages register `.icatalog`. The current macOS
+window layer cannot receive Finder document-open events, so its bundle does
+not claim the extension yet. Windows ZIPs do not install a file association.
+This changes no SQLite schema version, sync protocol or command id.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
