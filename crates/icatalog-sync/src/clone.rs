@@ -90,11 +90,11 @@ impl Command for CloneCatalogue {
         "Clone a server catalogue into a new local replica"
     }
     fn params(&self) -> &'static [ParamSpec] {
-        &[ParamSpec {
+        &[crate::security::TOKEN_FILE, crate::security::CA_FILE, ParamSpec {
             name: "url",
             required: true,
             positional: false,
-            doc: "base URL of the sync service, e.g. http://nas:8080; destination must not exist",
+            doc: "base URL of the sync service, e.g. https://nas:8443; destination must not exist",
         }]
     }
     fn enabled(&self, ctx: &Context) -> bool {
@@ -102,7 +102,8 @@ impl Command for CloneCatalogue {
     }
     fn run(&self, ctx: &mut Context, params: &Params) -> EngineResult<Outcome> {
         let base = params.require("url")?.trim();
-        let report = clone_catalogue(ctx, &UreqTransport::new(), base)?;
+        let transport = UreqTransport::from_params(params, base)?;
+        let report = clone_catalogue(ctx, &transport, base)?;
         Ok(Outcome::text(format!("cloned catalogue '{}' at generation {} into {}\ndownload: {} bytes; local replica ready for editing and sync",report.catalogue_id,report.generation,ctx.path().display(),report.bytes)))
     }
 }

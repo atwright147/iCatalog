@@ -42,14 +42,16 @@ impl CatalogueInfo {
                 continue;
             }
             let Some((key, value)) = line.split_once('=') else {
-                return Err(SyncError::Protocol(format!("malformed info line '{line}'")));
+                return Err(SyncError::Protocol(
+                    "malformed info line; expected key=value".into(),
+                ));
             };
             match key.trim() {
                 "protocol" => protocol = Some(value.trim()),
                 "id" => id = Some(value.to_string()),
                 "generation" => {
                     generation = Some(value.trim().parse::<i64>().map_err(|_| {
-                        SyncError::Protocol(format!("bad generation '{}'", value.trim()))
+                        SyncError::Protocol("info generation must be an integer".into())
                     })?)
                 }
                 _ => {}

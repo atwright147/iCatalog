@@ -453,7 +453,7 @@ fn sync_dialog_cancel_validation_and_modal_guards_preserve_the_session() {
     assert!(h.state().sync_dialog.is_none());
     menu(&mut h, "Connect to Server…");
     h.get_by_label("Server address")
-        .type_text("https://unsupported");
+        .type_text("ftp://unsupported");
     h.state_mut().sync_dialog.as_mut().unwrap().destination =
         Some(fixture.dir.path().join("absent.sqlite"));
     settle(&mut h);
@@ -469,7 +469,8 @@ fn sync_dialog_cancel_validation_and_modal_guards_preserve_the_session() {
         .error
         .as_ref()
         .unwrap()
-        .contains("https"));
+        .to_ascii_lowercase()
+        .contains("http"));
     h.get_by_label("Cancel").click();
     settle(&mut h);
     h.get_by_label("New Collection…").click();
@@ -494,8 +495,18 @@ fn pending_sync_disables_controls_and_blocks_escape_and_other_commands() {
         .execute_batch("BEGIN IMMEDIATE")
         .unwrap();
     menu(&mut h, "Sync…");
+    h.get_by_label("Security settings").click();
+    settle(&mut h);
     h.get_by_label("Sync now").click();
     h.run_steps(3);
+    assert!(h
+        .get_by_label("Choose token file…")
+        .accesskit_node()
+        .is_disabled());
+    assert!(h
+        .get_by_label("Choose CA file…")
+        .accesskit_node()
+        .is_disabled());
     assert!(h.state().worker.is_some());
     assert!(h.state().sync_dialog.as_ref().unwrap().pending);
     assert!(h
@@ -600,4 +611,205 @@ fn settings_errors_are_visible_and_do_not_turn_a_completed_sync_into_failure() {
     );
     assert!(h.state().ctx.catalog().is_replica().unwrap());
     assert_eq!(h.state().sync_url, url);
+}
+
+#[test]
+fn security_settings_fit_and_clear_selected_files_without_persisting_them() {
+    let fixture = Fixture::new();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        for scale in [1.0, 1.5, 2.0] {
+            let mut h = fixture.harness_with_display([800.0, 600.0], scale, theme);
+            h.state_mut().open_sync_dialog(false);
+            settle(&mut h);
+            h.get_by_label("Security settings").click();
+            settle(&mut h);
+            let d = h.state_mut().sync_dialog.as_mut().unwrap();
+            // Emulate native picker results, including long Unicode paths.
+            d.token_file = Some("/synthetic/security/a long folder/旅行/token.txt".into());
+            d.ca_file = Some("/synthetic/security/a long folder/旅行/ca.pem".into());
+            d.error = Some("A long authentication error. ".repeat(100));
+            settle(&mut h);
+            assert!(h.get_by_label("Sync now").rect().bottom() < 600.0);
+            h.get_by_label("Clear token file").click();
+            settle(&mut h);
+            assert!(h.state().sync_dialog.as_ref().unwrap().token_file.is_none());
+            assert!(h.state().sync_dialog.as_ref().unwrap().ca_file.is_some());
+            h.get_by_label("Clear CA file").click();
+            settle(&mut h);
+            assert!(h.state().sync_dialog.as_ref().unwrap().ca_file.is_none());
+            h.state_mut().sync_dialog.as_mut().unwrap().token_file = Some("token.txt".into());
+            settle(&mut h);
+            h.get_by_label("Cancel").click();
+            settle(&mut h);
+            h.state_mut().open_sync_dialog(false);
+            settle(&mut h);
+            let d = h.state().sync_dialog.as_ref().unwrap();
+            assert!(d.token_file.is_none() && d.ca_file.is_none());
+            assert!(sync_ui::load_url(&fixture.path()).unwrap().is_empty());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn security_paths_reject_non_utf8_and_oversized_values_before_releasing_catalogue() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let fixture = Fixture::new();
+    let original = std::fs::read(fixture.path()).unwrap();
+    for token in [true, false] {
+        for path in [
+            PathBuf::from(OsString::from_vec(b"/synthetic/bad-\xff".to_vec())),
+            PathBuf::from("a".repeat(8193)),
+        ] {
+            let mut h = fixture.harness([800.0, 600.0]);
+            menu(&mut h, "Sync…");
+            let d = h.state_mut().sync_dialog.as_mut().unwrap();
+            d.url = "http://127.0.0.1:1".into();
+            d.acknowledge = true;
+            if token {
+                d.token_file = Some(path.clone());
+            } else {
+                d.ca_file = Some(path.clone());
+            }
+            settle(&mut h);
+            h.get_by_label("Sync now").click();
+            settle(&mut h);
+            let d = h.state().sync_dialog.as_ref().unwrap();
+            assert!(d.error.as_ref().unwrap().contains("path"));
+            assert_eq!(
+                if token {
+                    d.token_file.as_ref()
+                } else {
+                    d.ca_file.as_ref()
+                },
+                Some(&path)
+            );
+            assert!(h.state().worker.is_none());
+            assert!(h.state().ctx.catalog().catalogue().unwrap().is_some());
+            assert_eq!(std::fs::read(fixture.path()).unwrap(), original);
+        }
+    }
+}
+
+#[test]
+fn security_files_reach_clone_and_sync_workers_without_saving_credentials() {
+    let fixture = Fixture::new();
+    let token = "synthetic-ui-token-0123456789abcdef0123456789abcdef";
+    let token_path = fixture.dir.path().join("token.txt");
+    let wrong_path = fixture.dir.path().join("wrong-token.txt");
+    let ca_path = fixture.dir.path().join("invalid-ca.pem");
+    std::fs::write(&token_path, token).unwrap();
+    std::fs::write(
+        &wrong_path,
+        "wrong-synthetic-token-0123456789abcdef0123456789",
+    )
+    .unwrap();
+    std::fs::write(&ca_path, b"not a certificate").unwrap();
+    let mut params = Params::new();
+    params.set("token-file", token_path.to_str().unwrap());
+    let mut security =
+        icatalog_sync::security::ServerSecurity::from_params(&params, "127.0.0.1").unwrap();
+    let server = icatalog_sync::server::bind_with_security("127.0.0.1:0", &mut security).unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}",
+        server.server_addr().to_ip().unwrap().port()
+    );
+    let server_path = fixture.path();
+    std::thread::spawn(move || {
+        let mut ctx = Context::open(server_path).unwrap();
+        let _ = icatalog_sync::server::serve_loop_with_security(server, &mut ctx, security);
+    });
+    let client_path = fixture.dir.path().join("authenticated.sqlite");
+    let original = std::fs::read(fixture.path()).unwrap();
+    let mut h = fixture.harness([800.0, 600.0]);
+    menu(&mut h, "Connect to Server…");
+    let d = h.state_mut().sync_dialog.as_mut().unwrap();
+    d.url = url.clone();
+    d.destination = Some(client_path.clone());
+    d.token_file = Some(wrong_path.clone());
+    settle(&mut h);
+    h.get_by_label("Clone").click();
+    settle(&mut h);
+    assert!(!client_path.exists());
+    assert_eq!(h.state().path, fixture.path());
+    let d = h.state().sync_dialog.as_ref().unwrap();
+    assert!(d.error.as_ref().unwrap().contains("401"));
+    assert_eq!(d.token_file.as_ref(), Some(&wrong_path));
+    assert_eq!(std::fs::read(fixture.path()).unwrap(), original);
+
+    // A selected CA path must reach the backend rather than being ignored.
+    let d = h.state_mut().sync_dialog.as_mut().unwrap();
+    d.url = "https://127.0.0.1:1".into();
+    d.token_file = Some(token_path.clone());
+    d.ca_file = Some(ca_path.clone());
+    settle(&mut h);
+    h.get_by_label("Clone").click();
+    settle(&mut h);
+    assert!(!client_path.exists());
+    let d = h.state().sync_dialog.as_ref().unwrap();
+    assert!(d.error.as_ref().unwrap().contains("CA"));
+    assert_eq!(d.ca_file.as_ref(), Some(&ca_path));
+
+    let d = h.state_mut().sync_dialog.as_mut().unwrap();
+    d.url = url.clone();
+    d.ca_file = None;
+    settle(&mut h);
+    h.get_by_label("Clone").click();
+    settle(&mut h);
+    assert_eq!(h.state().path, client_path);
+    assert!(h.state().replica);
+    let mut settings = client_path.as_os_str().to_os_string();
+    settings.push(".sync-url");
+    assert_eq!(
+        std::fs::read_to_string(PathBuf::from(settings)).unwrap(),
+        url
+    );
+    h.get_by_label("Close").click();
+    settle(&mut h);
+    h.state_mut()
+        .run_command("edit", &edit_params(1, "rating", "4"));
+    settle(&mut h);
+    menu(&mut h, "Sync…");
+    let d = h.state_mut().sync_dialog.as_mut().unwrap();
+    assert!(d.token_file.is_none() && d.ca_file.is_none());
+    d.token_file = Some(wrong_path.clone());
+    settle(&mut h);
+    h.get_by_label("Sync now").click();
+    settle(&mut h);
+    assert!(h
+        .state()
+        .sync_dialog
+        .as_ref()
+        .unwrap()
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("401"));
+    assert_eq!(
+        h.state()
+            .ctx
+            .catalog()
+            .annotation(1)
+            .unwrap()
+            .unwrap()
+            .rating,
+        4
+    );
+    h.state_mut().sync_dialog.as_mut().unwrap().token_file = Some(token_path);
+    settle(&mut h);
+    h.get_by_label("Sync now").click();
+    settle(&mut h);
+    assert!(
+        h.state().status.contains("push: accepted"),
+        "{}",
+        h.state().status
+    );
+    assert!(!h.state().status.contains(token));
+    let canonical = Context::open(fixture.path()).unwrap();
+    assert_eq!(
+        canonical.catalog().annotation(1).unwrap().unwrap().rating,
+        4
+    );
 }

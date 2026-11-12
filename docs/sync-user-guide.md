@@ -25,7 +25,7 @@ keep the original catalogue's extension.
 
 Keep catalogues in a data folder outside the build directory. For a local repository test, `sync-demo/server.icatalog` is suitable; `target/` is build output and is removed by `task clean`.
 
-The service currently uses HTTP without authentication or encryption. Make it reachable only by trusted computers on your local network. The `0.0.0.0` example below listens on every IPv4 interface; you can instead bind to the server's specific LAN address.
+The service supports HTTPS and shared-token authentication (D98). Use the secure setup below when protecting access to your catalogue. The simple HTTP examples remain available for trusted local networks; they provide no encryption or authentication. `0.0.0.0` listens on every IPv4 interface; you can instead bind to the server's specific LAN address.
 
 ## 1. Prepare the main catalogue on the server
 
@@ -64,6 +64,61 @@ The service runs until stopped with Ctrl-C. `serve` requires an existing catalog
 file and never creates a missing file; check the configured path/mount or initialize
 a new catalogue explicitly. Docker/Compose packaging is available through the
 [NAS Docker guide](nas-docker.md); a systemd installation recipe remains unbuilt.
+
+### Secure server and clients
+
+Obtain a PEM server certificate chain and an unencrypted PEM private key for the
+hostname clients will use. A public CA certificate works with the bundled roots;
+for a private CA, copy its public CA certificate to each client. The certificate
+must cover the hostname or IP in the URL. iCatalog does not issue or renew
+certificates automatically.
+
+Create a random token on the server, for example with OpenSSL:
+
+```sh
+(umask 077; openssl rand -hex 32 > "$HOME/iCatalog/sync.token")
+```
+
+Keep the token and server private key readable only by the service account.
+Transfer the token privately to each authorised client. Everyone holding this
+token can read the catalogue and submit supported edits. Start the server with:
+
+```sh
+icatalog serve "$HOME/iCatalog/Library.icatalog" --bind 0.0.0.0 --port 8443 \
+  --tls-cert /path/to/server-chain.pem --tls-key /path/to/server-key.pem \
+  --token-file "$HOME/iCatalog/sync.token"
+```
+
+For the CLI, supply the client token file on each clone, sync or preview fetch:
+
+```sh
+icatalog clone "$HOME/Pictures/iCatalog/Library.icatalog" --url https://nas:8443 \
+  --token-file /path/to/client.token --ca-file /path/to/private-ca.pem
+icatalog sync "$HOME/Pictures/iCatalog/Library.icatalog" --url https://nas:8443 \
+  --token-file /path/to/client.token --ca-file /path/to/private-ca.pem
+```
+
+Omit `--ca-file` when the certificate is trusted by the bundled public roots.
+Do not put tokens in URLs. There is no option to disable certificate validation.
+A token file contains 32–4096 ASCII token characters with an optional final
+newline; the example above produces a suitable random hexadecimal token.
+
+In **Connect to Server** or **Sync catalogue**, enter the HTTPS address and expand
+**Security settings** to choose the token file and optional CA file. Selections
+remain while that dialog is open, including after a failed attempt, and clear
+when it closes. Choose them again for the next dialog. Only the server address
+is remembered in `.sync-url`; credentials and credential-file paths are not.
+
+Rotate a token by replacing the server file, restarting the service, and securely
+replacing clients' copies. Restart after renewing the certificate/key as well.
+No catalogue migration or re-clone is needed. Authentication or certificate
+errors leave local work intact; correct the credentials or trust configuration
+and retry. These errors differ from an offline `sync deferred` result.
+
+For a TLS reverse proxy on the same host, `serve --bind 127.0.0.1 --port 8080
+--token-file ...` allows authenticated loopback HTTP. Forward Authorization to
+iCatalog and expose only the proxy's HTTPS endpoint. Remote token use requires
+HTTPS; a hostname such as `localhost` is not a literal loopback address.
 
 ## 3. Clone a local catalogue on each client
 
@@ -238,6 +293,8 @@ Replace the placeholder with the desired preview's hash; in an external server s
 
 | Problem | What to check |
 |---|---|
+| HTTP 401 | Select the correct token file for this server; after token rotation, update the client copy. Local edits remain pending. |
+| TLS/certificate error | Use the certificate's hostname, check expiry and the machine clock, and select the correct private CA file if needed. Never bypass verification. |
 | Clone cannot install the downloaded file | Ensure the parent directory is writable and the local filesystem supports hard links; check whether a completed catalogue already exists before retrying. |
 | Catalogue download returns HTTP 500 | Check the server terminal. Its catalogue or containing folder may have been moved, trashed or become unwritable while the service kept an old SQLite handle open. Stop the service, restore the catalogue to an existing writable folder, and restart `serve` with its correct path; then retry Clone. Do not initialise a replacement over an existing catalogue. |
 | Clone destination already exists | Choose a new filename, or use `sync` for an existing replica. Do not delete a catalogue or its sidecars to force clone over local work. |

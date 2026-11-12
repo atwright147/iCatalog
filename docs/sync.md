@@ -2,7 +2,7 @@
 
 For setup and everyday use, start with [Using iCatalog sync](sync-user-guide.md). This document describes the protocol and recovery guarantees.
 
-D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. TLS/auth, incremental catalogue downloads, automatic desktop startup sync and a desktop full-size preview viewer remain unbuilt.
+D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. Incremental catalogue downloads, automatic desktop startup sync and a desktop full-size preview viewer remain unbuilt.
 
 ## Model and identity
 
@@ -42,7 +42,7 @@ After uploading, the client pulls the current catalogue. Conflicting drafts are 
 
 ## HTTP endpoints
 
-Plain HTTP is implemented using `tiny_http` and `ureq`. Upgrade both peers for protocol v2; clients reject an old server before uploading, and the new server rejects old snapshot uploads. Authentication and TLS are separate future work.
+HTTP and HTTPS use `tiny_http` and `ureq` with Rustls (D98). Upgrade both peers for protocol v2; clients reject an old server before uploading, and the new server rejects old snapshot uploads. Authentication changes transport access, not the v2 record formats or SQLite schema.
 
 | Request | Result |
 |---|---|
@@ -57,6 +57,45 @@ batches on its catalogue thread (D88). A stalled upload cannot hold up GETs or
 another edit batch. Clients can retry a 503 when upload readers are occupied.
 
 `GET /info` is capped at 8 KiB, snapshots at 4 GiB, edit messages/baselines at 64 MiB and previews at 16 MiB. User-state reads are bounded to 100,000 assets/Collections and 100,000 keywords or members per entity, subject also to the total byte bound. Oversized catalogues return an actionable error rather than allocating from untrusted counts. Redirects are disabled; connection and total request timeouts are bounded.
+
+### Authentication and TLS (D98)
+
+`serve --tls-cert <chain.pem> --tls-key <key.pem>` enables HTTPS. Both files
+are required together; certificate/key parsing fails normally on invalid input.
+`--token-file <file>` enables shared bearer-token authentication on every route,
+including info, catalogue and preview downloads. Missing, wrong or duplicate
+Authorization headers receive HTTP 401 before any upload body or catalogue work.
+A token grants the same catalogue read/edit access as another authorised client;
+there are no user accounts, per-client permissions or remote token management.
+
+Clone and sync accept `--token-file` and `--ca-file`. Default HTTPS trust uses
+bundled public roots; an explicit PEM CA bundle adds private trust roots.
+Certificate identity and validity are verified; there is no insecure bypass.
+Redirects stay disabled. URLs cannot contain credentials, query strings or
+fragments, and invalid URLs are reported without echoing their contents.
+Authentication and certificate failures are errors; pending edits and the local
+baseline survive. They are not reported as a successful deferred sync. Authenticated
+non-200 responses suppress foreign diagnostics, and malformed discovery errors do
+not echo raw input, so a proxy cannot reflect the token into an error message.
+
+Credential-bearing HTTP is allowed only to literal loopback IP addresses.
+An authenticated server without TLS must also bind to a literal loopback address,
+for a TLS reverse proxy running on the same host. Public/LAN clients use HTTPS;
+`localhost` is not treated as a trusted loopback literal. Existing unauthenticated
+HTTP remains available for trusted-LAN compatibility.
+
+Token files contain 32–4096 ASCII letters, digits or `-._~+/=`, optionally followed
+by one LF or CRLF newline. Certificate/key/CA files are capped at 1 MiB each. Keep them readable only by the intended account and distribute them
+privately. Token contents are never command-line parameters, URL preferences or
+catalogue data. Files are read on each client operation and once at server start;
+restart the server after replacing its token, certificate or key. Retrying with
+updated credentials preserves the existing sync recovery guarantees.
+
+The patched `tiny_http` dependency closes rejected requests before dropping their
+unread bodies and bounds its drain buffer. This prevents an unauthorized stalled
+or oversized upload from blocking the catalogue thread or allocating from its
+advertised length. Its Rustls key parser returns errors for malformed input.
+See `vendor/tiny_http/ICATALOG-PATCH.md` for the upstream version and patch scope.
 
 ### Binary edit encoding
 
@@ -106,7 +145,7 @@ This performs GET only, verifies SHA-256 before caching and makes no request whe
 
 ## Remaining work
 
-TLS/authentication; automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and Docker/Compose checks passed on 2026-11-11 (runs 43113311921 and 43113311871); NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
+Automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and Docker/Compose checks passed on 2026-11-11 (runs 43113311921 and 43113311871); NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
 
 The CLI `serve` session opens an existing on-disk catalogue without SQLite's create
 flag (D60). Missing paths fail without creating a replacement catalogue, including
@@ -124,4 +163,4 @@ When an untracked first sync installs server state, it also returns a
 folder/device view to All because its navigation identity may differ from the
 server's. An offline deferral keeps the current view.
 
-Snapshot preparation failures return HTTP 500 with a text explanation instead of an empty response. The server checks that its configured catalogue path is still a file before taking a snapshot; a running SQLite handle can otherwise survive moving the file or its containing folder to the Trash. Restore the catalogue to a writable folder and restart the service at the correct path before retrying. Clients report HTTP status and bounded server diagnostics (including guidance for older empty error responses); failed clone/download still preserves the current catalogue and leaves new destinations absent. No protocol version or endpoint change.
+Snapshot preparation failures return HTTP 500 with a text explanation instead of an empty response. The server checks that its configured catalogue path is still a file before taking a snapshot; a running SQLite handle can otherwise survive moving the file or its containing folder to the Trash. Restore the catalogue to a writable folder and restart the service at the correct path before retrying. Clients report HTTP status and, for unauthenticated requests, bounded server diagnostics (including guidance for older empty error responses). Authenticated error bodies are suppressed to avoid reflected credentials; inspect the server terminal for details. In either case, failed clone/download still preserves the current catalogue and leaves new destinations absent. No protocol version or endpoint change.

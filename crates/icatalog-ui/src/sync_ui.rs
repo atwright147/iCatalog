@@ -12,6 +12,8 @@ pub(super) struct SyncDialog {
     pub clone: bool,
     pub url: String,
     pub destination: Option<PathBuf>,
+    pub token_file: Option<PathBuf>,
+    pub ca_file: Option<PathBuf>,
     pub acknowledge: bool,
     pub pending: bool,
     pub error: Option<String>,
@@ -78,6 +80,27 @@ fn save_url(path: &Path, url: &str) -> Result<(), String> {
     Ok(())
 }
 
+// Native pickers supply paths only; the L3 command reads and validates file contents.
+fn security_file(ui: &mut egui::Ui, choose: &str, clear: &str, path: &mut Option<PathBuf>) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        if ui.button(choose).clicked() {
+            if let Some(selected) = rfd::FileDialog::new().pick_file() {
+                *path = Some(selected);
+                changed = true;
+            }
+        }
+        if path.is_some() && ui.button(clear).clicked() {
+            *path = None;
+            changed = true;
+        }
+    });
+    if let Some(path) = path {
+        super::middle_ellipsis::label(ui, &path.display().to_string());
+    }
+    changed
+}
+
 impl App {
     pub(super) fn open_sync_dialog(&mut self, clone: bool) {
         if self.worker.is_some() || self.create_collection.is_some() || self.sync_dialog.is_some() {
@@ -88,6 +111,8 @@ impl App {
             clone,
             url: self.sync_url.clone(),
             destination: None,
+            token_file: None,
+            ca_file: None,
             acknowledge: false,
             pending: false,
             error: None,
@@ -118,7 +143,7 @@ impl App {
             ui.add_enabled_ui(!dialog.pending, |ui| {
                 let label = ui.label("Server address");
                 let address = ui.add(egui::TextEdit::singleline(&mut dialog.url)
-                    .hint_text("http://nas:8080").desired_width(f32::INFINITY)
+                    .hint_text("https://nas:8443").desired_width(f32::INFINITY)
                     .char_limit(MAX_URL_BYTES)).labelled_by(label.id);
                 if dialog.focus_url {
                     address.request_focus();
@@ -129,7 +154,16 @@ impl App {
                     dialog.result = None;
                 }
                 let enter = address.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.small("Use your trusted local network. The server currently supports HTTP.");
+                ui.small("Use HTTPS for remote credentials. HTTP is available on trusted networks.");
+                egui::CollapsingHeader::new("Security settings").show(ui, |ui| {
+                    let changed = security_file(ui, "Choose token file…", "Clear token file", &mut dialog.token_file)
+                        | security_file(ui, "Choose CA file…", "Clear CA file", &mut dialog.ca_file);
+                    ui.small("Optional files apply to this dialog only. Tokens require HTTPS or a loopback address.");
+                    if changed {
+                        dialog.error = None;
+                        dialog.result = None;
+                    }
+                });
                 super::spacing::section(ui);
                 if dialog.clone {
                     ui.label("Download a new local catalogue, ready for browsing and edits.");
@@ -158,8 +192,10 @@ impl App {
                 }
                 if dialog.error.is_some() || dialog.result.is_some() {
                     ui.separator();
+                    let result_height = (ctx.content_rect().bottom() - ui.cursor().top() - 92.0)
+                        .clamp(40.0, 150.0);
                     egui::ScrollArea::vertical().id_salt("sync_result")
-                        .max_height(150.0).min_scrolled_height(150.0).auto_shrink([false, false]).show(ui, |ui| {
+                        .max_height(result_height).min_scrolled_height(result_height).auto_shrink([false, false]).show(ui, |ui| {
                             if let Some(error) = &dialog.error {
                                 ui.add(egui::Label::new(egui::RichText::new(error)
                                     .color(ui.visuals().error_fg_color)).wrap().selectable(true));
@@ -222,6 +258,8 @@ impl App {
             }
             self.path.clone()
         };
+        let mut params = Params::new();
+        params.set("url", &url);
         let mut selected_collections = None;
         let mut selected_assets = None;
         let prepared = (|| -> Result<(), String> {
@@ -229,6 +267,20 @@ impl App {
                 return Err("server address exceeds 8 KiB".into());
             }
             icatalog_sync::validate_server_url(&url).map_err(|e| e.to_string())?;
+            for (key, label, path) in [
+                ("token-file", "Token file", dialog.token_file.as_deref()),
+                ("ca-file", "CA file", dialog.ca_file.as_deref()),
+            ] {
+                if let Some(path) = path {
+                    let path = path
+                        .to_str()
+                        .ok_or_else(|| format!("{label} path must be valid UTF-8"))?;
+                    if path.len() > MAX_URL_BYTES {
+                        return Err(format!("{label} path exceeds 8 KiB"));
+                    }
+                    params.set(key, path);
+                }
+            }
             if !clone {
                 selected_assets = Some(self.selection.capture_uids(&self.assets));
                 if let FolderSelection::Collections(ids) = &self.folder_sel {
@@ -259,8 +311,6 @@ impl App {
             }
             return;
         }
-        let mut params = Params::new();
-        params.set("url", &url);
         match worker::Worker::start(
             path.clone(),
             if clone { "clone" } else { "sync" }.into(),
@@ -413,18 +463,21 @@ mod tests {
         assert_eq!(load_url(&path).unwrap(), "");
         save_url(&path, "http://localhost:8080").unwrap();
         assert_eq!(load_url(&path).unwrap(), "http://localhost:8080");
-        save_url(&path, "http://localhost:8081").unwrap();
-        assert_eq!(load_url(&path).unwrap(), "http://localhost:8081");
+        save_url(&path, "https://localhost:8443").unwrap();
+        assert_eq!(load_url(&path).unwrap(), "https://localhost:8443");
         assert!(!path.exists());
         for bytes in [
             vec![0xff],
             vec![b'x'; MAX_URL_BYTES + 1],
-            b"https://unsupported".to_vec(),
+            b"ftp://unsupported".to_vec(),
+            b"https://user:secret@nas:8443".to_vec(),
+            b"https://nas:8443?token=secret".to_vec(),
         ] {
             std::fs::write(settings_path(&path), bytes).unwrap();
             assert!(load_url(&path).is_err());
         }
-        assert!(save_url(&path, "https://unsupported").is_err());
+        assert!(save_url(&path, "ftp://unsupported").is_err());
+        assert!(save_url(&path, "https://user:secret@nas:8443").is_err());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 

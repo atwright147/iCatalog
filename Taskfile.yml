@@ -51,11 +51,12 @@ tasks:
       - cargo test -p icatalog-cli --test layers
 
   ci:
-    desc: "Full gate: fmt:check, lint, test"
+    desc: "Full gate: fmt:check, lint, test, test:http"
     cmds:
       - task: fmt:check
       - task: lint
       - task: test
+      - task: test:http
 
   doc:
     desc: Build API docs (including private items)
@@ -129,9 +130,15 @@ tasks:
       - cargo test -p icatalog-engine
 
   test:sync:
-    desc: Test the icatalog-sync crate
+    desc: Test sync, authentication, TLS and recovery with disposable local servers
     cmds:
       - cargo test -p icatalog-sync
+
+  test:http:
+    desc: Test the patched HTTP dependency's bounded readers, TLS parsing and early rejection
+    cmds:
+      - cargo test --manifest-path vendor/tiny_http/Cargo.toml --locked --features ssl-rustls --lib
+      - cargo test --manifest-path vendor/tiny_http/Cargo.toml --locked --features ssl-rustls --test early-rejection
 
   test:scale:
     desc: Validate 10,000 generated images, catalogue pulls and annotation-delta sync
@@ -164,7 +171,7 @@ tasks:
       - bash packaging/build-nas.sh build {{.CLI_ARGS}}
 
   nas:test:
-    desc: Run native musl CLI tests and verify the NAS archive (after nas:build and release:package)
+    desc: Run native musl CLI and sync/TLS tests and verify the NAS archive
     cmds:
       - bash packaging/build-nas.sh test {{.CLI_ARGS}}
       - bash packaging/test-nas.sh {{.CLI_ARGS}}

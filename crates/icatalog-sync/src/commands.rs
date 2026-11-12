@@ -66,8 +66,10 @@ impl Command for Sync {
                 name: "url",
                 required: true,
                 positional: false,
-                doc: "base URL of the sync service, e.g. http://nas:8080",
+                doc: "base URL of the sync service, e.g. https://nas:8443",
             },
+            crate::security::TOKEN_FILE,
+            crate::security::CA_FILE,
             ParamSpec {
                 name: "preview",
                 required: false,
@@ -82,7 +84,7 @@ impl Command for Sync {
     fn run(&self, ctx: &mut Context, params: &Params) -> EngineResult<Outcome> {
         let base = params.require("url")?.trim().to_owned();
         validate_base(&base)?;
-        let transport = UreqTransport::new();
+        let transport = UreqTransport::from_params(params, &base)?;
         if let Some(hash) = params.get("preview") {
             let fetched = client::fetch_preview(ctx, &transport, &base, hash)?;
             return Ok(Outcome::text(if fetched {
@@ -117,6 +119,19 @@ impl Command for Serve {
                 positional: false,
                 doc: "TCP port to listen on",
             },
+            crate::security::TOKEN_FILE,
+            ParamSpec {
+                name: "tls-cert",
+                required: false,
+                positional: false,
+                doc: "PEM server certificate chain; requires tls-key",
+            },
+            ParamSpec {
+                name: "tls-key",
+                required: false,
+                positional: false,
+                doc: "unencrypted PEM server private key; requires tls-cert",
+            },
             ParamSpec {
                 name: "bind",
                 required: false,
@@ -146,34 +161,27 @@ impl Command for Serve {
         if bind.is_empty() {
             return Err(EngineError::BadParam("bind must not be empty".into()));
         }
-        let addr = format!("{bind}:{port}");
-        let server = server::bind(&addr)?;
-        println!("icatalog sync service listening on {addr}");
-        server::serve_loop(server, ctx)?;
+        let mut security = crate::security::ServerSecurity::from_params(params, bind)?;
+        let scheme = if security.uses_tls() { "https" } else { "http" };
+        let addr = if bind.contains(':') && !bind.starts_with('[') {
+            format!("[{bind}]:{port}")
+        } else {
+            format!("{bind}:{port}")
+        };
+        let server = server::bind_with_security(&addr, &mut security)?;
+        println!(
+            "{} sync service listening on {scheme}://{addr}",
+            icatalog_catalog::APP_NAME
+        );
+        server::serve_loop_with_security(server, ctx, security)?;
         Ok(Outcome::text("sync service stopped"))
     }
 }
 
 pub fn validate_base(base: &str) -> EngineResult<()> {
-    if base.is_empty() {
-        return Err(EngineError::BadParam("url must not be empty".into()));
-    }
-    if base.starts_with("https://") {
-        return Err(EngineError::Unsupported(
-            "https is not supported in this slice; use http on a trusted LAN (docs/sync.md)".into(),
-        ));
-    }
-    if !base.starts_with("http://") {
-        return Err(EngineError::BadParam(format!(
-            "url must start with http:// (got '{base}')"
-        )));
-    }
-    if base.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(EngineError::BadParam(
-            "url must not contain whitespace or control characters".into(),
-        ));
-    }
-    Ok(())
+    crate::security::parse_url(base, false)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 fn render(r: &SyncReport) -> Outcome {

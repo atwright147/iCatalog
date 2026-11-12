@@ -156,7 +156,7 @@ Decision:
 - **Policy:** server ahead of the client -> back up and pull; level -> push (a refusal is a race: back up, resync, report); client ahead of the server -> refuse. A local copy is backed up (`name.rejected-<UTC>.sqlite`) before any overwrite; downloads land in a temp file and are swapped in atomically after verification.
 - **Limit of this slice:** as first landed there was no change marker, so an idle re-sync re-pushed and bumped the generation (fixed by D19). Delta transfer and merge are later work.
 
-Status: D18 shipped the initial whole-snapshot service/client and safety policy. **Superseded by implemented D20/D44:** the transport and command location remain, but uploads now carry revision-checked user edits; whole-snapshot POSTs return 405. See D44 and `docs/sync.md` for current behavior and tests. TLS/auth and incremental catalogue pulls remain open.
+Status: D18 shipped the initial whole-snapshot service/client and safety policy. **Superseded by implemented D20/D44:** the transport and command location remain, but uploads now carry revision-checked user edits; whole-snapshot POSTs return 405. See D44 and `docs/sync.md` for current behavior and tests. D98 adds TLS/auth; incremental catalogue pulls remain open.
 
 ## D19. An idle re-sync is a no-op (local change marker)
 
@@ -983,6 +983,60 @@ not change the user's protected default-app selection; the user chooses that
 in Windows Settings. Unregister removes only the registration owned by the
 same extracted folder. No `.sqlite` type is registered. Linux's existing
 association is unchanged. No schema, command or sync protocol change.
+
+## D98. Protect sync with verified HTTPS and shared bearer tokens (2026-11-12)
+
+The owner requested sync authentication/TLS after closing Linux and NAS validation.
+Keep the existing blocking transport seam and v2 protocol. Enable Rustls HTTPS on
+`serve` with paired PEM `--tls-cert`/`--tls-key`; add optional `--token-file` to
+serve, clone and sync, plus client `--ca-file` for private trust roots in addition
+to bundled public roots. Server certificate identity and validity are checked;
+there is no insecure verification switch or redirect following. Secrets are read
+from bounded regular files rather than command-line token values, and are excluded
+from URL preferences and catalogue snapshots. Invalid configuration returns a
+redacted error. Use one Rustls 0.23/ring dependency stack without system OpenSSL.
+
+Reject URL userinfo, queries, fragments, malformed hosts and control/backslash
+input. Bind client credentials to the configured origin. Bearer credentials require
+HTTPS except literal loopback HTTP (127.0.0.1 or ::1) for a same-host TLS proxy.
+A token-protected HTTP server also requires a literal-loopback bind. Preserve
+existing unauthenticated HTTP for trusted LAN deployments. Check authentication
+before every route and upload body using constant-time token comparison; missing,
+wrong or duplicate Authorization headers get HTTP 401. TLS/authentication failures
+are errors, not successful offline deferrals. No schema or wire-record changes.
+
+Desktop Connect/Sync offers collapsed Security settings with native token/CA file
+pickers. L4 sends only validated file paths to the existing L3 commands. Selections
+survive retry within the dialog and disappear on close; only the URL is persisted.
+Controls and cancellation remain disabled during transfer. Persistent credential
+storage, per-client accounts, certificate issuance/renewal and automatic startup
+sync remain outside this change. Rotate files and restart the server explicitly.
+
+Authentication exposed two tiny_http 0.12.0 hazards: dropping rejected requests
+could allocate from and drain an untrusted Content-Length, and TLS configuration
+could panic on malformed/missing PEM keys. Vendor the permissively licensed
+dependency with a small reviewed patch: raw-socket response-and-close, lazy small
+request bodies, fixed drain buffer and fallible Rustls 0.23 key configuration.
+Exclude upstream dependency source from the application workspace and retain its
+licences, attribution and patch notes. Regression tests exercise HTTP/HTTPS
+rejections with stalled bodies, malformed keys and continued server availability.
+
+Validation covers synthetic authenticated HTTPS clone/edit/pull/preview requests,
+wrong/missing tokens, certificate trust/hostname failures, origin/redirect guards,
+malformed bounded configuration, preservation of local drafts and absent clone
+destinations, CLI argument dispatch and real desktop controls. Existing command
+and recovery checks remain in `task ci`; `task test:sync` includes security tests.
+`task test:http` also joins `task ci` to exercise the vendored reader unit tests
+and early-rejection/TLS regressions with a committed standalone test lockfile.
+`task nas:test` adds the sync/TLS suite to native musl CLI/archive validation;
+TLS-enabled static runtime execution remains pending after the local test VM
+exited at startup. Earlier hosted NAS results predate this dependency change.
+Authenticated non-200 diagnostic bodies are suppressed, and malformed discovery
+errors never echo raw lines or generation values, preventing reflected tokens
+from appearing in error output.
+
+References: [ureq 2 TLS configuration](https://docs.rs/ureq/2.12.1/ureq/struct.AgentBuilder.html#method.tls_config),
+[tiny_http server configuration](https://docs.rs/tiny_http/0.12.0/tiny_http/struct.SslConfig.html).
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)

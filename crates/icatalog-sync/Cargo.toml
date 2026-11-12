@@ -8,5 +8,15 @@ license = "MIT"
 [dependencies]
 icatalog-catalog = { path = "../icatalog-catalog" }
 icatalog-engine = { path = "../icatalog-engine" }
-tiny_http = "0.12"
-ureq = { version = "2", default-features = false }
+tiny_http = { version = "0.12", features = ["ssl-rustls"] }
+ureq = { version = "2", default-features = false, features = ["tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+subtle = "2"
+url = "2"
+webpki-roots = "0.26"
+zeroize = "1"
+
+[dev-dependencies]
+rcgen = "0.13"
+tempfile = "3"

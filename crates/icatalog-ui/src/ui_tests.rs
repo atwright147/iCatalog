@@ -2521,6 +2521,25 @@ fn visual_snapshots() {
     settle(&mut light);
     light.snapshot("catalogue-sync-light");
     results.extend(light.take_snapshot_results());
+
+    let mut security = sync_fixture.harness([800.0, 600.0]);
+    security.state_mut().open_sync_dialog(false);
+    {
+        let d = security.state_mut().sync_dialog.as_mut().unwrap();
+        d.url = "https://nas:8443".into();
+        d.token_file = Some("/security/icatalog-token.txt".into());
+        d.ca_file = Some("/security/nas-ca.pem".into());
+        d.error = Some(
+            "The server refused these credentials. Choose the correct token file and retry.".into(),
+        );
+    }
+    settle(&mut security);
+    security.get_by_label("Security settings").click();
+    settle(&mut security);
+    security.event(egui::Event::PointerGone);
+    security.run();
+    security.snapshot("catalogue-sync-security");
+    results.extend(security.take_snapshot_results());
 }
 
 #[test]

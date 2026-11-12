@@ -628,7 +628,7 @@ fn hostile_params_never_panic() {
         " ",
         "http://",
         "ftp://nas",
-        "https://nas",
+        "https://127.0.0.1:1",
         "http://127.0.0.1:1",
         "http://127.0.0.1:0",
         "file:///etc/passwd",

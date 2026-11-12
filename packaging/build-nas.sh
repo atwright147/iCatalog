@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build/test only the CLI on a Linux host of the requested architecture.
+# Build the CLI and test CLI/sync on a Linux host of the requested architecture.
 set -euo pipefail
 action=${1:-}
 target=${2:-}
@@ -16,10 +16,15 @@ fi
 # Older musl-gcc specs can add an interpreter even for Rust's static PIE output.
 target_key=${target//-/_}
 linker_key=$(printf '%s' "$target_key" | tr '[:lower:]' '[:upper:]')
+packages=(-p icatalog-cli)
+if [[ "$action" == test ]]; then
+  # Exercise real HTTPS/authentication with the static crypto implementation too.
+  packages+=(-p icatalog-sync)
+fi
 env "CC_$target_key=musl-gcc" \
   "CARGO_TARGET_${linker_key}_LINKER=musl-gcc" \
   "CARGO_TARGET_${linker_key}_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--no-dynamic-linker" \
-  cargo "$action" --locked --release -p icatalog-cli --target "$target"
+  cargo "$action" --locked --release "${packages[@]}" --target "$target"
 if [[ "$action" == build ]]; then
   bash packaging/check-static-elf.sh "$target" "${CARGO_TARGET_DIR:-target}/$target/release/icatalog"
 fi

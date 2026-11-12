@@ -27,7 +27,7 @@ The shared user-facing name is `icatalog_catalog::APP_NAME`. The catalogue crate
 | `icatalog-catalog` | L1 | `ivc` (for import mapping, Proposed), `rusqlite` (`bundled`, `functions`) | SQLite schema (migrations v1-v8) + model + CRUD + `AssetQuery`/`CatalogStats` (`query_assets`, `stats`) | EXISTS |
 | `icatalog-media` | L1 | `image` 0.25, `kamadak-exif`, `sha2` (no workspace dependency) | Raster probe, EXIF read, grid JPEG thumbnails, content hash, RGBA decode (D8, D13); optional EXIF orientation for thumbnails/display (D31); `raw` (embedded JPEG preview of DNG/CR2/NEF/ARW/PEF/RAF/CR3) and `xmp` (packet locate + tolerant parse) modules (D17) | EXISTS |
 | `icatalog-engine` | L2 | L0-L1 | Session `Context` + command registry; commands `init`, `open`, `import`, `list`, `find`, `status`, `update`, `edit`, `collection`, `previews`; `dispatch_guarded` panic guard (D12, D14, D16) | EXISTS |
-| `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq` | Protocol v2 (D20/D44): NAS-side `serve`, verified replica `clone` (D45), revision-checked annotation/Collection uploads, catalogue/preview pulls, embedded replica baseline, per-entity conflict backups, verified atomic replacement; exposes its own command registry | EXISTS |
+| `icatalog-sync` | L3 | L0-L2, `tiny_http`, `ureq`, Rustls and security configuration helpers | Protocol v2 (D20/D44): NAS-side `serve`, verified replica `clone` (D45), revision-checked annotation/Collection uploads, catalogue/preview pulls, embedded replica baseline, per-entity conflict backups, verified atomic replacement; exposes its own command registry | EXISTS |
 | `icatalog-cli` | L4 | `icatalog-engine`, `icatalog-sync` | Binary `icatalog`: thin wrapper dispatching engine + sync commands by id (`init/open/import/list/find/status/update/edit/collection/previews/clone/sync/serve`, `--help`, `--version`, `commands`); only `init` creates a missing catalogue (D72) | EXISTS |
 | `icatalog-ui` | L4 | `icatalog-catalog`, `icatalog-engine`, `icatalog-media`, `icatalog-sync`, `eframe`/`egui`, `rfd`, `muda` (native macOS menu), `fmv-macos-events` (Finder document/quit events), `chrono` (date validation/locales), Foundation/Windows native regional date APIs | Binary `icatalog-ui`: thin native egui desktop shell (browse, thumbnail, metadata, `init`/`import`/`update`/`edit`/`collection`); desktop Connect/Clone and explicit Sync dialogs (D46); wasm PLANNED | EXISTS (native) |
 | `testkit` | test-only | as needed | Test helpers | PLANNED |
@@ -212,3 +212,27 @@ Source colour metadata (D32) uses `icatalog-media::read_color_info`: bounded hea
 File → Connect to Server… selects a new local destination and dispatches the L3 `clone` command with `Context::for_destination`; a successful clone becomes the active catalogue. File → Sync… dispatches the L3 `sync` command on the background worker. The UI depends downward on `icatalog-sync` and routes engine-first through both registries. It implements no transfer or conflict policy. Before sync the shell drops its old SQLite connection, replacing it with a temporary in-memory destination context; it blocks catalogue reads and editing while the worker runs. It reopens the on-disk catalogue afterward on success or error, invalidates caches and refreshes browsing/inspector state. A reopen failure offers a retry instead of continuing against the placeholder. Transfers prevent window closing until completion.
 
 The modal retains inputs on errors and shows the complete command output, including deferred/offline results, backups and conflict keys. First sync of an untracked copy requires acknowledging the backup-first behaviour. Local URL preferences are an optional bounded UTF-8 `<catalogue>.sync-url` file: read failures are visible, writes stage/flush/rename atomically, and failed preference writes are separate from transfer results. Successful clones and ordinary sync attempts remember their address; failed clones leave the current catalogue and its preferences untouched. CLI `--url` semantics are unchanged. No automatic sync, schema, protocol, endpoint or new third-party dependency.
+
+## 12. Sync transport security (D98)
+
+L3 owns token-file loading, URL validation, TLS configuration and HTTP
+authentication. L4 passes optional token/CA filenames through the existing
+clone/sync commands; the UI stores those selections only for the current dialog.
+The server loads a token and optional PEM certificate/key at startup. Client
+operations load their configuration before making requests. No credentials enter
+SQLite, sync records, URL preferences or command output. The schema and protocol
+remain unchanged.
+
+Native transport uses Rustls with bundled public roots and optional additional
+private CA certificates. Redirects are disabled and remote bearer credentials require HTTPS.
+Literal-loopback HTTP supports same-host reverse proxies. Rejected authentication
+and TLS verification return errors while preserving the local replica; offline
+connection failures retain the existing deferred-sync behavior.
+
+A root Cargo patch selects `vendor/tiny_http`, an excluded third-party source
+dependency with original MIT/Apache-2.0 licences. It adds safe response-and-close
+handling for rejected uploads, lazy request-body reads, bounded drain buffers and
+fallible Rustls 0.23 PEM configuration. The byte-level sync codec and transactional
+catalogue update path are unchanged. Patch details and attribution live beside
+the source and in `ATTRIBUTION.md`. Native HTTPS, authentication, malformed
+configuration and interrupted/rejected upload regressions run with sync tests.

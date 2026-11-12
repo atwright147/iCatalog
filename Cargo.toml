@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["ivc-file-research/crates/ivc", "crates/*"]
+exclude = ["vendor/tiny_http"]
+
+[patch.crates-io]
+tiny_http = { path = "vendor/tiny_http" }

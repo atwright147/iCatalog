@@ -17,7 +17,44 @@ const MAX_PENDING_UPLOADS: usize = 4;
 pub fn bind(addr: &str) -> Result<Server> {
     Server::http(addr).map_err(|e| SyncError::Http(format!("cannot bind {addr}: {e}")))
 }
+/// Bind using prevalidated settings without downgrading a failed retry.
+pub fn bind_with_security(
+    addr: &str,
+    security: &mut crate::security::ServerSecurity,
+) -> Result<Server> {
+    if security.tls.is_none()
+        && security.token.is_some()
+        && !addr
+            .parse::<std::net::SocketAddr>()
+            .is_ok_and(|a| a.ip().is_loopback())
+    {
+        return Err(SyncError::Protocol(
+            "token authentication requires TLS except on a loopback listener".into(),
+        ));
+    }
+    match security.tls.as_ref() {
+        Some(config) => Server::https(addr, config.clone()).map_err(|_| {
+            SyncError::Http(
+                "cannot start TLS listener; check the bind address, certificate and private key"
+                    .into(),
+            )
+        }),
+        None => bind(addr),
+    }
+}
+
 pub fn serve_loop(server: Server, ctx: &mut Context) -> Result<()> {
+    let security =
+        crate::security::ServerSecurity::from_params(&icatalog_engine::Params::new(), "127.0.0.1")?;
+    serve_loop_with_security(server, ctx, security)
+}
+
+/// Serve the unchanged v2 protocol, authenticating every request before routing.
+pub fn serve_loop_with_security(
+    server: Server,
+    ctx: &mut Context,
+    security: crate::security::ServerSecurity,
+) -> Result<()> {
     let row = ctx
         .catalog()
         .catalogue()?
@@ -51,17 +88,42 @@ pub fn serve_loop(server: Server, ctx: &mut Context) -> Result<()> {
                 .map_err(SyncError::Io)?
         };
         let Some(request) = request else { continue };
+        if let Some(token) = &security.token {
+            let mut authorization = request
+                .headers()
+                .iter()
+                .filter(|h| h.field.equiv("Authorization"));
+            let valid = authorization
+                .next()
+                .is_some_and(|h| token.matches(h.value.as_str()))
+                && authorization.next().is_none();
+            if !valid {
+                let challenge = Header::from_bytes(
+                    "WWW-Authenticate",
+                    format!("Bearer realm=\"{}\"", icatalog_catalog::APP_NAME),
+                )
+                .map_err(|_| SyncError::Http("cannot construct authentication response".into()))?;
+                if let Err(error) = request.respond_and_close(
+                    Response::from_string("authentication required; check the token file")
+                        .with_status_code(401)
+                        .with_header(challenge),
+                ) {
+                    eprintln!("{} serve: {error}", icatalog_catalog::APP_NAME);
+                }
+                continue;
+            }
+        }
         let (path, _) = protocol::split_url(request.url());
         let is_edit = request.method().as_str() == "POST" && path == "/annotations";
         if is_edit {
             if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {
-                if let Err(e) = respond_text(request, 413, "edit batch exceeds 64 MiB") {
+                if let Err(e) = respond_closed(request, 413, "edit batch exceeds 64 MiB") {
                     eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
                 }
                 continue;
             }
             if pending_uploads >= MAX_PENDING_UPLOADS {
-                if let Err(e) = respond_text(request, 503, "too many pending uploads; retry") {
+                if let Err(e) = respond_closed(request, 503, "too many pending uploads; retry") {
                     eprintln!("{} serve: {e}", icatalog_catalog::APP_NAME);
                 }
                 continue;
@@ -192,7 +254,7 @@ fn prepare_snapshot(ctx: &Context) -> Result<Snapshot> {
 }
 fn handle_edits(mut request: Request, ctx: &mut Context) -> Result<()> {
     if request.body_length().is_some_and(|n| n > MAX_SYNC_BYTES) {
-        return respond_text(request, 413, "edit batch exceeds 64 MiB");
+        return respond_closed(request, 413, "edit batch exceeds 64 MiB");
     }
     let body = read_edit_body(&mut request);
     finish_edits(request, body, ctx)
@@ -208,7 +270,7 @@ fn read_edit_body(request: &mut Request) -> std::io::Result<Vec<u8>> {
 fn finish_edits(request: Request, body: std::io::Result<Vec<u8>>, ctx: &mut Context) -> Result<()> {
     let bytes = body?;
     if bytes.len() > MAX_SYNC_BYTES {
-        return respond_text(request, 413, "edit batch exceeds 64 MiB");
+        return respond_closed(request, 413, "edit batch exceeds 64 MiB");
     }
     let (id, changes) = match delta::decode(&bytes) {
         Ok(v) => v,
@@ -314,11 +376,18 @@ fn respond_bytes(
         add_header(&mut response, HEADER_GENERATION, &generation.to_string());
     }
     add_header(&mut response, "Content-Type", content_type);
-    request.respond(response).map_err(SyncError::Io)?;
+    // Closing also cancels unsolicited bodies on GET/unknown routes. A peer
+    // must never hold the catalogue thread by leaving an unread body stalled.
+    request.respond_and_close(response).map_err(SyncError::Io)?;
     Ok(())
 }
 fn add_header<R: Read>(response: &mut Response<R>, name: &str, value: &str) {
     if let Ok(h) = Header::from_bytes(name, value) {
         response.add_header(h);
     }
+}
+
+fn respond_closed(request: Request, status: u16, text: &str) -> Result<()> {
+    request.respond_and_close(Response::from_string(text).with_status_code(status))?;
+    Ok(())
 }

@@ -17,6 +17,7 @@ pub mod delta;
 mod download;
 mod error;
 pub mod protocol;
+pub mod security;
 pub mod server;
 pub mod transport;
 pub mod util;

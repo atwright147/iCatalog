@@ -33,7 +33,7 @@ Media/metadata dependencies may appear only in `icatalog-media` (see `docs/archi
 A root `Taskfile.yml` ([go-task](https://taskfile.dev)) wraps the common commands:
 
 - `task` lists all tasks.
-- `task ci`: the full gate (`fmt:check`, `lint`, `test`, in that order). `task test`, `task lint`, `task fmt:check` and `task layers` run individual checks.
+- `task ci`: the full gate (`fmt:check`, `lint`, `test`, `test:http`, in that order). `task test`, `task lint`, `task fmt:check` and `task layers` run individual checks.
 - `task test:catalog`, `task test:media`, `task test:engine`, `task test:sync` and `task ui:test`: focused crate tests. Sync and UI tests need localhost listener access.
 - `task test:scale`: opt-in 10,000-image workflow and 10,000-asset HTTP sync round trip; prints timings and needs localhost listener permission. Uses generated media in temporary directories; run separately from the normal gate.
 - `task cli:run -- <args>`: run the `icatalog` CLI, e.g. `task cli:run -- init my.sqlite` or `task cli:run -- collection my.sqlite list`.
@@ -103,7 +103,7 @@ and checks that no replacement-character catalogue is created.
 The CLI also rejects unknown long options for each command with a usage error
 before opening a catalogue or applying any requested edit (D71).
 
-Sync (D20/D44) is two processes. On the NAS run `task cli:run -- serve nas.sqlite --port 8080` (optional `--bind`, default `127.0.0.1`). `serve` requires an existing file and opens without SQLite's create flag (D60); initialize new catalogues explicitly. Use `task cli:clone -- local.sqlite --url http://nas:8080` with a new destination filename to download a verified replica and establish its baseline before editing. Parent directories must exist; existing files/sidecars are refused. Clone makes no uploads and fails if the server is unreachable. Alternatively, manually copy the canonical catalogue to a local path and run `task cli:run -- sync local.sqlite --url http://nas:8080` before editing. That first sync backs up unknown local changes before establishing the server baseline, including upgrades from D18/D19. Both peers must support protocol v2. Thereafter ratings, labels, keywords and Collection creation/name/rules/membership are uploaded by stable UID and revision; media, metadata, thumbnails and previews are never uploaded. Independent edits merge; conflicting entities are reported with a backup containing the local drafts. Idle sync uploads/downloads nothing. Replica Import/Update are disabled; make media changes on the server or a standalone catalogue. Whole-snapshot uploads and `.sync-state` fingerprints are retired. Plain HTTP only; TLS/auth and automatic desktop sync remain open; D46 supplies explicit desktop Connect/Clone and Sync dialogs. A stalled upload body does not block other sync clients; the server reads at most four bodies concurrently and returns retryable HTTP 503 for another concurrent upload (D88). Full recovery/bounds/wire details: `docs/sync.md`.
+Sync (D20/D44) is two processes. On the NAS run `task cli:run -- serve nas.sqlite --port 8080` (optional `--bind`, default `127.0.0.1`). `serve` requires an existing file and opens without SQLite's create flag (D60); initialize new catalogues explicitly. Use `task cli:clone -- local.sqlite --url http://nas:8080` with a new destination filename to download a verified replica and establish its baseline before editing. Parent directories must exist; existing files/sidecars are refused. Clone makes no uploads and fails if the server is unreachable. Alternatively, manually copy the canonical catalogue to a local path and run `task cli:run -- sync local.sqlite --url http://nas:8080` before editing. That first sync backs up unknown local changes before establishing the server baseline, including upgrades from D18/D19. Both peers must support protocol v2. Thereafter ratings, labels, keywords and Collection creation/name/rules/membership are uploaded by stable UID and revision; media, metadata, thumbnails and previews are never uploaded. Independent edits merge; conflicting entities are reported with a backup containing the local drafts. Idle sync uploads/downloads nothing. Replica Import/Update are disabled; make media changes on the server or a standalone catalogue. Whole-snapshot uploads and `.sync-state` fingerprints are retired. HTTP and HTTPS with optional shared-token authentication are available (D98); automatic desktop sync remains open. D46 supplies explicit desktop Connect/Clone and Sync dialogs. A stalled upload body does not block other sync clients; the server reads at most four bodies concurrently and returns retryable HTTP 503 for another concurrent upload (D88). Full recovery/bounds/wire details: `docs/sync.md`.
 
 Preview generation is explicit: `task cli:previews -- photos.sqlite generate` makes oriented JPEG previews with long edge at most 1920 pixels, using original media and existing raster/RAW-preview decoding. Imported TIFFs are decoded as raster images; RAW formats use their embedded JPEG previews. Embedded storage is the default for a portable standalone file. For a NAS run `task cli:previews -- nas.sqlite external`, then Generate; `embed` converts referenced bytes back into SQLite and `status` reports mode/count. Conversion verifies all referenced blobs and commits atomically; external files are retained for recovery. Generate rebuilds corrupt cached bytes from unchanged original media (D86). `task cli:run -- sync local.sqlite --url http://nas:8080 --preview <sha>` fetches one referenced preview using GET only, verifies SHA-256, reuses valid cached bytes and refetches corrupt local bytes. Desktop full-size preview viewing is not wired yet.
 
@@ -272,7 +272,7 @@ task release:package -- x86_64-unknown-linux-musl
 task nas:test -- x86_64-unknown-linux-musl
 ```
 
-On ARM64 Linux replace the triple with `aarch64-unknown-linux-musl`. `nas:build` uses the locked release CLI dependency graph, sets target-specific `musl-gcc` C compiler/linker settings for bundled SQLite, and explicitly enables the static C runtime ([Rust linkage reference](https://doc.rust-lang.org/stable/reference/linkage.html#static-and-dynamic-c-runtimes)). It also passes the GNU linker's `--no-dynamic-linker` option: older musl-gcc specs can otherwise retain an interpreter request in static PIE executables, even with no shared-library dependencies ([GNU ld options](https://sourceware.org/binutils/docs/ld/Options.html)). No GUI libraries, system SQLite, FPM or container runtime are needed. The ELF check rejects wrong architectures, non-executables, dynamic interpreters and shared-library dependencies. `nas:test` runs the CLI integration/packaging suite for that release target, then extracts the archive, repeats ELF verification and creates/reopens a synthetic catalogue with the packaged CLI.
+On ARM64 Linux replace the triple with `aarch64-unknown-linux-musl`. `nas:build` uses the locked release CLI dependency graph, sets target-specific `musl-gcc` C compiler/linker settings for bundled SQLite, and explicitly enables the static C runtime ([Rust linkage reference](https://doc.rust-lang.org/stable/reference/linkage.html#static-and-dynamic-c-runtimes)). It also passes the GNU linker's `--no-dynamic-linker` option: older musl-gcc specs can otherwise retain an interpreter request in static PIE executables, even with no shared-library dependencies ([GNU ld options](https://sourceware.org/binutils/docs/ld/Options.html)). No GUI libraries, system SQLite, FPM or container runtime are needed. The ELF check rejects wrong architectures, non-executables, dynamic interpreters and shared-library dependencies. `nas:test` runs the CLI integration/packaging and sync/authentication/TLS suites for that release target, then extracts the archive, repeats ELF verification and creates/reopens a synthetic catalogue with the packaged CLI.
 
 Archives are `target/release-assets/icatalog-<version>-<triple>.tar.gz`, containing only an executable `icatalog`. Extract on the matching NAS architecture, place it on PATH and follow [the sync setup guide](sync-user-guide.md). NAS firmware must support running Linux executables for that CPU; no systemd unit or service installer is supplied.
 
@@ -351,3 +351,30 @@ All images are generated checkerboards; no personal catalogues/photos or third-p
 Run `task ui:run -- local.sqlite`, then use File → Connect to Server… to clone into a new local file, or File → Sync… → Sync now for an existing replica. Desktop operations use the L3 command registry and run off-thread; no CLI sync/restart is needed. The server address is remembered beside each catalogue in `.sync-url` preferences. First sync of a manual copy requires acknowledging backup-first replacement. The result area includes offline deferrals, backups and conflict keys; automatic/startup sync remains unbuilt. `task ui:test` now also needs localhost listener access for real desktop clone/edit/upload/pull/offline/conflict tests. `task ui:visual` includes the new dialogs; `task ui:smoke` checks the native File entries and cancelled Connect dialog. No new task or command id.
 
 If clone fails with a catalogue-download HTTP 500, inspect the `serve` terminal and verify its configured catalogue path still exists. Moving/trashing a served folder does not close the process's SQLite handle: `/info` can continue to respond while snapshots fail. Stop `serve`, restore the source to a writable location and restart with that path. Sync regression tests cover a moved server folder, a descriptive error response, absent destination/staging files and a successful retry after restoration.
+
+
+## 11. Authenticated HTTPS sync (D98)
+
+`serve` accepts optional `--token-file`, plus paired `--tls-cert`/`--tls-key` PEM
+files. `clone` and `sync` (including `sync --preview`) accept `--token-file` and
+`--ca-file`. Use HTTPS for remote credentials. An authenticated HTTP listener and
+client are allowed only on literal loopback for a same-host TLS reverse proxy.
+The existing unauthenticated HTTP commands remain available. The
+[sync user guide](sync-user-guide.md#secure-server-and-clients) covers token
+creation, certificate trust, desktop file selection and rotation.
+
+`task test:sync` covers synthetic local HTTP/HTTPS servers, authentication failures,
+TLS trust/identity rejection, preserved replicas and rejected upload behavior.
+`task ci` runs the full workspace gate and `task test:http`, which checks the
+patched HTTP dependency's bounded-reader unit tests and HTTP/TLS early rejection
+regressions using its committed test lockfile. The CLI checks malformed security
+files without creating a clone or changing an existing catalogue; desktop checks
+exercise Security settings and worker parameter forwarding. Native TLS uses
+Rustls and bundled roots, without a system OpenSSL runtime requirement. The
+patched `tiny_http` source is documented in `vendor/tiny_http/ICATALOG-PATCH.md`
+and `ATTRIBUTION.md`.
+
+The D98 security checks and reviewed desktop visuals pass locally on macOS.
+`task nas:test` now also runs the sync/TLS suite on each native musl target.
+Those new TLS-enabled static builds have not yet been verified: the local Podman
+VM exited after startup, and the recorded hosted NAS evidence predates D98.

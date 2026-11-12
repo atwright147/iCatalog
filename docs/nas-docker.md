@@ -6,9 +6,10 @@ or `icatalog clone`. Clients never open the NAS SQLite file over a network share
 
 Images can be built for Linux x86-64 (`linux/amd64`) and ARM64 (`linux/arm64`).
 There is no published container registry image yet; build locally or load an image
-built for your NAS architecture. TLS and authentication remain unbuilt. The Compose
-example publishes to loopback by default; use a trusted LAN address when enabling
-access from other computers.
+built for your NAS architecture. HTTPS and token authentication are available
+(D98). The basic Compose example retains trusted-LAN HTTP and publishes to
+loopback by default; configure TLS and a token before enabling protected remote
+access.
 
 ## Build the image
 
@@ -143,6 +144,40 @@ read/write and media read-only, and select an appropriate `--user UID:GID`.
 The image defaults to UID/GID `1000:1000`; it does not chown mounts or elevate
 permissions. Its default command is `serve /catalogue/catalogue.sqlite --bind
 0.0.0.0 --port 8080`.
+
+## Enable HTTPS and token authentication
+
+Prepare the certificate chain, unencrypted private key and random token using
+the [secure sync instructions](sync-user-guide.md#secure-server-and-clients).
+Mount their directory separately from media/catalogue data, read-only, with files
+readable by the configured numeric UID. Do not bake secrets into the image.
+
+For the supplied Compose service, replace its `command` with:
+
+```yaml
+command: [serve, /catalogue/catalogue.sqlite, --bind, "0.0.0.0", --port, "8080",
+          --tls-cert, /security/server-chain.pem, --tls-key, /security/server-key.pem,
+          --token-file, /security/sync.token]
+```
+
+Add a read-only bind mount under the existing `volumes` list:
+
+```yaml
+- type: bind
+  source: /absolute/existing/security-directory
+  target: /security
+  read_only: true
+  bind:
+    create_host_path: false
+```
+
+Keep the existing catalogue/media mounts, numeric user, init, read-only root,
+capability restrictions and port mapping. Restart the service after changing
+configuration or rotating secrets. Clients connect to `https://<certificate-host>:<published-port>`
+and select their token and, for a private CA, its public certificate. HTTPS trust
+uses bundled roots or an explicit CA file, so the scratch image does not need an
+OS certificate package. The default supplied Compose file itself stays in HTTP
+mode until its command and security mount are changed.
 
 ## Verification
 

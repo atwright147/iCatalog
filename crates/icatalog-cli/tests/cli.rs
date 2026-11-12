@@ -9,6 +9,70 @@ fn icatalog(args: &[&str]) -> Output {
 }
 
 #[test]
+fn sync_security_options_reject_bad_files_without_touching_catalogues() {
+    let dir = tempfile::tempdir().unwrap();
+    let local = dir.path().join("local.icatalog");
+    let destination = dir.path().join("clone.icatalog");
+    let invalid = dir.path().join("invalid.pem");
+    let secret = "private-fixture-content-must-not-appear-in-errors";
+    std::fs::write(&invalid, secret).unwrap();
+    let local_name = local.to_str().unwrap();
+    let invalid_name = invalid.to_str().unwrap();
+    assert!(icatalog(&["init", local_name]).status.success());
+    let before = std::fs::read(&local).unwrap();
+    let missing_token = dir.path().join("missing-token");
+    for args in [
+        vec![
+            "sync",
+            local_name,
+            "--url",
+            "https://127.0.0.1:1",
+            "--ca-file",
+            invalid_name,
+        ],
+        vec![
+            "clone",
+            destination.to_str().unwrap(),
+            "--url",
+            "https://127.0.0.1:1",
+            "--ca-file",
+            invalid_name,
+        ],
+        vec![
+            "sync",
+            local_name,
+            "--url",
+            "https://127.0.0.1:1",
+            "--token-file",
+            missing_token.to_str().unwrap(),
+        ],
+        vec![
+            "serve",
+            local_name,
+            "--port",
+            "1",
+            "--tls-cert",
+            invalid_name,
+            "--tls-key",
+            invalid_name,
+        ],
+    ] {
+        let result = icatalog(&args);
+        assert!(!result.status.success(), "{args:?}");
+        let error = s(&result.stderr);
+        assert!(!error.contains("unknown option"), "{error}");
+        assert!(!error.contains("panicked"), "{error}");
+        assert!(!error.contains(secret), "{error}");
+        assert_eq!(std::fs::read(&local).unwrap(), before);
+        assert!(!destination.exists());
+    }
+    let help = s(&icatalog(&["--help"]).stdout);
+    for option in ["--token-file", "--ca-file", "--tls-cert", "--tls-key"] {
+        assert!(help.contains(option), "missing {option}");
+    }
+}
+
+#[test]
 fn init_treats_sqlite_uri_syntax_as_a_literal_filename() {
     let dir = tempfile::tempdir().unwrap();
     let name = "file:requested.sqlite?mode=memory";
