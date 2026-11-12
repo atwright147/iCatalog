@@ -156,8 +156,10 @@ fresh-clone persistence after replacing the server container.
 
 Run runtime checks on Linux-local storage visible to the engine. Local validation
 passed on native ARM64 Linux and with the x86-64 application under emulation.
-Compose v2.40.3 also passed using Podman's Docker-compatible API; a native Docker
-backend and GitHub-hosted execution remain unverified. The Mac/libkrun shared
+Compose v2.40.3 also passed using Podman's Docker-compatible API. Native Docker
+and Compose lifecycle checks subsequently passed on both x86-64 and ARM64 in
+[hosted run 43113311871](https://github.com/atwright147/iCatalog/actions/runs/43113311871)
+at `a26a708` on 2026-11-11, including explicit up/stop/down/replacement checks. The Mac/libkrun shared
 filesystem returned a SQLite I/O error editing a cloned fixture, so those checks
 used the VM's native temporary storage instead.
 
@@ -168,8 +170,11 @@ numeric user, dropped capabilities and read-only restrictions. The supplied
 Compose service keeps normal host labeling enabled.
 
 The native x86-64/ARM64 `docker.yml` workflow builds and tests images without
-publishing to a registry. See the devlog for local validation and hosted-run
-status; adding a workflow does not establish that it has run on GitHub.
+publishing to a registry. The corresponding native static CLI builds, ELF checks,
+archive extraction and catalogue creation/reopen checks passed in
+[hosted run 43113311921](https://github.com/atwright147/iCatalog/actions/runs/43113311921)
+at the same commit. Workflow artifacts are verified; NAS release publication
+and container registry publication remain separate unfinished work.
 
 Implementation references: [Docker USER and exec-form ENTRYPOINT](https://docs.docker.com/reference/dockerfile/),
 [Compose bind mounts and init](https://docs.docker.com/reference/compose-file/services/).

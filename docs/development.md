@@ -276,7 +276,7 @@ On ARM64 Linux replace the triple with `aarch64-unknown-linux-musl`. `nas:build`
 
 Archives are `target/release-assets/icatalog-<version>-<triple>.tar.gz`, containing only an executable `icatalog`. Extract on the matching NAS architecture, place it on PATH and follow [the sync setup guide](sync-user-guide.md). NAS firmware must support running Linux executables for that CPU; no systemd unit or service installer is supplied.
 
-`.github/workflows/nas.yml` runs both native targets on [GitHub-hosted Linux runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) (`ubuntu-24.04`, `ubuntu-24.04-arm`) for PRs, main pushes and manual dispatch, retaining checked archives as workflow artifacts. The release workflow calls the same workflow with its pinned application commit and, for recovery, the selected tooling revision; publication waits for both NAS jobs. Local verification passed native ARM64 builds/tests and an x86-64 cross-build with emulated CLI/archive tests. The latter skipped two native-host/compiler fixture tests already covered on ARM64; native x86-64 builds and hosted execution/publication remain unverified.
+`.github/workflows/nas.yml` runs both native targets on [GitHub-hosted Linux runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) (`ubuntu-24.04`, `ubuntu-24.04-arm`) for PRs, main pushes and manual dispatch, retaining checked archives as workflow artifacts. The release workflow calls the same workflow with its pinned application commit and, for recovery, the selected tooling revision; publication waits for both NAS jobs. Local verification passed native ARM64 builds/tests and an x86-64 cross-build with emulated CLI/archive tests. The latter skipped two native-host/compiler fixture tests already covered on ARM64; native x86-64 and ARM64 build, static ELF, archive and extracted-CLI checks subsequently passed in [hosted run 43113311921](https://github.com/atwright147/iCatalog/actions/runs/43113311921) at `a26a708` on 2026-11-11. Both archives were uploaded as workflow artifacts; NAS release publication remains unverified.
 
 ## 8b. NAS Docker/Compose packaging (D60)
 
@@ -288,10 +288,12 @@ actual Docker Compose stop/down/up and persistence checks. The normal workspace
 gate includes fast build-input regressions without requiring a container engine.
 
 The separate `docker.yml` workflow builds/tests on native x86-64 and ARM64 Linux,
-including the supplied Compose lifecycle, without publishing images. Hosted runs
-remain unverified. Local runtime verification passed native ARM64 and emulated
-x86-64 applications, plus official Compose v2 against Podman's Docker API, using
-Linux-local fixture storage. Native Docker-backend execution remains unverified.
+including the supplied Compose lifecycle, without publishing images. Native Docker
+runtime and Compose up/stop/down/replacement checks passed on both architectures
+in [hosted run 43113311871](https://github.com/atwright147/iCatalog/actions/runs/43113311871)
+at `a26a708` on 2026-11-11. Earlier local runtime verification passed native ARM64
+and emulated x86-64 applications, plus official Compose v2 against Podman's Docker
+API, using Linux-local fixture storage.
 Read [NAS Docker setup](nas-docker.md) for prerequisites,
 ownership, mounts, explicit init/import, desktop connection and upgrades.
 

@@ -546,7 +546,7 @@ The owner requested static CLI builds for x86-64 and ARM64 Linux. Add `nas:build
 
 Extend `release:package` with CLI-only `icatalog-<version>-<triple>.tar.gz` archives for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. Check the actual ELF machine, executable type, load segments, absence of an interpreter and absence of NEEDED shared libraries. Native release tests cover existing CLI behavior, including clone/edit/sync; the extracted archive must contain only the executable, report the expected version and create/reopen a synthetic SQLite catalogue. Archive layout/permissions/path-with-spaces checks run on Unix hosts; Linux-specific regressions accept a static ELF and reject dynamic, wrong-architecture and corrupt files.
 
-Use native `ubuntu-24.04` and `ubuntu-24.04-arm` runners in a reusable `nas.yml`, also triggered on PRs, main pushes and manual dispatch. The release workflow passes its resolved application commit and recovery tooling revision to the reusable workflow and waits for both NAS jobs before publishing eight assets and checksums. No extra write permissions are granted to build jobs. Hosted execution and publication of the new jobs remain unverified until they run; the historical v0.1.0 release still has its original six desktop assets. Docker/Compose, systemd installation and TLS/auth are separate work.
+Use native `ubuntu-24.04` and `ubuntu-24.04-arm` runners in a reusable `nas.yml`, also triggered on PRs, main pushes and manual dispatch. The release workflow passes its resolved application commit and recovery tooling revision to the reusable workflow and waits for both NAS jobs before publishing eight assets and checksums. No extra write permissions are granted to build jobs. Validation update (2026-11-12): native x86-64/ARM64 build, archive and extracted-CLI checks passed in [hosted run 43113311921](https://github.com/atwright147/iCatalog/actions/runs/43113311921) at `a26a708` on 2026-11-11. NAS release publication remains unverified; the historical v0.1.0 release still has its original six desktop assets. Docker/Compose, systemd installation and TLS/auth are separate work.
 
 ## D59. Project-scoped development agents (2026-11-08)
 
@@ -600,7 +600,10 @@ configuration, clone/edit/Collection sync, SIGTERM forwarding and replacement of
 the server followed by a fresh clone verifying committed state. Native x86-64 and
 ARM64 CI also exercises the supplied Compose stop/down/up lifecycle. Images remain
 local; the workflow has read-only repository permissions and no registry login,
-push, deployment or release-publication step. Hosted execution remains unverified.
+push, deployment or release-publication step. Validation update (2026-11-12): native
+x86-64/ARM64 Docker runtime and supplied Compose up/stop/down/replacement checks
+passed in [hosted run 43113311871](https://github.com/atwright147/iCatalog/actions/runs/43113311871)
+at `a26a708` on 2026-11-11.
 
 References: [Dockerfile USER and exec-form ENTRYPOINT](https://docs.docker.com/reference/dockerfile/),
 [Compose init and bind mounts](https://docs.docker.com/reference/compose-file/services/),

@@ -106,7 +106,7 @@ This performs GET only, verifies SHA-256 before caching and makes no request whe
 
 ## Remaining work
 
-TLS/authentication; automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). New hosted runs/publication remain unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
+TLS/authentication; automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and Docker/Compose checks passed on 2026-11-11 (runs 43113311921 and 43113311871); NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
 
 The CLI `serve` session opens an existing on-disk catalogue without SQLite's create
 flag (D60). Missing paths fail without creating a replacement catalogue, including
