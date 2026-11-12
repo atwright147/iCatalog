@@ -92,6 +92,14 @@ Desktop Import rejects a selected non-UTF-8 directory before dispatch and
 shows the error in the status area (D68).
 
 CLI and desktop startup read OS arguments without assuming UTF-8. The CLI passes a catalogue filename through byte-for-byte on Unix: a filesystem that supports it can open the catalogue, while one that rejects it returns an ordinary error. The CLI never substitutes replacement characters into a path. Command names, option values and positional text must be UTF-8 because the current command parameters and stored imported-media paths are strings; malformed values return a usage error. Choose a UTF-8 source path before `import`/`update` if that option is rejected.
+
+Linux runtime validation is confirmed: the CLI regression
+`non_utf8_catalogue_path_is_byte_exact_and_text_arguments_fail_cleanly` passed
+in the Ubuntu 24.04 workspace gate in [hosted run 43113311836](https://github.com/atwright147/iCatalog/actions/runs/43113311836)
+on 2026-11-11, at commit `a26a708`. It covers byte-exact catalogue creation and
+reopening where the filesystem permits it, rejects malformed text arguments,
+and checks that no replacement-character catalogue is created.
+
 The CLI also rejects unknown long options for each command with a usage error
 before opening a catalogue or applying any requested edit (D71).
 
