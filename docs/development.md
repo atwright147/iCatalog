@@ -382,5 +382,13 @@ Podman VM: `task nas:build`, `task release:package` and `task nas:test` for
 27 sync integration tests and extracted-archive creation/reopen passed. The archive
 SHA-256 is `477b66f85c02ff1568ab06ac7728dd6052a2f2623007dcc2bd3f9d74c3404f2a`.
 Local logs and the archive are retained under `target/tls-nas-validation-20261113/`.
-Native x86-64 and hosted execution of the TLS-enabled build remain unverified;
-the earlier hosted NAS evidence predates D98. No release or image was published.
+Hosted validation subsequently passed on both native x86-64 and ARM64 at
+`f59b12b` on 2026-11-13: [NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)
+passed static builds, CLI/packaging checks, all 10 authentication/HTTPS tests,
+27 sync integration tests and extracted-archive creation/reopen on each target.
+Both archives were uploaded as workflow artifacts. The opt-in large-snapshot
+test remains outside this suite. [Container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)
+also passed Docker round trips and supplied Compose up/stop/down/replacement
+checks on both architectures using the TLS-enabled build; those container
+fixtures use HTTP. Full hosted logs are retained in the same local directory.
+No release or image was published.

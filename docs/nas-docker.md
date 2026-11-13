@@ -211,5 +211,13 @@ archive extraction and catalogue creation/reopen checks passed in
 at the same commit. Workflow artifacts are verified; NAS release publication
 and container registry publication remain separate unfinished work.
 
+The TLS-enabled build at `f59b12b` passed both native architectures again on
+2026-11-13: [container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)
+covers Docker round trips and supplied Compose up/stop/down/replacement checks.
+These container fixtures use HTTP; the separate [NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)
+passed all 10 authentication/HTTPS and 27 sync integration tests per musl target,
+plus static ELF, packaging and extracted-CLI checks. Both NAS archives were
+uploaded as workflow artifacts, without release or registry publication.
+
 Implementation references: [Docker USER and exec-form ENTRYPOINT](https://docs.docker.com/reference/dockerfile/),
 [Compose bind mounts and init](https://docs.docker.com/reference/compose-file/services/).

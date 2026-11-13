@@ -1031,8 +1031,13 @@ and early-rejection/TLS regressions with a committed standalone test lockfile.
 `task nas:test` adds the sync/TLS suite to native musl CLI/archive validation.
 Validation update (2026-11-13): native ARM64 Linux static build, archive checks,
 all 10 HTTPS/authentication tests and 27 sync integration tests passed at `36bf941`
-after retrying the local Podman VM. Native x86-64 and hosted TLS-enabled execution
-remain pending; earlier hosted NAS results predate this dependency change.
+after retrying the local Podman VM. Hosted validation at `f59b12b` then passed on
+both native x86-64 and ARM64 in [NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184):
+static build, CLI/packaging checks, all 10 security and 27 sync integration tests,
+extracted-archive checks and artifact uploads. [Container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)
+also passed Docker/Compose round trips and replacement checks on both architectures
+with the TLS-enabled build (HTTP container fixtures). Release/registry publication
+remains separate unfinished work.
 Authenticated non-200 diagnostic bodies are suppressed, and malformed discovery
 errors never echo raw lines or generation values, preventing reflected tokens
 from appearing in error output.

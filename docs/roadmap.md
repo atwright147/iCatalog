@@ -86,13 +86,17 @@ or URL preferences. Certificate issuance/renewal, user accounts and persistent
 desktop credential storage are not included. The vendored HTTP dependency has
 bounded rejected-upload handling and fallible TLS configuration. Native ARM64 Linux
 static build, archive smoke and HTTPS/authentication/sync checks passed at `36bf941`
-on 2026-11-13. Native x86-64 and hosted TLS-enabled validation remain open.
+on 2026-11-13. Hosted TLS-enabled validation then passed on native x86-64 and ARM64
+at `f59b12b`: [NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)
+includes all 10 authentication/HTTPS and 27 sync integration tests per target,
+static ELF/archive checks and artifact uploads. [Container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)
+passed Docker/Compose lifecycle checks on both architectures with that build.
 
 ## 4. Next
 
 
 - **D20/D44 and D98 are implemented**, including Collection edits, HTTPS and shared-token authentication. Next sync work is automatic desktop startup behavior. See `docs/sync.md` for the shipped v2 protocol and first-sync upgrade behavior.
-- **M3 sync, deployment half** — static NAS archives (D58) and Docker/Compose packaging (D60) are implemented. Native hosted archive and Docker/Compose checks passed on both architectures at `a26a708` on 2026-11-11. Remaining deployment work: registry/release publication and service installation.
+- **M3 sync, deployment half** — static NAS archives (D58) and Docker/Compose packaging (D60) are implemented. Native hosted archive, HTTPS/authentication and Docker/Compose checks passed on both architectures at `f59b12b` on 2026-11-13. Remaining deployment work: registry/release publication and service installation.
 - Then close the M2/M3 gaps above; `wasm32-unknown-unknown` install and the first wasm check join the gate once the target is available.
 
 ## 5. Open backlog
