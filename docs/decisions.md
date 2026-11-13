@@ -1028,9 +1028,11 @@ destinations, CLI argument dispatch and real desktop controls. Existing command
 and recovery checks remain in `task ci`; `task test:sync` includes security tests.
 `task test:http` also joins `task ci` to exercise the vendored reader unit tests
 and early-rejection/TLS regressions with a committed standalone test lockfile.
-`task nas:test` adds the sync/TLS suite to native musl CLI/archive validation;
-TLS-enabled static runtime execution remains pending after the local test VM
-exited at startup. Earlier hosted NAS results predate this dependency change.
+`task nas:test` adds the sync/TLS suite to native musl CLI/archive validation.
+Validation update (2026-11-13): native ARM64 Linux static build, archive checks,
+all 10 HTTPS/authentication tests and 27 sync integration tests passed at `36bf941`
+after retrying the local Podman VM. Native x86-64 and hosted TLS-enabled execution
+remain pending; earlier hosted NAS results predate this dependency change.
 Authenticated non-200 diagnostic bodies are suppressed, and malformed discovery
 errors never echo raw lines or generation values, preventing reflected tokens
 from appearing in error output.

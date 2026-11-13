@@ -375,6 +375,12 @@ patched `tiny_http` source is documented in `vendor/tiny_http/ICATALOG-PATCH.md`
 and `ATTRIBUTION.md`.
 
 The D98 security checks and reviewed desktop visuals pass locally on macOS.
-`task nas:test` now also runs the sync/TLS suite on each native musl target.
-Those new TLS-enabled static builds have not yet been verified: the local Podman
-VM exited after startup, and the recorded hosted NAS evidence predates D98.
+`task nas:test` also runs the sync/TLS suite on each native musl target.
+On 2026-11-13, commit `36bf941` passed native ARM64 Linux validation in the local
+Podman VM: `task nas:build`, `task release:package` and `task nas:test` for
+`aarch64-unknown-linux-musl`. Static ELF checks, all 10 authentication/HTTPS tests,
+27 sync integration tests and extracted-archive creation/reopen passed. The archive
+SHA-256 is `477b66f85c02ff1568ab06ac7728dd6052a2f2623007dcc2bd3f9d74c3404f2a`.
+Local logs and the archive are retained under `target/tls-nas-validation-20261113/`.
+Native x86-64 and hosted execution of the TLS-enabled build remain unverified;
+the earlier hosted NAS evidence predates D98. No release or image was published.

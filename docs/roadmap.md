@@ -84,7 +84,9 @@ a local TLS reverse proxy. Certificate verification and redirects stay strict,
 failed credentials preserve local work, and no secret enters catalogue snapshots
 or URL preferences. Certificate issuance/renewal, user accounts and persistent
 desktop credential storage are not included. The vendored HTTP dependency has
-bounded rejected-upload handling and fallible TLS configuration.
+bounded rejected-upload handling and fallible TLS configuration. Native ARM64 Linux
+static build, archive smoke and HTTPS/authentication/sync checks passed at `36bf941`
+on 2026-11-13. Native x86-64 and hosted TLS-enabled validation remain open.
 
 ## 4. Next
 
