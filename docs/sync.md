@@ -251,7 +251,10 @@ Automatic background sync; incremental catalogue downloads; Collection deletion/
 The CLI `serve` session opens an existing on-disk catalogue without SQLite's create
 flag (D60). Missing paths fail without creating a replacement catalogue, including
 when a container mount is wrong. Initialization remains an explicit `init` command;
-schema migration and protocol behavior are unchanged.
+schema migration and protocol behavior are unchanged. Server startup rejects a
+read-only SQLite connection, including a read/write open that SQLite silently
+downgraded after a Windows sharing conflict. Correct permissions or finish the
+conflicting file operation, then reopen the server before clients retry.
 
 ## Desktop client
 

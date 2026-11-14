@@ -16,7 +16,11 @@ for tool in systemctl systemd-analyze useradd userdel groupdel runuser getent od
 done
 systemctl show --property=Version >/dev/null
 
-scratch=$(mktemp -d /run/icatalog-systemd-test.XXXXXX)
+# /run can be mounted noexec on hosted runners. Keep executable fixtures under
+# /var/lib, outside ProtectHome and PrivateTmp, while the unit remains transient
+# under /run/systemd/system. The existing ReadWritePaths mapping still grants
+# writes only to the fixture's catalogue directory, never its binary/security.
+scratch=$(mktemp -d /var/lib/icatalog-systemd-test.XXXXXX)
 service_user="icatalog-test-$$"
 service_name="$service_user.service"
 unit="/run/systemd/system/$service_name"
@@ -67,6 +71,13 @@ catalogue="$scratch/catalogue/catalogue.icatalog"
 token="$scratch/security/sync.token"
 port=$((20000 + $$ % 40000))
 url="http://127.0.0.1:$port"
+
+# Check the actual execution identity and copied location before installing the
+# runtime unit. File mode bits alone cannot detect a noexec filesystem.
+if ! runuser -u "$service_user" -- "$cli" --version; then
+  echo "Cannot execute the copied CLI as $service_user from $scratch; check filesystem execution permissions and the native CPU target." >&2
+  exit 1
+fi
 
 # Only identity, executable, paths and port differ from the shipped unit. Keep
 # every sandbox, restart and stop directive intact for real systemd execution.

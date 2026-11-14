@@ -54,8 +54,15 @@ fn command(c: &mut Context, id: &str, args: &[(&str, &str)]) {
 fn start_server(path: PathBuf) -> u16 {
     let s = icatalog_sync::server::bind("127.0.0.1:0").unwrap();
     let port = s.server_addr().to_ip().unwrap().port();
+    // Finish opening before returning: a concurrent Windows CopyFile can
+    // temporarily deny write sharing and make SQLite fall back to read-only.
+    let mut c = Context::open(path).unwrap();
+    assert!(!c
+        .catalog()
+        .connection()
+        .is_readonly(rusqlite::DatabaseName::Main)
+        .unwrap());
     thread::spawn(move || {
-        let mut c = Context::open(path).unwrap();
         let _ = icatalog_sync::server::serve_loop(s, &mut c);
     });
     port
@@ -68,9 +75,21 @@ fn seed(dir: &Path) -> (PathBuf, String) {
     let url = format!("http://127.0.0.1:{}", start_server(p.clone()));
     (p, url)
 }
+fn copy_live_server(server: &Path, destination: &Path) {
+    // Seed a manual copy using a shared-read handle. Windows CopyFile imposes
+    // different sharing restrictions while the live server holds its handle.
+    let mut source = std::fs::File::open(server).unwrap();
+    let mut destination = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .unwrap();
+    std::io::copy(&mut source, &mut destination).unwrap();
+    destination.sync_all().unwrap();
+}
 fn replica(server: &Path, name: &str, url: &str) -> Context {
     let p = server.with_file_name(name);
-    std::fs::copy(server, &p).unwrap();
+    copy_live_server(server, &p);
     let mut c = Context::open(p).unwrap();
     let r = client::sync_once(&mut c, &UreqTransport::new(), url).unwrap();
     assert!(matches!(r.action, SyncAction::Pulled { .. }));
@@ -79,6 +98,58 @@ fn replica(server: &Path, name: &str, url: &str) -> Context {
 }
 fn sync(c: &mut Context, url: &str) -> icatalog_sync::client::SyncReport {
     client::sync_once(c, &UreqTransport::new(), url).unwrap()
+}
+
+#[test]
+fn server_rejects_a_readonly_catalogue_before_accepting_clients() {
+    let dir = temp_dir("readonly-server");
+    let path = make_catalogue(&dir, "server.sqlite", "test", 0);
+    let mut ctx = Context::open_read_only(&path).unwrap();
+    let server = icatalog_sync::server::bind("127.0.0.1:0").unwrap();
+    // If the startup guard regresses, recv fails immediately instead of hanging.
+    server.unblock();
+    let error = icatalog_sync::server::serve_loop(server, &mut ctx).unwrap_err();
+    assert!(
+        error.to_string().contains("server catalogue is read-only"),
+        "{error}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn server_rejects_sqlite_readonly_fallback_from_a_windows_sharing_conflict() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let dir = temp_dir("readonly-server-sharing");
+    let path = make_catalogue(&dir, "server.sqlite", "test", 0);
+    // FILE_SHARE_READ permits SQLite's fallback read-only open but denies its
+    // requested read/write handle, reproducing a conflicting file operation.
+    let blocker = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(&path)
+        .unwrap();
+    let mut ctx = Context::open_existing(&path).unwrap();
+    assert!(ctx
+        .catalog()
+        .connection()
+        .is_readonly(rusqlite::DatabaseName::Main)
+        .unwrap());
+    drop(blocker);
+    let server = icatalog_sync::server::bind("127.0.0.1:0").unwrap();
+    server.unblock();
+    let error = icatalog_sync::server::serve_loop(server, &mut ctx).unwrap_err();
+    assert!(
+        error.to_string().contains("server catalogue is read-only"),
+        "{error}"
+    );
+    drop(ctx);
+    let reopened = Context::open_existing(&path).unwrap();
+    assert!(!reopened
+        .catalog()
+        .connection()
+        .is_readonly(rusqlite::DatabaseName::Main)
+        .unwrap());
 }
 fn generation(p: &Path) -> Option<i64> {
     Context::open(p).unwrap().catalog().generation().unwrap()
@@ -329,7 +400,7 @@ fn sync_refuses_a_catalogue_symlink_without_splitting_the_replica() {
     let dir = temp_dir("symlink-sync");
     let (server, url) = seed(&dir);
     let target = dir.join("target.sqlite");
-    std::fs::copy(&server, &target).unwrap();
+    copy_live_server(&server, &target);
     let link = dir.join("link.sqlite");
     symlink(&target, &link).unwrap();
     let original = std::fs::read(&target).unwrap();
@@ -350,7 +421,7 @@ fn sync_refuses_a_catalogue_hard_link_without_splitting_the_replica() {
     let dir = temp_dir("hardlink-sync");
     let (server, url) = seed(&dir);
     let target = dir.join("target.sqlite");
-    std::fs::copy(&server, &target).unwrap();
+    copy_live_server(&server, &target);
     let alias = dir.join("alias.sqlite");
     std::fs::hard_link(&target, &alias).unwrap();
     let original = std::fs::read(&target).unwrap();
@@ -1175,7 +1246,7 @@ fn first_sync_preserves_unknown_local_edits_and_never_uploads_media() {
     let dir = temp_dir("bootstrap");
     let (server, url) = seed(&dir);
     let local = server.with_file_name("local.sqlite");
-    std::fs::copy(&server, &local).unwrap();
+    copy_live_server(&server, &local);
     let mut c = Context::open(&local).unwrap();
     c.catalog()
         .connection()
@@ -1359,7 +1430,7 @@ fn previews_are_external_pull_only_verified_and_cached_without_original_media() 
     let client_dir = dir.join("client");
     std::fs::create_dir(&client_dir).unwrap();
     let client_path = client_dir.join("replica.sqlite");
-    std::fs::copy(&server, &client_path).unwrap();
+    copy_live_server(&server, &client_path);
     let mut c = Context::open(client_path).unwrap();
     sync(&mut c, &url);
     assert!(

@@ -55,6 +55,19 @@ pub fn serve_loop_with_security(
     ctx: &mut Context,
     security: crate::security::ServerSecurity,
 ) -> Result<()> {
+    // SQLite may silently fall back from a requested read/write open to a
+    // read-only handle (for example, a Windows sharing conflict during open).
+    // Reject that handle before accepting clients instead of failing uploads.
+    if ctx
+        .catalog()
+        .connection()
+        .is_readonly(rusqlite::DatabaseName::Main)
+        .map_err(CatalogError::from)?
+    {
+        return Err(SyncError::Protocol(
+            "server catalogue is read-only; check file permissions and other open file operations, then reopen the server".into(),
+        ));
+    }
     let row = ctx
         .catalog()
         .catalogue()?
