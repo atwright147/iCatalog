@@ -122,6 +122,40 @@ fn systemd_lifecycle_check_rejects_invalid_inputs_before_privileged_operations()
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn systemd_fixture_renderer_preserves_executable_path_under_catalogue_prefix() {
+    // /var/lib/icatalog occurs inside this generated fixture root. Rendering
+    // the executable first used to rewrite it again into a nonexistent path.
+    let fixture = "/var/lib/icatalog-systemd-test.fixture";
+    let output = success(
+        Command::new("bash")
+            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .args([
+                "-c",
+                "source packaging/systemd/test.sh; render_unit \"$1\" icatalog-test-fixture 23456",
+                "renderer-regression",
+                fixture,
+            ])
+            .output()
+            .unwrap(),
+    );
+    let unit = String::from_utf8(output.stdout).unwrap();
+    for line in [
+        format!("ExecStart={fixture}/bin/icatalog serve {fixture}/catalogue/catalogue.icatalog --bind 127.0.0.1 --port 23456 --token-file {fixture}/security/sync.token"),
+        format!("WorkingDirectory={fixture}/catalogue"),
+        format!("ReadWritePaths={fixture}/catalogue"),
+        format!("RequiresMountsFor={fixture}/catalogue {fixture}/security"),
+        "User=icatalog-test-fixture".into(),
+        "Group=icatalog-test-fixture".into(),
+        "ProtectSystem=strict".into(),
+        "ProtectHome=yes".into(),
+        "PrivateTmp=yes".into(),
+    ] {
+        assert!(unit.lines().any(|actual| actual == line), "missing {line}: {unit}");
+    }
+}
+
 #[test]
 fn service_startup_never_initializes_missing_catalogues_or_exposes_bad_secrets() {
     let scratch = tempfile::tempdir().unwrap();

@@ -3,6 +3,22 @@
 # Installs an isolated transient test unit/account; never touches icatalog.service.
 set -euo pipefail
 
+# Kept separately sourceable so the exact renderer can be checked without root
+# or a running systemd instance. Arguments are generated fixture values.
+render_unit() {
+  local fixture_root=$1 fixture_user=$2 fixture_port=$3
+  # Replace catalogue/security roots before inserting the executable path: the
+  # fixture root itself starts with /var/lib/icatalog and must not be rewritten.
+  sed -e "s|/var/lib/icatalog|$fixture_root/catalogue|g" \
+      -e "s|/etc/icatalog|$fixture_root/security|g" \
+      -e "s|^User=icatalog$|User=$fixture_user|" \
+      -e "s|^Group=icatalog$|Group=$fixture_user|" \
+      -e "s|--port 8080|--port $fixture_port|" \
+      -e "s|/usr/local/bin/icatalog|$fixture_root/bin/icatalog|g" \
+      packaging/systemd/icatalog.service
+}
+if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return; fi
+
 if [[ $# != 1 || ! -f $1 || ! -x $1 ]]; then
   echo 'Usage: sudo bash packaging/systemd/test.sh <built-native-icatalog>' >&2
   exit 2
@@ -81,13 +97,7 @@ fi
 
 # Only identity, executable, paths and port differ from the shipped unit. Keep
 # every sandbox, restart and stop directive intact for real systemd execution.
-sed -e "s|/usr/local/bin/icatalog|$cli|g" \
-    -e "s|/var/lib/icatalog|$scratch/catalogue|g" \
-    -e "s|/etc/icatalog|$scratch/security|g" \
-    -e "s|^User=icatalog$|User=$service_user|" \
-    -e "s|^Group=icatalog$|Group=$service_user|" \
-    -e "s|--port 8080|--port $port|" \
-    packaging/systemd/icatalog.service > "$unit"
+render_unit "$scratch" "$service_user" "$port" > "$unit"
 created_unit=1
 systemd-analyze verify "$unit"
 systemctl daemon-reload
