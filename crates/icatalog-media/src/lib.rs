@@ -315,6 +315,29 @@ pub fn decode_rgba(bytes: &[u8]) -> Result<DecodedImage> {
     decode_rgba_with_orientation(bytes, None)
 }
 
+/// Decode an already oriented stored JPEG preview, bounded before pixel allocation.
+/// Catalogue previews have a maximum long edge of 1920 pixels.
+pub fn decode_preview_rgba(bytes: &[u8]) -> Result<DecodedImage> {
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Jpeg);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(1920);
+    limits.max_image_height = Some(1920);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader.decode()?;
+    let (width, height) = (img.width(), img.height());
+    if width == 0 || height == 0 || width > 1920 || height > 1920 {
+        return Err(MediaError::Decode(
+            "invalid stored preview dimensions".into(),
+        ));
+    }
+    Ok(DecodedImage {
+        width,
+        height,
+        rgba: img.to_rgba8().into_raw(),
+    })
+}
+
 /// Decode display pixels, applying an unapplied asset EXIF orientation (1–8).
 /// Pass `None` when the stored thumbnail already has orientation applied.
 pub fn decode_rgba_with_orientation(

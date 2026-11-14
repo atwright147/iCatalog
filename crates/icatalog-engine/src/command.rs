@@ -39,6 +39,18 @@ pub enum Outcome {
     },
     /// Structured sync state for native controls. CLI rendering remains stable.
     Sync(SyncOutcome),
+    /// Verified stored preview pixels for a native viewer; CLI renders metadata only.
+    Preview(PreviewImage),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewImage {
+    pub asset_id: i64,
+    pub filename: String,
+    pub hash: String,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
 }
 
 /// Structured result returned by the L3 sync commands.
@@ -193,6 +205,10 @@ impl Outcome {
     pub fn render(&self) -> String {
         match self {
             Outcome::Text(s) => s.clone(),
+            Outcome::Preview(image) => format!(
+                "preview: {} ({} × {} pixels); asset {}; SHA-256 {}",
+                image.filename, image.width, image.height, image.asset_id, image.hash
+            ),
             Outcome::Sync(SyncOutcome::Run(result)) => result.text.clone(),
             Outcome::Sync(SyncOutcome::Check(result)) => match &result.status {
                 SyncCheckStatus::Reachable => format!(

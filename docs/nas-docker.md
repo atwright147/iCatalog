@@ -221,3 +221,5 @@ uploaded as workflow artifacts, without release or registry publication.
 
 Implementation references: [Docker USER and exec-form ENTRYPOINT](https://docs.docker.com/reference/dockerfile/),
 [Compose bind mounts and init](https://docs.docker.com/reference/compose-file/services/).
+
+For hosts where a container is unnecessary, the [systemd service guide](nas-service.md) provides a restricted native service and optional HTTPS configuration. D99 also passed both native architectures in [NAS run 43640244806](https://github.com/atwright147/iCatalog/actions/runs/43640244806) and [Docker/Compose run 43640244692](https://github.com/atwright147/iCatalog/actions/runs/43640244692) at `a117808` on 2026-11-14.

@@ -1,0 +1,35 @@
+# Install and configure using docs/nas-service.md. Startup never creates a catalogue.
+[Unit]
+Description=iCatalog catalogue sync service
+After=network.target
+RequiresMountsFor=/var/lib/icatalog /etc/icatalog
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=icatalog
+Group=icatalog
+UMask=0077
+WorkingDirectory=/var/lib/icatalog
+ExecStart=/usr/local/bin/icatalog serve /var/lib/icatalog/catalogue.icatalog --bind 127.0.0.1 --port 8080 --token-file /etc/icatalog/sync.token
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/icatalog
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

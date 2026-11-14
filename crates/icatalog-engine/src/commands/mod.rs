@@ -6,6 +6,7 @@ mod import;
 mod init;
 mod list;
 mod open;
+mod preview;
 mod preview_smart;
 mod previews;
 mod scan;
@@ -27,6 +28,7 @@ pub(crate) static ALL: &[&dyn Command] = &[
     &edit::Edit,
     &collection::Collection,
     &previews::Previews,
+    &preview::Preview,
 ];
 
 /// Return the catalogue row, or an error if the file is not initialised.

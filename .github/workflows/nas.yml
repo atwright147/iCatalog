@@ -35,6 +35,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref || github.sha }}
+      - name: Record service support in the pinned application source
+        id: service-feature
+        run: |
+          if git cat-file -e HEAD:packaging/systemd/icatalog.service 2>/dev/null; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Use corrected release tooling for recovery builds
         if: inputs.tooling_ref != ''
         env:
@@ -58,6 +66,11 @@ jobs:
       - run: task nas:build -- "$RUST_TARGET"
       - run: task release:package -- "$RUST_TARGET"
       - run: task nas:test -- "$RUST_TARGET"
+      - name: Verify isolated systemd service lifecycle
+        # Older recovery tags predate authentication/service support. Never skip
+        # this check on normal builds, including if the source loses the unit.
+        if: inputs.tooling_ref == '' || steps.service-feature.outputs.present == 'true'
+        run: task nas:service:test -- "target/$RUST_TARGET/release/icatalog"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}

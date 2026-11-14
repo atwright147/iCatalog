@@ -19,6 +19,7 @@ mod formatting;
 mod interaction;
 mod list_row;
 mod middle_ellipsis;
+mod preview;
 mod rating;
 mod selection;
 mod smart_collection;
@@ -267,6 +268,7 @@ struct App {
     pending_asset_selection: Option<selection::SelectedUids>,
     marquee: Option<selection::Marquee>,
     textures: HashMap<i64, egui::TextureHandle>,
+    preview: preview::Viewer,
     annotation: Option<Annotation>,
     keywords: Vec<String>,
     keyword_input: String,
@@ -494,6 +496,7 @@ impl App {
             pending_asset_selection: None,
             marquee: None,
             textures: HashMap::new(),
+            preview: preview::Viewer::default(),
             annotation: None,
             keywords: Vec::new(),
             keyword_input: String::new(),
@@ -735,7 +738,28 @@ impl App {
     }
 
     fn can_edit(&self) -> bool {
-        self.can_edit_catalogue() && self.worker.is_none() && self.create_collection.is_none()
+        self.can_edit_catalogue()
+            && self.worker.is_none()
+            && self.create_collection.is_none()
+            && !self.preview.is_open()
+    }
+
+    fn can_open_preview(&self) -> bool {
+        self.worker.is_none()
+            && self.create_collection.is_none()
+            && self.sync_dialog.is_none()
+            && self.conflict_dialog.is_none()
+            && self.sync_decision.is_none()
+            && self.catalogue_error.is_none()
+            && !self.preview.is_open()
+            && !self.preview.is_loading()
+    }
+
+    fn open_preview(&mut self, id: i64) {
+        if self.can_open_preview() {
+            self.pending_collection_toggle = None;
+            self.preview.start(&self.path, id);
+        }
     }
 
     fn set_check_on_open(&mut self, enabled: bool) {
@@ -973,6 +997,8 @@ impl App {
             || self.create_collection.is_some()
             || self.sync_dialog.is_some()
             || self.catalogue_error.is_some()
+            || self.preview.is_open()
+            || self.preview.is_loading()
             || !self.keyword_input.is_empty()
         {
             self.status =
@@ -1711,6 +1737,9 @@ impl App {
         name: &str,
     ) -> Option<Params> {
         let can_edit = self.can_edit();
+        if response.double_clicked() && response.ctx.input(|input| input.modifiers.is_none()) {
+            self.open_preview(id);
+        }
         // egui may pick the nearest widget when a press lands in a narrow gap.
         // An asset drag must start inside its cell; gaps belong to rectangle selection.
         let asset_drag = self.marquee.is_none()
@@ -1742,6 +1771,14 @@ impl App {
         }
         let mut command = None;
         response.context_menu(|ui| {
+            if ui
+                .add_enabled(self.can_open_preview(), egui::Button::new("View preview"))
+                .clicked()
+            {
+                self.open_preview(id);
+                ui.close();
+            }
+            ui.separator();
             let ids = self.selection.ordered(&self.assets);
             ui.add_enabled_ui(can_edit && self.selection_membership_loaded, |ui| {
                 ui.menu_button("Collections", |ui| {
@@ -1981,7 +2018,7 @@ impl App {
         mut layout: selection::AssetLayout,
         cells: &[egui::Rect],
     ) {
-        if self.worker.is_some() || self.create_collection.is_some() {
+        if self.worker.is_some() || self.create_collection.is_some() || self.preview.is_open() {
             return;
         }
         let (pressed, down, released, pointer, modifiers) = ui.input(|i| {
@@ -2407,6 +2444,7 @@ fn collection_params(action: &str, collection: i64, assets: &[i64]) -> Params {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
+        self.preview.poll(ui.ctx());
         #[cfg(target_os = "macos")]
         self.handle_mac_events(ui.ctx());
         // A new press either starts the second click or another interaction;
@@ -2462,7 +2500,7 @@ impl eframe::App for App {
             self.dirty = false;
         }
         let ctx = ui.ctx().clone();
-        if self.worker.is_some() || self.create_collection.is_some() {
+        if self.worker.is_some() || self.create_collection.is_some() || self.preview.is_open() {
             egui::DragAndDrop::clear_payload(&ctx);
             if let Some(marquee) = self.marquee.take() {
                 self.selection = marquee.base;
@@ -2484,6 +2522,7 @@ impl eframe::App for App {
             if self.worker.is_some()
                 || self.create_collection.is_some()
                 || self.sync_dialog.is_some()
+                || self.preview.is_open()
             {
                 continue;
             }
@@ -2965,6 +3004,7 @@ impl eframe::App for App {
         self.create_collection_modal(&ctx);
         self.sync_modal(&ctx);
         self.conflict_modal(&ctx);
+        self.preview.show(&ctx);
         self.sync_check_consent(&ctx);
         if let Some(asset) = egui::DragAndDrop::payload::<DraggedAsset>(&ctx) {
             if let Some(pointer) = ctx.pointer_hover_pos() {

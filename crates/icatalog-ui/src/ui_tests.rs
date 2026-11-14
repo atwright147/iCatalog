@@ -7,6 +7,8 @@ mod date_tests;
 mod dialog_tests;
 #[path = "max_rating_tests.rs"]
 mod max_rating_tests;
+#[path = "preview_tests.rs"]
+mod preview_tests;
 #[path = "../tests/support/mod.rs"]
 mod support;
 use egui_kittest::{
@@ -261,6 +263,7 @@ fn settle(h: &mut Harness<'_, App>) {
     // Process queued pointer/key events before checking the worker.
     h.run_steps(3);
     while h.state().worker.is_some()
+        || h.state().preview.is_loading()
         || h.state().pending_collection_toggle.is_some()
         || h.state()
             .create_collection
@@ -2544,6 +2547,7 @@ fn visual_snapshots() {
     security.run();
     security.snapshot("catalogue-sync-security");
     results.extend(security.take_snapshot_results());
+    preview_tests::visual_snapshots(&mut results);
 }
 
 #[test]

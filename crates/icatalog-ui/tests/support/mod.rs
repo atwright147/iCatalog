@@ -1,6 +1,10 @@
 /// Generated 64x32 checkerboard BMP; fixtures contain no personal media.
 pub fn bmp(color: [u8; 3]) -> Vec<u8> {
-    let (width, height) = (64u32, 32u32);
+    bmp_with_size(color, 64, 32)
+}
+
+/// Generated fixture; callers use widths divisible by four (no row padding).
+pub fn bmp_with_size(color: [u8; 3], width: u32, height: u32) -> Vec<u8> {
     let size = 54 + width * height * 3;
     let mut bytes = vec![0; size as usize];
     bytes[0..2].copy_from_slice(b"BM");

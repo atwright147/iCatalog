@@ -1073,6 +1073,38 @@ durable conflict choices, mixed field decisions, retry and rollback after
 failure. Deployment remains deferred until the local implementation and its
 tests pass.
 
+## D100. Ship explicit systemd service setup with v0.2.0 (2026-11-14)
+
+The owner selected v0.2.0 with the completed sync safety workflow, NAS deployment
+setup and desktop preview viewing. Supply a reviewed systemd unit and optional
+HTTPS drop-in, with explicit installation, maintenance, upgrade and removal
+instructions. The unit uses an unprivileged account, root-owned binary and
+configuration, token-protected loopback HTTP by default, and a writable catalogue
+directory under `/var/lib/icatalog`. Remote binding requires the HTTPS drop-in.
+Never create or replace a catalogue on service startup. No automatic installer,
+firewall changes, certificate issuance or registry publication is introduced.
+Keep original media read-only and preserve catalogue/configuration during removal.
+Test shipped arguments, authentication, restart persistence and failure handling
+with disposable catalogues; validate service lifecycle on native Linux CI.
+
+## D101. View verified stored previews through the command engine (2026-11-14)
+
+Add the read-only `preview --id <asset>` command, returning typed decoded pixels
+and preview identity. CLI prints metadata; desktop double-click and View preview
+open Fit/100% viewing with scrolling and Close/Escape. Decode on one background
+worker; retain at most one texture and discard results after dismissal. Reading
+works with missing originals and read-only catalogues, including sync-required
+replicas. Do not load original media, generate previews or start network sync.
+Missing external bytes remain fetchable using the existing explicit CLI
+`sync --preview` action. No schema or protocol change.
+
+Read only referenced SHA-256-verified bytes. Bound JPEG decode to 1920 pixels per
+edge and 64 MiB decoder allocation, check actual dimensions against the reference,
+and preserve the already-applied orientation. Reject special cache files and
+symlinks before opening so a FIFO cannot indefinitely occupy the viewer worker.
+Test corrupt/missing/oversized previews, no writes, orientation, UI activation,
+dismissal, busy guards and actual rendered layout.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

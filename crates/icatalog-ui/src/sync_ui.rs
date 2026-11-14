@@ -335,6 +335,9 @@ impl App {
     }
 
     pub(super) fn open_sync_dialog(&mut self, clone: bool) {
+        if self.preview.is_open() || self.preview.is_loading() {
+            return;
+        }
         if self.worker.is_some()
             || self.create_collection.is_some()
             || self.sync_dialog.is_some()

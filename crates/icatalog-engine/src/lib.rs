@@ -20,9 +20,9 @@ mod registry;
 mod time;
 
 pub use command::{
-    Command, Outcome, ParamSpec, SyncCheckResult, SyncCheckStatus, SyncChoice, SyncConflict,
-    SyncEntity, SyncEntityKind, SyncFieldConflict, SyncOutcome, SyncPhase, SyncProgress,
-    SyncResolveResult, SyncRules, SyncRunResult, SyncSharedField, SyncValue,
+    Command, Outcome, ParamSpec, PreviewImage, SyncCheckResult, SyncCheckStatus, SyncChoice,
+    SyncConflict, SyncEntity, SyncEntityKind, SyncFieldConflict, SyncOutcome, SyncPhase,
+    SyncProgress, SyncResolveResult, SyncRules, SyncRunResult, SyncSharedField, SyncValue,
 };
 pub use context::Context;
 pub use error::{EngineError, Result};

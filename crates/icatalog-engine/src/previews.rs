@@ -61,7 +61,20 @@ pub fn read(c: &Catalog, path: &Path, hash: &str) -> Result<Option<Vec<u8>>> {
                 return Err(EngineError::Unsupported("invalid preview directory".into()));
             }
         }
-        let file = match std::fs::File::open(dir.join(format!("{hash}.jpg"))) {
+        let preview_path = dir.join(format!("{hash}.jpg"));
+        // Do not open devices, pipes, or links supplied as cache entries. A FIFO
+        // would otherwise block the preview worker indefinitely before read limits apply.
+        match std::fs::symlink_metadata(&preview_path) {
+            Ok(metadata) if !metadata.file_type().is_file() => {
+                return Err(EngineError::Unsupported(
+                    "preview cache entry must be a regular file, not a link or special file".into(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        let file = match std::fs::File::open(preview_path) {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),

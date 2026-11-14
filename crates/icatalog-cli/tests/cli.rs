@@ -9,6 +9,27 @@ fn icatalog(args: &[&str]) -> Output {
 }
 
 #[test]
+fn preview_command_validates_ids_without_creating_or_changing_catalogues() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("preview.icatalog");
+    let name = path.to_str().unwrap();
+    assert!(!icatalog(&["preview", name, "--id", "1"]).status.success());
+    assert!(!path.exists());
+    assert!(icatalog(&["init", name]).status.success());
+    let before = std::fs::read(&path).unwrap();
+    for args in [
+        vec!["preview", name],
+        vec!["preview", name, "--id", "0"],
+        vec!["preview", name, "--id", "1"],
+    ] {
+        let output = icatalog(&args);
+        assert!(!output.status.success());
+        assert!(!s(&output.stderr).contains("unknown command"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
 fn sync_security_options_reject_bad_files_without_touching_catalogues() {
     let dir = tempfile::tempdir().unwrap();
     let local = dir.path().join("local.icatalog");

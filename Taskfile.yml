@@ -84,6 +84,11 @@ tasks:
     cmds:
       - cargo run -q -p icatalog-cli -- previews {{.CLI_ARGS}}
 
+  cli:preview:
+    desc: Verify a stored preview and print its details (e.g. -- photos.icatalog --id 1)
+    cmds:
+      - cargo run -q -p icatalog-cli -- preview {{.CLI_ARGS}}
+
   # Desktop UI
   ui:run:
     desc: Run the icatalog-ui desktop shell (e.g. `task ui:run -- my.sqlite`)
@@ -161,9 +166,10 @@ tasks:
         platforms: [windows]
 
   release:test:
-    desc: Test release versions, desktop/NAS archives and Arch package metadata
+    desc: Test release versions, archives, package metadata and NAS service commands
     cmds:
       - cargo test --locked -p icatalog-cli --test release_packaging
+      - cargo test --locked -p icatalog-cli --test nas_service
 
   nas:build:
     desc: Build a static release CLI on native Linux (e.g. -- aarch64-unknown-linux-musl)
@@ -175,6 +181,11 @@ tasks:
     cmds:
       - bash packaging/build-nas.sh test {{.CLI_ARGS}}
       - bash packaging/test-nas.sh {{.CLI_ARGS}}
+
+  nas:service:test:
+    desc: Verify systemd lifecycle on a disposable Linux host (sudo; pass built native CLI path)
+    cmds:
+      - sudo bash packaging/systemd/test.sh {{.CLI_ARGS}}
 
   docker:build:
     desc: Package an existing static NAS CLI as a local container image (e.g. -- aarch64-unknown-linux-musl icatalog:local)

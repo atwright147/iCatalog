@@ -2,7 +2,7 @@
 
 For setup and everyday use, start with [Using iCatalog sync](sync-user-guide.md). This document describes the protocol and recovery guarantees.
 
-D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. Desktop check-on-open and durable conflict recovery are described below (D99); incremental catalogue downloads and a desktop full-size preview viewer remain unbuilt.
+D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. Desktop check-on-open and durable conflict recovery are described below (D99); incremental catalogue downloads remain unbuilt. D101 provides a native stored-preview viewer.
 
 ## Model and identity
 
@@ -240,11 +240,11 @@ A replica fetches a referenced preview explicitly with:
 task cli:run -- sync local.sqlite --url http://nas:8080 --preview <sha>
 ```
 
-This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop Connect/Clone and explicit Sync controls exist (D46); automatic background sync and a full-size preview viewer are not wired yet; the desktop continues to display grid thumbnails.
+This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop Connect/Clone and explicit Sync controls exist (D46); D101 provides a native viewer for verified embedded/cached previews through the read-only `preview` engine command. External bytes are fetched explicitly through the CLI before viewing; automatic background sync remains unbuilt.
 
 ## Remaining work
 
-Automatic background sync; incremental catalogue downloads; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and HTTPS/authentication checks passed at `f59b12b` on 2026-11-13 ([NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)); Docker/Compose lifecycle checks passed with the same build ([container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)). NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
+Automatic background sync; incremental catalogue downloads; Collection deletion/conversion; preview garbage collection and GUI preview fetching; the wasm transport/storage implementation; container registry publication. D100 supplies a [systemd unit and explicit service setup](nas-service.md). D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and HTTPS/authentication checks passed at `f59b12b` on 2026-11-13 ([NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)); Docker/Compose lifecycle checks passed with the same build ([container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)). NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
 
 The CLI `serve` session opens an existing on-disk catalogue without SQLite's create
 flag (D60). Missing paths fail without creating a replacement catalogue, including

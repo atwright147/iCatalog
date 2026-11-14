@@ -62,7 +62,7 @@ impl Worker {
         let handle = std::thread::Builder::new()
             .name("icatalog-command".into())
             .spawn(move || {
-                let read_only = matches!(id.as_str(), "sync-check")
+                let read_only = matches!(id.as_str(), "sync-check" | "preview")
                     || (id == "sync-resolve"
                         && matches!(params.get("action"), Some("list" | "show")));
                 let mut context = match id.as_str() {

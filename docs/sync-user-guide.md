@@ -348,7 +348,9 @@ Clients receive the catalogue changes on their next sync. Generate reports unava
 
 Use `icatalog previews <catalogue> status` on the server to see its storage mode and count. `external` stores JPEG files beside the catalogue; `embed` copies referenced preview bytes back inside SQLite for a portable file. Conversion verifies the bytes before committing and retains external files afterward.
 
-The desktop full-size preview viewer is not built yet. For CLI/API use, a client can fetch one known preview hash:
+Double-click an asset in Grid or List, or choose **View preview** in its context menu. **Fit** shows the whole stored preview; **100%** shows one image pixel per display pixel with scrolling. Close it with **Close** or Escape. The viewer works offline with embedded or cached previews, including read-only catalogues, and never reads original media. Stored previews are at most 1920 pixels on the long edge, rather than full-resolution originals.
+
+If no preview was generated, generate it on the server with originals available, then sync the catalogue. If an external preview is not cached, the viewer reports its hash and the fetch command. Fetch it explicitly, then reopen the viewer:
 
 ```sh
 icatalog sync "$HOME/Pictures/iCatalog/Library.icatalog" --url http://nas:8080 --preview "<64-character SHA-256>"
@@ -373,3 +375,5 @@ Replace the placeholder with the desired preview's hash; in an external server s
 | Backup, disk-space or download verification error | Keep the current local file and existing backups, resolve the reported problem, then retry sync. Avoid copying an unverified download over your catalogue. |
 
 For implementation details, transfer limits and exact recovery guarantees, see the [sync protocol reference](sync.md).
+
+For unattended bare-metal Linux hosting, see the [systemd service setup](nas-service.md). The supplied unit uses a dedicated account, token authentication and a loopback listener; the optional HTTPS drop-in supports remote clients.
