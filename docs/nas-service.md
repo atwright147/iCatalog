@@ -195,7 +195,7 @@ target Linux host before relying on unattended operation.
 native Linux host already running systemd. Run it as root with the built native
 CLI path. It creates a uniquely named test account and runtime unit, substitutes
 only its fixture paths, identity and port into the shipped unit, and retains the
-service sandbox. It checks missing-catalogue refusal, authenticated sync, SIGTERM
+service sandbox. It checks missing-catalogue refusal, authenticated sync, clean service
 stopping and persistence after restart, then removes its test unit, account and
 data. It refuses existing names and does not install or modify `icatalog.service`.
 Use a disposable runner; this test does not reboot the machine.

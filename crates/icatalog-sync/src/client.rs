@@ -334,12 +334,17 @@ fn sync_locked(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncR
         completed: Some(download.bytes),
         total: Some(download.bytes),
     });
-    let downloaded = icatalog_catalog::Catalog::open_read_only(download.temp.path())?;
     let expected_digest = util::sha256_file(download.temp.path())?;
-    let server_current: BTreeMap<_, _> = delta::current(&downloaded)?
-        .into_iter()
-        .map(|v| (v.key(), v))
-        .collect();
+    let server_current: BTreeMap<_, _> = {
+        let downloaded = icatalog_catalog::Catalog::open_read_only(download.temp.path())?;
+        delta::current(&downloaded)?
+            .into_iter()
+            .map(|v| (v.key(), v))
+            .collect()
+    };
+    // Windows cannot rename the staged source while its SQLite handle is open.
+    // Only owned values escape the scope above; keep the local writer reservation
+    // unchanged until Context closes it immediately before atomic replacement.
     let local_changes: BTreeMap<_, _> = changes.into_iter().map(|v| (v.key(), v)).collect();
     let mut durable_conflicts = Vec::new();
     for key in &conflicts {

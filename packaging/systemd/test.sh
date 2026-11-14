@@ -22,6 +22,12 @@ service_name="$service_user.service"
 unit="/run/systemd/system/$service_name"
 created_user=0
 created_unit=0
+diagnose() {
+  echo "systemd lifecycle check failed at line $1" >&2
+  systemctl show "$service_name" -p ActiveState -p SubState -p Result -p MainPID -p ExecMainCode -p ExecMainStatus >&2 || true
+  journalctl -u "$service_name" -n 30 --no-pager >&2 || true
+}
+trap 'diagnose "$LINENO"' ERR
 cleanup() {
   result=$?
   trap - EXIT
@@ -110,7 +116,12 @@ test ! -e "$scratch/denied.icatalog"
 "$cli" collection "$scratch/client.icatalog" create --name 'Survives systemd restart'
 "$cli" sync "$scratch/client.icatalog" --url "$url" --token-file "$token"
 systemctl stop "$service_name"
-test "$(systemctl show -p ExecMainStatus --value "$service_name")" = 15
+# A successfully stopped inactive unit can be garbage-collected by systemd,
+# resetting ExecMainStatus to zero. Assert observable shutdown and a clean
+# result, rather than requiring retained process-exit history.
+systemctl show "$service_name" -p ActiveState -p Result -p MainPID -p ExecMainStatus
+test "$(systemctl show -p ActiveState --value "$service_name")" = inactive
+test "$(systemctl show -p MainPID --value "$service_name")" = 0
 test "$(systemctl show -p Result --value "$service_name")" = success
 runuser -u "$service_user" -- "$cli" open "$catalogue"
 systemctl start "$service_name"
@@ -125,4 +136,4 @@ done
 if (( ! ready )); then cat "$scratch/clone.log" >&2; exit 1; fi
 "$cli" collection "$scratch/after-restart.icatalog" list > "$scratch/collections.txt"
 grep -Fq 'Survives systemd restart' "$scratch/collections.txt"
-echo 'systemd unit verified: missing-catalogue refusal, authenticated sync, SIGTERM stop and restart persistence passed.'
+echo 'systemd unit verified: missing-catalogue refusal, authenticated sync, clean stop and restart persistence passed.'

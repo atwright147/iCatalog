@@ -753,13 +753,13 @@ fn clone_initialises_a_client_through_the_cli_without_init_or_a_manual_copy() {
     assert!(s(&out.stdout).contains("local replica ready"));
     assert!(s(&icatalog(&["list", p]).stdout).contains("Photo.jpg"));
     let idle = icatalog(&["sync", p, "--url", &url]);
-    assert!(idle.status.success());
+    assert!(idle.status.success(), "{}", s(&idle.stderr));
     assert!(s(&idle.stdout).contains("up to date"));
     assert!(icatalog(&["edit", p, "--id", "1", "--rating", "5"])
         .status
         .success());
     let pushed = icatalog(&["sync", p, "--url", &url]);
-    assert!(pushed.status.success());
+    assert!(pushed.status.success(), "{}", s(&pushed.stderr));
     assert!(s(&pushed.stdout).contains("push: accepted"));
     let nas = icatalog_engine::Context::open(server_path).unwrap();
     assert_eq!(nas.catalog().annotation(1).unwrap().unwrap().rating, 5);

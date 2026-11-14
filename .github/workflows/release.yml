@@ -54,7 +54,7 @@ jobs:
             target: x86_64-pc-windows-msvc
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
           # glibc 2.35 baseline, compatible with Debian 12+ and current Fedora/Arch.
           - runner: ubuntu-22.04
@@ -102,9 +102,9 @@ jobs:
         run: |
           go install github.com/go-task/task/v3/cmd/task@v3.53.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Test CLI and archive packaging
+      - name: Test CLI, archive packaging and sync recovery
         shell: bash
-        run: cargo test --locked -p icatalog-cli --target "$RUST_TARGET"
+        run: cargo test --locked -p icatalog-cli -p icatalog-sync --target "$RUST_TARGET"
       - name: Build CLI and desktop app
         shell: bash
         run: task release:build -- --target "$RUST_TARGET"
