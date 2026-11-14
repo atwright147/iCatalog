@@ -21,7 +21,7 @@ fn store_dir(path: &Path) -> Result<PathBuf> {
         Ok(m) if !m.is_dir() || m.file_type().is_symlink() => {
             return Err(EngineError::Unsupported(
                 "preview directory must be a real directory".into(),
-            ))
+            ));
         }
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -48,7 +48,7 @@ pub fn read(c: &Catalog, path: &Path, hash: &str) -> Result<Option<Vec<u8>>> {
     let embedded = match c.preview_bytes(hash) {
         Ok(bytes) => bytes,
         Err(icatalog_catalog::CatalogError::CorruptPreview) => {
-            return Err(EngineError::CorruptPreview)
+            return Err(EngineError::CorruptPreview);
         }
         Err(e) => return Err(e.into()),
     };

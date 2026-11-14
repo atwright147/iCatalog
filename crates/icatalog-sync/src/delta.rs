@@ -61,6 +61,46 @@ pub fn current(c: &icatalog_catalog::Catalog) -> Result<Vec<Change>> {
     Ok(out)
 }
 
+/// Compare the complete local user-edit state against the stored replica
+/// baseline. Both `sync` and `sync-check` use this exact revision/value diff.
+pub fn pending(
+    catalogue_id: &str,
+    baseline: Option<&(i64, Vec<u8>)>,
+    catalog: &icatalog_catalog::Catalog,
+) -> Result<(i64, Vec<Change>)> {
+    let Some((generation, bytes)) = baseline else {
+        return Ok((0, Vec::new()));
+    };
+    let (id, previous) = decode(bytes)?;
+    if id != catalogue_id {
+        return Err(SyncError::Integrity(
+            "replica baseline belongs to another catalogue".into(),
+        ));
+    }
+    let old: std::collections::BTreeMap<_, _> = previous
+        .into_iter()
+        .map(|record| (record.key(), record))
+        .collect();
+    let current = current(catalog)?;
+    let current_keys: std::collections::BTreeSet<_> = current.iter().map(Change::key).collect();
+    if old.keys().any(|key| !current_keys.contains(key)) {
+        return Err(SyncError::Protocol("local server-managed data was deleted; restore it or recover from a backup before syncing".into()));
+    }
+    let changes = current
+        .into_iter()
+        .filter_map(|mut value| {
+            let previous = old.get(&value.key());
+            if previous.is_none_or(|p| !p.same_value(&value)) {
+                value.base_revision = previous.map(Change::revision);
+                Some(value)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok((*generation, changes))
+}
+
 fn bad() -> SyncError {
     SyncError::Protocol("invalid or oversized v2 sync message".into())
 }

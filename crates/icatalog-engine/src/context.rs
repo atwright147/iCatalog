@@ -1,3 +1,4 @@
+use crate::command::SyncProgress;
 use crate::error::{EngineError, Result};
 use std::path::{Path, PathBuf};
 
@@ -5,6 +6,8 @@ use std::path::{Path, PathBuf};
 pub struct Context {
     path: PathBuf,
     catalog: icatalog_catalog::Catalog,
+    read_only: bool,
+    progress: Option<std::sync::Arc<dyn Fn(SyncProgress) + Send + Sync>>,
 }
 
 impl Context {
@@ -13,6 +16,8 @@ impl Context {
         Ok(Context {
             path: PathBuf::from(":memory:"),
             catalog: icatalog_catalog::Catalog::open_in_memory()?,
+            read_only: false,
+            progress: None,
         })
     }
 
@@ -22,6 +27,8 @@ impl Context {
         Ok(Context {
             path: path.as_ref().to_path_buf(),
             catalog: icatalog_catalog::Catalog::open_in_memory()?,
+            read_only: false,
+            progress: None,
         })
     }
 
@@ -29,7 +36,12 @@ impl Context {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let catalog = icatalog_catalog::Catalog::open(&path)?;
-        Ok(Context { path, catalog })
+        Ok(Context {
+            path,
+            catalog,
+            read_only: false,
+            progress: None,
+        })
     }
 
     /// Open an existing on-disk catalogue without creating a missing file.
@@ -44,7 +56,79 @@ impl Context {
         // Removing SQLite's create flag also covers removal between the check
         // above and opening the connection.
         let catalog = icatalog_catalog::Catalog::open_existing(&path)?;
-        Ok(Context { path, catalog })
+        Ok(Context {
+            path,
+            catalog,
+            read_only: false,
+            progress: None,
+        })
+    }
+
+    /// Open a catalogue using SQLite read-only flags, without migrations.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let catalog = icatalog_catalog::Catalog::open_read_only(&path)?;
+        Ok(Context {
+            path,
+            catalog,
+            read_only: true,
+            progress: None,
+        })
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Install a task-local progress callback. No callback is retained by default.
+    pub fn set_progress_sink(
+        &mut self,
+        sink: Option<std::sync::Arc<dyn Fn(SyncProgress) + Send + Sync>>,
+    ) {
+        self.progress = sink;
+    }
+
+    pub fn report_progress(&self, progress: SyncProgress) {
+        if let Some(sink) = &self.progress {
+            sink(progress);
+        }
+    }
+
+    /// Durable per-catalogue sync-required latch, kept outside the replaceable catalogue.
+    pub fn sync_required(&self) -> Result<bool> {
+        let Some(path) = self.sync_state_path() else {
+            return Ok(false);
+        };
+        if !path.is_file() {
+            return Ok(false);
+        }
+        let row = self
+            .catalog
+            .catalogue()?
+            .ok_or_else(|| EngineError::Unsupported("catalogue is not initialised".into()))?;
+        Ok(
+            icatalog_catalog::sync_state::SyncStateDb::open(&self.path, &row.id, false)?
+                .required()?,
+        )
+    }
+
+    /// Set or clear the durable sync-required latch. It is independent of a backup/snapshot replacement.
+    pub fn set_sync_required(&self, required: bool) -> Result<()> {
+        let row = self
+            .catalog
+            .catalogue()?
+            .ok_or_else(|| EngineError::Unsupported("catalogue is not initialised".into()))?;
+        icatalog_catalog::sync_state::SyncStateDb::open(&self.path, &row.id, true)?
+            .set_required(required)?;
+        Ok(())
+    }
+
+    /// Companion SQLite state path shared by sync and recovery workflows.
+    pub fn sync_state_path(&self) -> Option<PathBuf> {
+        if self.path == Path::new(":memory:") {
+            return None;
+        }
+        icatalog_catalog::sync_state::companion_path(&self.path).ok()
     }
 
     /// Catalogue file path.

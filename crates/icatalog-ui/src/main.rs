@@ -284,12 +284,52 @@ struct App {
     worker: Option<worker::Worker>,
     sync_dialog: Option<sync_ui::SyncDialog>,
     sync_job: Option<sync_ui::SyncJob>,
+    sync_progress: Option<icatalog_engine::SyncProgress>,
+    opening_check: bool,
+    opening_recovery: bool,
+    recovering_snapshot: bool,
+    opening_check_pending: bool,
+    sync_decision: Option<icatalog_engine::SyncCheckResult>,
+    recovery_conflicts: Vec<icatalog_engine::SyncConflict>,
+    recovery_backup: Option<PathBuf>,
+    recovery_session_id: Option<String>,
+    recovery_total_conflicts: usize,
+    recovery_page: usize,
+    recovery_page_size: usize,
+    recovery_all_choices_made: bool,
+    conflict_page_pending: Option<usize>,
+    recovery_phase: Option<String>,
+    recovery_pending: bool,
+    recovery_selected_assets: Option<selection::SelectedUids>,
+    recovery_selected_collections: Option<Vec<String>>,
+    backup_return_path: Option<PathBuf>,
+    conflict_dialog: Option<sync_ui::ConflictDialog>,
+    conflict_choice_pending: Option<(String, String, icatalog_engine::SyncChoice)>,
     sync_url: String,
+    sync_preferences: sync_ui::SyncPreferences,
+    sync_read_only: bool,
+    sync_latch_error: Option<String>,
+    sync_check_error: Option<String>,
+    recovery_error: Option<String>,
+    offline_editable: bool,
     catalogue_error: Option<String>,
     attempted_thumbnails: HashSet<i64>,
     visible_thumbnails: HashSet<i64>,
     #[cfg(target_os = "macos")]
     mac_events: Option<fmv_macos_events::Inbox>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CatalogueAccessState {
+    Checking,
+    Editable,
+    OfflineEditable,
+    SyncRequired,
+    CheckFailed,
+    Syncing,
+    ResolutionRequired,
+    RecoveryRequired,
+    BackupReadOnly,
 }
 
 struct PendingCollectionToggle {
@@ -420,7 +460,14 @@ impl App {
         menu: Option<NativeMenu>,
         menu_events: std::sync::mpsc::Receiver<String>,
     ) -> (Self, icatalog_engine::Result<()>) {
-        let saved_url = sync_ui::load_url(&path);
+        let catalogue_id = ctx
+            .catalog()
+            .catalogue()
+            .ok()
+            .flatten()
+            .map(|row| row.id)
+            .unwrap_or_default();
+        let saved_preferences = sync_ui::load_preferences(&path, &catalogue_id);
         let mut app = App {
             ctx,
             dates: dates::DateFormatter::system(),
@@ -461,7 +508,42 @@ impl App {
             worker: None,
             sync_dialog: None,
             sync_job: None,
-            sync_url: saved_url.as_ref().cloned().unwrap_or_default(),
+            sync_progress: None,
+            opening_check: false,
+            opening_recovery: false,
+            recovering_snapshot: false,
+            opening_check_pending: false,
+            sync_decision: None,
+            recovery_conflicts: Vec::new(),
+            recovery_backup: None,
+            recovery_session_id: None,
+            recovery_total_conflicts: 0,
+            recovery_page: 0,
+            recovery_page_size: 25,
+            recovery_all_choices_made: false,
+            conflict_page_pending: None,
+            recovery_phase: None,
+            recovery_pending: false,
+            recovery_selected_assets: None,
+            recovery_selected_collections: None,
+            backup_return_path: None,
+            conflict_dialog: None,
+            conflict_choice_pending: None,
+            sync_url: saved_preferences
+                .as_ref()
+                .map(|prefs| prefs.url.clone())
+                .unwrap_or_default(),
+            sync_preferences: saved_preferences.as_ref().cloned().unwrap_or_else(|_| {
+                sync_ui::SyncPreferences {
+                    catalogue_id: catalogue_id.clone(),
+                    ..Default::default()
+                }
+            }),
+            sync_read_only: false,
+            sync_latch_error: None,
+            sync_check_error: None,
+            recovery_error: None,
+            offline_editable: false,
             catalogue_error: None,
             attempted_thumbnails: HashSet::new(),
             visible_thumbnails: HashSet::new(),
@@ -472,10 +554,36 @@ impl App {
         if let Err(error) = &refresh_result {
             app.status = format!("Cannot refresh catalogue: {error}");
         }
-        if let Err(error) = saved_url {
-            app.status = format!("Cannot read saved sync server: {error}");
+        if let Err(error) = saved_preferences {
+            let detail = error.to_string();
+            app.sync_read_only = true;
+            app.sync_check_error = Some(detail.clone());
+            app.status = format!("Cannot read saved sync settings: {detail}");
         }
-        app.set_menu_enabled(true);
+        app.refresh_sync_latch();
+        app.opening_check_pending = app.sync_check_error.is_none()
+            && app.sync_preferences.check_on_open
+            && !app.sync_url.is_empty();
+        let has_sync_state = app.ctx.sync_state_path().is_some_and(|path| path.is_file());
+        if has_sync_state {
+            let mut params = Params::new();
+            params.set("action", "list");
+            match worker::Worker::start(app.path.clone(), "sync-resolve".into(), params) {
+                Ok(worker) => {
+                    app.worker = Some(worker);
+                    app.opening_recovery = true;
+                    app.status = "Checking for saved sync recovery…".into();
+                }
+                Err(error) => {
+                    app.sync_read_only = true;
+                    app.recovery_error = Some(error.to_string());
+                    app.status = format!("Cannot check saved sync recovery: {error}");
+                }
+            }
+        } else if app.opening_check_pending {
+            app.start_opening_sync_check();
+        }
+        app.set_menu_enabled(app.worker.is_none());
         (app, refresh_result)
     }
 
@@ -557,6 +665,25 @@ impl App {
         if self.worker.is_some() {
             return;
         }
+        if matches!(id, "sync" | "sync-resolve") {
+            if self.ctx.is_read_only() {
+                self.status = "This recovery backup is read-only.".into();
+                return;
+            }
+        } else if !self.can_edit_catalogue() {
+            self.status = match self.catalogue_access_state() {
+                CatalogueAccessState::ResolutionRequired => {
+                    "Resolve saved sync conflicts before editing.".into()
+                }
+                CatalogueAccessState::CheckFailed => {
+                    "The sync check failed; this catalogue remains read-only.".into()
+                }
+                _ => {
+                    "This catalogue is open read-only. Sync with the server before editing.".into()
+                }
+            };
+            return;
+        }
         match worker::Worker::start(self.path.clone(), id.to_string(), params.clone()) {
             Ok(worker) => {
                 self.worker = Some(worker);
@@ -569,17 +696,235 @@ impl App {
         }
     }
 
+    fn catalogue_access_state(&self) -> CatalogueAccessState {
+        if self.ctx.is_read_only() || self.backup_return_path.is_some() {
+            CatalogueAccessState::BackupReadOnly
+        } else if self.opening_check || self.opening_recovery {
+            CatalogueAccessState::Checking
+        } else if self.sync_job.is_some() || self.recovering_snapshot {
+            CatalogueAccessState::Syncing
+        } else if self.recovery_pending {
+            match self.recovery_phase.as_deref() {
+                Some("snapshot_ready" | "retry" | "applying" | "applied") => {
+                    CatalogueAccessState::RecoveryRequired
+                }
+                _ => CatalogueAccessState::CheckFailed,
+            }
+        } else if !self.recovery_conflicts.is_empty() {
+            CatalogueAccessState::ResolutionRequired
+        } else if self.catalogue_error.is_some()
+            || self.sync_latch_error.is_some()
+            || self.sync_check_error.is_some()
+            || self.recovery_error.is_some()
+        {
+            CatalogueAccessState::CheckFailed
+        } else if self.sync_read_only {
+            CatalogueAccessState::SyncRequired
+        } else if self.offline_editable {
+            CatalogueAccessState::OfflineEditable
+        } else {
+            CatalogueAccessState::Editable
+        }
+    }
+
+    fn can_edit_catalogue(&self) -> bool {
+        matches!(
+            self.catalogue_access_state(),
+            CatalogueAccessState::Editable | CatalogueAccessState::OfflineEditable
+        )
+    }
+
+    fn can_edit(&self) -> bool {
+        self.can_edit_catalogue() && self.worker.is_none() && self.create_collection.is_none()
+    }
+
+    fn set_check_on_open(&mut self, enabled: bool) {
+        let previous = self.sync_preferences.check_on_open;
+        self.sync_preferences.check_on_open = enabled;
+        if enabled
+            && (self.sync_preferences.token_file.is_some()
+                || self.sync_preferences.ca_file.is_some())
+        {
+            self.sync_preferences.remember_security_files = true;
+        }
+        if let Err(error) = sync_ui::save_preferences(&self.path, &self.sync_preferences) {
+            self.sync_preferences.check_on_open = previous;
+            self.status = format!("Cannot save sync preferences: {error}");
+        }
+    }
+
+    fn set_read_only(&mut self, enabled: bool) {
+        if !enabled {
+            if self.sync_check_error.is_some() || self.recovery_error.is_some() {
+                self.status =
+                    "Sync status or recovery could not be verified; editing stays disabled.".into();
+                self.sync_read_only = true;
+                return;
+            }
+            match self.ctx.sync_required() {
+                Ok(false) => {}
+                Ok(true) => {
+                    self.status = "Sync with the server before editing this catalogue.".into();
+                    return;
+                }
+                Err(error) => {
+                    self.sync_latch_error = Some(error.to_string());
+                    self.sync_read_only = true;
+                    self.status =
+                        format!("Cannot verify sync requirement: {error}; editing stays disabled.");
+                    return;
+                }
+            }
+        }
+        self.sync_read_only = enabled;
+        if enabled {
+            self.offline_editable = false;
+        }
+        self.set_menu_enabled(self.worker.is_none());
+    }
+
+    fn refresh_sync_latch(&mut self) {
+        match self.ctx.sync_required() {
+            Ok(true) => self.sync_read_only = true,
+            Ok(false) => {
+                self.sync_latch_error = None;
+                if self.sync_check_error.is_none() && self.recovery_error.is_none() {
+                    self.sync_read_only = false;
+                }
+            }
+            Err(error) => {
+                self.sync_read_only = true;
+                self.sync_latch_error = Some(error.to_string());
+                self.status =
+                    format!("Cannot verify sync requirement: {error}; catalogue opened read-only.");
+            }
+        }
+    }
+
+    fn start_opening_sync_check(&mut self) {
+        self.sync_check_error = None;
+        self.offline_editable = false;
+        let mut params = Params::new();
+        params.set("url", self.sync_url.clone());
+        if self.sync_preferences.remember_security_files {
+            if let Some(path) = &self.sync_preferences.token_file {
+                params.set("token-file", path);
+            }
+            if let Some(path) = &self.sync_preferences.ca_file {
+                params.set("ca-file", path);
+            }
+        }
+        match worker::Worker::start(self.path.clone(), "sync-check".into(), params) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                self.opening_check = true;
+                self.opening_check_pending = false;
+                self.status = "Checking for server changes…".into();
+            }
+            Err(error) => {
+                self.opening_check_pending = false;
+                self.sync_read_only = true;
+                self.sync_check_error = Some(error.to_string());
+                self.status = format!("Cannot start opening sync check: {error}");
+            }
+        }
+    }
+
+    fn show_conflict_resolution(&mut self) {
+        if (self.recovery_conflicts.is_empty()
+            && self.recovery_phase.as_deref() != Some("applying"))
+            || self.conflict_dialog.is_some()
+            || self.worker.is_some()
+        {
+            return;
+        }
+        self.conflict_dialog = Some(sync_ui::ConflictDialog {
+            conflicts: self.recovery_conflicts.clone(),
+            session_id: self.recovery_session_id.clone(),
+            total_conflicts: self
+                .recovery_total_conflicts
+                .max(self.recovery_conflicts.len()),
+            page: self.recovery_page,
+            page_size: self.recovery_page_size,
+            selected_conflict: 0,
+            all_choices_made: self.recovery_all_choices_made,
+            recovery_backup: self.recovery_backup.clone(),
+            url: self.sync_url.clone(),
+            error: None,
+            token_file: self
+                .sync_preferences
+                .token_file
+                .as_deref()
+                .map(PathBuf::from),
+            ca_file: self.sync_preferences.ca_file.as_deref().map(PathBuf::from),
+            remember_security_files: self.sync_preferences.remember_security_files,
+        });
+        if self.recovery_session_id.is_none() {
+            self.start_conflict_page(0);
+        }
+    }
+
+    fn open_recovery_backup(&mut self, backup: PathBuf) {
+        if self.worker.is_some() {
+            return;
+        }
+        match Context::open_read_only(&backup) {
+            Ok(ctx) => {
+                self.backup_return_path = Some(self.path.clone());
+                self.path = backup;
+                self.ctx = ctx;
+                self.sync_read_only = true;
+                self.sync_latch_error = None;
+                self.sync_check_error = None;
+                self.recovery_error = None;
+                self.conflict_dialog = None;
+                self.folder_sel = FolderSelection::All;
+                self.selection = Default::default();
+                self.collection_anchor = None;
+                self.search.clear();
+                self.dirty = true;
+                self.status = "Opened recovery backup in read-only mode.".into();
+                self.set_menu_enabled(true);
+            }
+            Err(error) => self.status = format!("Cannot open recovery backup: {error}"),
+        }
+    }
+
+    fn return_from_recovery_backup(&mut self) {
+        let Some(path) = self.backup_return_path.take() else {
+            return;
+        };
+        match worker::open_initialized_existing(&path) {
+            Ok(ctx) => {
+                self.path = path;
+                self.ctx = ctx;
+                self.sync_read_only = false;
+                self.sync_latch_error = None;
+                self.sync_check_error = None;
+                self.recovery_error = None;
+                self.refresh_sync_latch();
+                self.dirty = true;
+                self.status = "Returned to the current catalogue.".into();
+                self.set_menu_enabled(true);
+            }
+            Err(error) => {
+                self.backup_return_path = Some(path);
+                self.status = format!("Cannot return to current catalogue: {error}");
+            }
+        }
+    }
+
     fn set_menu_enabled(&self, enabled: bool) {
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.menu {
             menu.import
-                .set_enabled(enabled && !self.replica && self.catalogue_error.is_none());
+                .set_enabled(enabled && !self.replica && self.can_edit_catalogue());
             menu.update
-                .set_enabled(enabled && !self.replica && self.catalogue_error.is_none());
+                .set_enabled(enabled && !self.replica && self.can_edit_catalogue());
             menu.connect
-                .set_enabled(enabled && self.catalogue_error.is_none());
+                .set_enabled(enabled && self.catalogue_error.is_none() && !self.ctx.is_read_only());
             menu.sync
-                .set_enabled(enabled && self.catalogue_error.is_none());
+                .set_enabled(enabled && self.catalogue_error.is_none() && !self.ctx.is_read_only());
         }
         #[cfg(not(target_os = "macos"))]
         let _ = enabled;
@@ -662,12 +1007,83 @@ impl App {
     }
 
     fn poll_worker(&mut self) {
+        if let Some(progress) = self
+            .worker
+            .as_ref()
+            .and_then(worker::Worker::take_latest_progress)
+        {
+            self.sync_progress = Some(progress);
+        }
         let Some(result) = self.worker.as_mut().and_then(worker::Worker::poll) else {
             return;
         };
         self.worker = None;
+        if self.opening_recovery {
+            self.opening_recovery = false;
+            self.finish_local_recovery(result);
+            if self.opening_check_pending && !self.recovery_pending && self.recovery_error.is_none()
+            {
+                self.start_opening_sync_check();
+            }
+            return;
+        }
+        if self.recovering_snapshot {
+            self.recovering_snapshot = false;
+            self.finish_sync_recovery(result);
+            return;
+        }
+        if self.opening_check {
+            self.opening_check = false;
+            self.finish_opening_check(result);
+            return;
+        }
+        if let Some(page) = self.conflict_page_pending.take() {
+            self.finish_conflict_page(page, result);
+            return;
+        }
         if self.sync_job.is_some() {
             self.finish_sync(result);
+            return;
+        }
+        if let Some((key, field, choice)) = self.conflict_choice_pending.take() {
+            match result {
+                Ok(icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(
+                    resolved,
+                ))) => {
+                    if let Some(dialog) = &mut self.conflict_dialog {
+                        if let Some(conflict) = dialog
+                            .conflicts
+                            .iter_mut()
+                            .find(|conflict| conflict.key == key)
+                        {
+                            if let Some(value) = conflict
+                                .fields
+                                .iter_mut()
+                                .find(|value| value.field == field)
+                            {
+                                value.choice = Some(choice);
+                            }
+                        }
+                        dialog.all_choices_made = resolved.all_choices_made;
+                        dialog.error = None;
+                    }
+                    self.recovery_all_choices_made = resolved.all_choices_made;
+                }
+                Ok(outcome) => {
+                    if let Some(dialog) = &mut self.conflict_dialog {
+                        dialog.error = Some(format!(
+                            "Unexpected conflict choice result: {}",
+                            outcome.render()
+                        ));
+                    }
+                }
+                Err(error) => {
+                    if let Some(dialog) = &mut self.conflict_dialog {
+                        dialog.error = Some(error.to_string());
+                    }
+                }
+            }
+            self.set_menu_enabled(self.worker.is_none());
             return;
         }
         if let Some(dialog) = self
@@ -693,6 +1109,122 @@ impl App {
         self.textures.clear();
         self.attempted_thumbnails.clear();
         self.detail_for = None;
+    }
+
+    fn finish_local_recovery(
+        &mut self,
+        result: Result<icatalog_engine::Outcome, icatalog_engine::EngineError>,
+    ) {
+        match result {
+            Ok(icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(resolved))) => {
+                self.recovery_error = None;
+                self.recovery_conflicts = resolved.conflicts;
+                self.recovery_backup = resolved.recovery_backup;
+                self.recovery_session_id = resolved.session_id;
+                self.recovery_total_conflicts = resolved.total_conflicts;
+                self.recovery_page = resolved.page;
+                self.recovery_page_size = resolved.page_size.max(1);
+                self.recovery_all_choices_made = resolved.all_choices_made;
+                self.recovery_phase = resolved.recovery_phase;
+                self.recovery_pending = resolved.recovery_pending;
+                if self.recovery_pending {
+                    self.sync_read_only = true;
+                    if !matches!(
+                        self.recovery_phase.as_deref(),
+                        Some("snapshot_ready" | "retry" | "applying" | "applied")
+                    ) {
+                        self.recovery_error =
+                            Some("Unknown recovery phase; editing remains disabled.".into());
+                    }
+                    self.status = format!(
+                        "Interrupted sync recovery needs attention{}.",
+                        self.recovery_phase
+                            .as_deref()
+                            .map(|phase| format!(" ({phase})"))
+                            .unwrap_or_default()
+                    );
+                    return;
+                }
+                if !self.recovery_conflicts.is_empty() {
+                    self.sync_read_only = true;
+                    self.status = "Saved conflicts need resolution before editing.".into();
+                }
+            }
+            Ok(outcome) => {
+                self.recovery_pending = false;
+                self.recovery_phase = None;
+                let error = format!("Unexpected recovery status: {}", outcome.render());
+                self.sync_read_only = true;
+                self.recovery_error = Some(error.clone());
+                self.status = error;
+            }
+            Err(error) => {
+                self.recovery_pending = false;
+                self.recovery_phase = None;
+                self.sync_read_only = true;
+                self.recovery_error = Some(error.to_string());
+                self.status = format!("Cannot read saved sync recovery: {error}");
+            }
+        }
+    }
+
+    fn finish_opening_check(
+        &mut self,
+        result: Result<icatalog_engine::Outcome, icatalog_engine::EngineError>,
+    ) {
+        self.sync_progress = None;
+        match result {
+            Ok(icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Check(check))) => {
+                self.sync_check_error = None;
+                self.recovery_conflicts = check.conflicts.clone();
+                self.recovery_backup = check.recovery_backup.clone();
+                match &check.status {
+                    icatalog_engine::SyncCheckStatus::Untracked => {
+                        self.status = "Opening sync check needs a local replica; use File → Connect to Server to create one.".into();
+                    }
+                    icatalog_engine::SyncCheckStatus::Unreachable(reason) => {
+                        self.status =
+                            format!("Opening sync check could not reach the server: {reason}");
+                        self.refresh_sync_latch();
+                        self.offline_editable =
+                            !self.sync_read_only && self.sync_latch_error.is_none();
+                    }
+                    icatalog_engine::SyncCheckStatus::Reachable => {
+                        if !check.conflicts.is_empty() {
+                            self.set_read_only(true);
+                            self.offline_editable = false;
+                            self.status = format!(
+                                "{} conflict group(s) are saved for resolution.",
+                                check.conflicts.len()
+                            );
+                            return;
+                        }
+                        let needs_sync = check.replica && check.sync_required;
+                        if needs_sync {
+                            self.set_read_only(true);
+                            self.offline_editable = false;
+                            self.sync_decision = Some(check);
+                        } else {
+                            self.sync_check_error = None;
+                            self.offline_editable = false;
+                            self.set_read_only(false);
+                            self.status = "Catalogue is up to date with the server.".into();
+                        }
+                    }
+                }
+            }
+            Ok(outcome) => {
+                let error = format!("Unexpected opening check result: {}", outcome.render());
+                self.sync_read_only = true;
+                self.sync_check_error = Some(error.clone());
+                self.status = error;
+            }
+            Err(error) => {
+                self.status = format!("Opening sync check failed: {error}");
+                self.sync_read_only = true;
+                self.sync_check_error = Some(error.to_string());
+            }
+        }
     }
 
     /// Load the selected asset's annotation, keywords and metadata once per selection.
@@ -845,10 +1377,7 @@ impl App {
         ui.separator();
         ui.label("Collections");
         if ui
-            .add_enabled(
-                self.worker.is_none() && self.create_collection.is_none(),
-                egui::Button::new("New Collection…"),
-            )
+            .add_enabled(self.can_edit(), egui::Button::new("New Collection…"))
             .clicked()
         {
             self.create_collection = Some(CreateCollectionDialog {
@@ -887,10 +1416,7 @@ impl App {
                                 },
                                 collection.id
                             ));
-                        if row.double_clicked()
-                            && self.worker.is_none()
-                            && self.create_collection.is_none()
-                        {
+                        if row.double_clicked() && self.can_edit() {
                             double_clicked = Some(collection.id);
                             if let Some(rules) = &collection.rules {
                                 edit_rules =
@@ -902,7 +1428,7 @@ impl App {
                             clicked = Some((collection.id, ui.input(|input| input.modifiers)));
                         }
                         row.context_menu(|ui| {
-                            let enabled = self.worker.is_none() && self.create_collection.is_none();
+                            let enabled = self.can_edit();
                             if ui
                                 .add_enabled(enabled, egui::Button::new("Rename…"))
                                 .clicked()
@@ -912,10 +1438,7 @@ impl App {
                             }
                             if let Some(rules) = &collection.rules {
                                 if ui
-                                    .add_enabled(
-                                        self.worker.is_none() && self.create_collection.is_none(),
-                                        egui::Button::new("Edit Rules…"),
-                                    )
+                                    .add_enabled(self.can_edit(), egui::Button::new("Edit Rules…"))
                                     .clicked()
                                 {
                                     edit_rules = Some((
@@ -927,10 +1450,7 @@ impl App {
                                 }
                             }
                         });
-                        if self.worker.is_none()
-                            && self.create_collection.is_none()
-                            && collection.rules.is_none()
-                        {
+                        if self.can_edit() && collection.rules.is_none() {
                             if row.dnd_hover_payload::<DraggedAsset>().is_some() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
                                 ui.painter().rect_stroke(
@@ -959,8 +1479,7 @@ impl App {
                 && !modifiers.ctrl
                 && !modifiers.command
                 && !modifiers.shift
-                && self.worker.is_none()
-                && self.create_collection.is_none()
+                && self.can_edit()
             {
                 let delay = ui.ctx().options(|o| o.input_options.max_double_click_delay);
                 let delay = if delay.is_finite() && delay > 0.0 {
@@ -1191,7 +1710,7 @@ impl App {
         id: i64,
         name: &str,
     ) -> Option<Params> {
-        let can_edit = self.worker.is_none() && self.create_collection.is_none();
+        let can_edit = self.can_edit();
         // egui may pick the nearest widget when a press lands in a narrow gap.
         // An asset drag must start inside its cell; gaps belong to rectangle selection.
         let asset_drag = self.marquee.is_none()
@@ -1912,7 +2431,7 @@ impl eframe::App for App {
                     .send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
         }
-        if self.sync_job.is_some() || self.catalogue_error.is_some() {
+        if self.sync_job.is_some() || self.catalogue_error.is_some() || self.recovering_snapshot {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.heading(APP_NAME);
                 if let Some(error) = self.catalogue_error.clone() {
@@ -1922,10 +2441,20 @@ impl eframe::App for App {
                     }
                 } else {
                     ui.spinner();
-                    ui.label("Working with the sync server…");
+                    ui.label(if self.recovering_snapshot {
+                        "Resuming interrupted sync recovery…"
+                    } else {
+                        "Working with the sync server…"
+                    });
+                    if self.opening_check || self.recovering_snapshot {
+                        if let Some(progress) = self.sync_progress {
+                            sync_ui::progress_widget(ui, progress);
+                        }
+                    }
                 }
             });
             self.sync_modal(ui.ctx());
+            self.sync_check_consent(ui.ctx());
             return;
         }
         if self.dirty && self.worker.is_none() {
@@ -1959,12 +2488,14 @@ impl eframe::App for App {
                 continue;
             }
             match id.as_str() {
-                "file.import" if !self.replica => {
+                "file.import" if !self.replica && self.can_edit_catalogue() => {
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                         action = Some(Action::Import(dir));
                     }
                 }
-                "file.update" if !self.replica => action = Some(Action::Update),
+                "file.update" if !self.replica && self.can_edit_catalogue() => {
+                    action = Some(Action::Update)
+                }
                 "file.connect" => self.open_sync_dialog(true),
                 "file.sync" => self.open_sync_dialog(false),
                 _ => {}
@@ -1978,7 +2509,8 @@ impl eframe::App for App {
                     ui.menu_button("File", |ui| {
                         let available = self.worker.is_none()
                             && self.create_collection.is_none()
-                            && self.sync_dialog.is_none();
+                            && self.sync_dialog.is_none()
+                            && !self.ctx.is_read_only();
                         if ui
                             .add_enabled(available, egui::Button::new("Connect to Server…"))
                             .clicked()
@@ -1993,12 +2525,19 @@ impl eframe::App for App {
                             ui.close();
                             self.open_sync_dialog(false);
                         }
+                        ui.add_enabled_ui(available && !self.sync_url.trim().is_empty(), |ui| {
+                            let mut check_on_open = self.sync_preferences.check_on_open;
+                            if ui
+                                .checkbox(&mut check_on_open, "Check for updates when opening")
+                                .changed()
+                            {
+                                self.set_check_on_open(check_on_open);
+                            }
+                        });
                         ui.separator();
                         if ui
                             .add_enabled(
-                                self.worker.is_none()
-                                    && self.create_collection.is_none()
-                                    && !self.replica,
+                                self.can_edit() && !self.replica,
                                 egui::Button::new("Import…"),
                             )
                             .clicked()
@@ -2010,9 +2549,7 @@ impl eframe::App for App {
                         }
                         if ui
                             .add_enabled(
-                                self.worker.is_none()
-                                    && self.create_collection.is_none()
-                                    && !self.replica,
+                                self.can_edit() && !self.replica,
                                 egui::Button::new("Update"),
                             )
                             .clicked()
@@ -2177,6 +2714,137 @@ impl eframe::App for App {
             });
 
         egui::Panel::bottom("status").show(ui, |ui| {
+            match self.catalogue_access_state() {
+                CatalogueAccessState::BackupReadOnly => {
+                    ui.horizontal(|ui| {
+                        ui.label("Recovery backup open read-only.");
+                        if ui.button("Return to current catalogue").clicked() {
+                            self.return_from_recovery_backup();
+                        }
+                    });
+                }
+                CatalogueAccessState::CheckFailed => {
+                    ui.horizontal(|ui| {
+                        ui.label("Read-only: the sync status could not be verified.");
+                        if ui
+                            .add_enabled(
+                                !self.sync_url.trim().is_empty() && self.worker.is_none(),
+                                egui::Button::new("Retry check"),
+                            )
+                            .clicked()
+                        {
+                            self.start_opening_sync_check();
+                        }
+                        if ui.button("Connection settings…").clicked() {
+                            self.open_sync_dialog(false);
+                        }
+                    });
+                    ui.collapsing("Details", |ui| {
+                        for detail in [
+                            self.sync_check_error.as_deref(),
+                            self.recovery_error.as_deref(),
+                            self.sync_latch_error.as_deref(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        {
+                            ui.label(detail);
+                        }
+                        if let Some(phase) = &self.recovery_phase {
+                            ui.label(format!("Recovery phase: {phase}"));
+                        }
+                    });
+                }
+                CatalogueAccessState::RecoveryRequired => {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "Read-only: an interrupted sync needs recovery{}.",
+                            self.recovery_phase
+                                .as_deref()
+                                .map(|phase| format!(" ({phase})"))
+                                .unwrap_or_default()
+                        ));
+                        match self.recovery_phase.as_deref() {
+                            Some("snapshot_ready") => {
+                                if ui
+                                    .add_enabled(
+                                        self.worker.is_none(),
+                                        egui::Button::new("Resume interrupted sync"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.start_sync_recovery();
+                                }
+                            }
+                            Some("retry" | "applied") => {
+                                if ui.button("Sync now…").clicked() {
+                                    self.open_sync_dialog(false);
+                                }
+                            }
+                            Some("applying")
+                                if ui.button("Apply saved choices and sync…").clicked() =>
+                            {
+                                self.show_conflict_resolution();
+                            }
+                            Some("applying") => {}
+                            _ => {}
+                        }
+                    });
+                    if let Some(error) = self.recovery_error.clone() {
+                        ui.collapsing("Details", |ui| ui.label(error));
+                    }
+                }
+                CatalogueAccessState::ResolutionRequired => {
+                    ui.horizontal(|ui| {
+                        ui.label("Read-only: saved sync conflicts need choices before editing.");
+                        if ui.button("Resolve conflicts…").clicked() {
+                            self.show_conflict_resolution();
+                        }
+                        if let Some(backup) = self.recovery_backup.clone() {
+                            if ui.button("Open recovery backup read-only").clicked() {
+                                self.open_recovery_backup(backup);
+                            }
+                        }
+                    });
+                }
+                CatalogueAccessState::SyncRequired => {
+                    ui.horizontal(|ui| {
+                        ui.label("Read-only: sync with the server before editing.");
+                        if ui.button("Sync now…").clicked() {
+                            self.open_sync_dialog(false);
+                        }
+                        if ui.button("Connection settings…").clicked() {
+                            self.open_sync_dialog(false);
+                        }
+                        if let Some(backup) = self.recovery_backup.clone() {
+                            if ui.button("Open recovery backup read-only").clicked() {
+                                self.open_recovery_backup(backup);
+                            }
+                        }
+                    });
+                }
+                CatalogueAccessState::OfflineEditable => {
+                    ui.horizontal(|ui| {
+                        ui.label("The server couldn't be reached. You're editing offline.");
+                        if ui
+                            .add_enabled(
+                                !self.sync_url.trim().is_empty() && self.worker.is_none(),
+                                egui::Button::new("Retry check"),
+                            )
+                            .clicked()
+                        {
+                            self.start_opening_sync_check();
+                        }
+                        if ui.button("Sync…").clicked() {
+                            self.open_sync_dialog(false);
+                        }
+                    });
+                }
+                CatalogueAccessState::Checking => {
+                    ui.label("Checking local and server sync state…");
+                }
+                CatalogueAccessState::Syncing | CatalogueAccessState::Editable => {}
+            }
             ui.horizontal(|ui| {
                 if self.worker.is_some() {
                     ui.spinner();
@@ -2223,7 +2891,7 @@ impl eframe::App for App {
                             .id_salt("details_content")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                ui.add_enabled_ui(self.worker.is_none(), |ui| {
+                                ui.add_enabled_ui(self.can_edit(), |ui| {
                                     edit = self.details_panel(ui);
                                 });
                             });
@@ -2296,6 +2964,8 @@ impl eframe::App for App {
         }
         self.create_collection_modal(&ctx);
         self.sync_modal(&ctx);
+        self.conflict_modal(&ctx);
+        self.sync_check_consent(&ctx);
         if let Some(asset) = egui::DragAndDrop::payload::<DraggedAsset>(&ctx) {
             if let Some(pointer) = ctx.pointer_hover_pos() {
                 egui::Area::new(egui::Id::new("dragged_asset"))

@@ -107,7 +107,8 @@ In **Connect to Server** or **Sync catalogue**, enter the HTTPS address and expa
 **Security settings** to choose the token file and optional CA file. Selections
 remain while that dialog is open, including after a failed attempt, and clear
 when it closes. Choose them again for the next dialog. Only the server address
-is remembered in `.sync-url`; credentials and credential-file paths are not.
+is remembered in the local sync preferences; credentials and credential-file
+paths are remembered only when the option is enabled.
 
 Rotate a token by replacing the server file, restarting the service, and securely
 replacing clients' copies. Restart after renewing the certificate/key as well.
@@ -180,7 +181,60 @@ The dialog shows the command result, backup paths and any conflict keys in selec
 
 For CLI use, close the app, run `icatalog sync … --url …`, then reopen it. Supply `--url` on every CLI invocation. Sync is explicit, so other computers see your changes after they run their own sync.
 
-The desktop remembers the URL in `<catalogue>.sync-url` beside the local catalogue, using a bounded, atomically replaced settings file. It contains only the server address, survives catalogue refreshes and is not part of the synced database. If saving settings fails, the dialog reports it separately; the completed sync still stands. Moving/renaming a catalogue requires entering the address again unless its settings file is moved too. A malformed settings file is reported and can be corrected by entering the address in the sync dialog.
+The desktop remembers the URL and options in a versioned, catalogue-ID-bound `<catalogue>.sync.toml` file beside the local catalogue, using bounded, atomic replacement. **Remember token and CA file paths on this computer** opts in to saving absolute token/CA paths; token contents are never stored. The required-sync marker comes from the recovery journal; choosing to browse read-only is transient rather than a saved preference. The settings file is not part of the synced database. Existing `.sync-url` files migrate with check-on-open and security-path remembering disabled. If saving settings fails, the dialog reports it separately; the completed sync still stands. Moving/renaming a catalogue requires moving its settings too. A malformed or wrong-catalogue settings file is reported rather than applied.
+
+### Optional check when opening
+
+In File → Sync…, enable **Check for updates when opening** to check this local
+catalogue against its saved server when you next open it. The check runs for a
+tracked replica after checking local recovery state; an untracked catalogue
+skips it. The check does not replace the catalogue. If it finds server changes
+or pending local edits, choose whether to sync now or continue browsing
+read-only. Saved conflicts or an interrupted replacement instead open a
+read-only recovery banner with a **Resolve conflicts** or recovery action.
+Read-only mode disables catalogue edits but leaves sync and recovery available.
+When sync is not required, **Edit this copy** in the status area resumes local
+editing. A required-sync marker cannot be cleared this way.
+
+Security file paths are remembered only when **Remember security file paths**
+is enabled in the dialog; the token contents are never stored. If this option
+is off, the opening check uses only the saved URL. For an authenticated or
+private-CA server, enable path remembering and select the relevant files, or
+open File → Sync… and select them in that dialog.
+
+If the server is unreachable before a required sync has succeeded, the copy
+stays read-only until you can sync. If no sync was already required, an
+unreachable check reports the problem and you can keep working offline. A
+successful conflict-free sync clears the required marker.
+
+### Resume an interrupted sync
+
+Opening iCatalog checks the local recovery journal but does not retry a
+transfer or install a staged snapshot automatically. The desktop shows the
+recovery phase and offers the action that matches it: **Resume interrupted
+sync** for `snapshot_ready`, **Sync now** for `retry` or `applied`, and **Apply
+saved choices and sync** for `applying`.
+
+For CLI use, inspect the phase first:
+
+```sh
+icatalog sync-resolve Library.icatalog --action list
+```
+
+For `snapshot_ready`, explicitly verify and resume the staged local replacement:
+
+```sh
+icatalog sync-resolve Library.icatalog --action recover
+```
+
+This checks the staged digest, catalogue identity/generation and preserved
+backup, then installs the staged snapshot (or confirms that it was already
+installed). It does not contact the server or upload edits. Reopen the catalogue
+in iCatalog after recovery. For `retry` or `applied`, run an ordinary `sync`
+with its server URL and any required security files. For `applying`, repeat
+`sync-resolve --action apply --session-id <session> --url <server>` with the
+session ID returned by `list`. These actions are explicit; opening the
+catalogue and read-only checks never restart the transfer.
 
 If the local catalogue disappears or is empty while desktop sync is running,
 reopening reports an error and leaves the file absent or empty. Restore the
@@ -241,14 +295,27 @@ Two clients can work independently offline. Edits to different assets or Collect
 
 ## Recovering conflicting edits or pre-first-sync work
 
-When a conflict occurs, the active local catalogue is refreshed from the server. Your draft survives in the backup identified by the output. Other non-conflicting edits from the same sync can still be accepted.
+When a conflict occurs, the active local catalogue is refreshed from the server. Your draft survives in the backup identified by the output, and a recovery journal stores both sides and any choices beside the catalogue. Other non-conflicting edits from the same sync can still be accepted. The desktop shows each asset by filename and each Collection by name, alongside its stable key. It shows changed fields with both values and the values that match on both sides as read-only shared context. Conflicts are paged, with previous/next controls; the desktop shows the current position. Keyword sets and manual Collection membership also allow a combined choice.
 
 1. Keep the backup file and note the reported conflict keys. They are stable identities, which may differ from the numeric IDs shown by `list`.
-2. Open the backup as a separate catalogue in the desktop app to inspect the ratings, keywords, Collection names, rules and memberships you wanted. Avoid editing the backup while reviewing it.
-3. Close the backup, open the current local catalogue, and reapply the values you decide should win. Use filenames and Collection details to find the relevant entries.
-4. Sync the current local catalogue again using **File → Sync… → Sync now**, or close the app and use the CLI.
+2. In the desktop conflict recovery view, inspect each field's local and server value and choose **Local**, **Server** or **Combined** where offered. Choices persist if the app closes.
+3. Choose **Apply choices and sync**. iCatalog applies all selected values together while retaining the server's values in fields you did not select, then retries sync. If the retry cannot complete, keep the backup and journal and retry after fixing the reported issue.
 
-These steps also work for local edits preserved by the first v2 sync. Reapplying them to the refreshed catalogue gives them a current starting point. Simply replacing the active copy with a stale backup can reproduce the same conflict. Reconciliation is manual; iCatalog does not offer an automatic conflict-resolution dialog yet.
+For CLI recovery, start with a page of conflicts:
+
+```sh
+icatalog sync-resolve Library.icatalog --action list --page 0 --page-size 50
+```
+
+The output includes a session ID, total and page counts, readable asset/Collection names, differing local/server values, saved choices, and shared fields. Pages start at zero; `--page-size` defaults to 50 and accepts 1–200. Use that session ID with each later action:
+
+```sh
+icatalog sync-resolve Library.icatalog --action show --session-id SESSION --key 'asset:UID'
+icatalog sync-resolve Library.icatalog --action choose --session-id SESSION --key 'asset:UID' --field rating --choice local
+icatalog sync-resolve Library.icatalog --action apply --session-id SESSION --url https://nas:8443
+```
+
+Use `--action choose` for every differing field, with `--choice local`, `server` or `combined`; the combined choice is supported for keyword and manual member sets. Later `list` pages can include the same `--session-id`. Stale session IDs are rejected. `apply` also accepts `--token-file` and `--ca-file`, applies all saved choices transactionally and immediately retries sync. The journal is stored in `<catalogue>.sync-state.sqlite` and remains available after a failed attempt. Conflicts for entities deleted from the server currently stop with local work preserved and cannot be resolved through this workflow. Do not replace the current copy with a stale backup; that can reproduce the same conflict.
 
 If you need to map a reported conflict key to a filename or Collection name, these optional read-only queries require the separate `sqlite3` command. Replace `ASSET_UID` with the part after `asset:` or `COLLECTION_UID` with the part after `collection:` in the reported key; replace the backup path too:
 

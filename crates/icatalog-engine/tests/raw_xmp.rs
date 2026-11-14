@@ -95,6 +95,7 @@ fn metric(o: &Outcome, k: &str) -> u64 {
             .map(|r| r[1].parse().unwrap())
             .unwrap_or(0),
         Outcome::Text(t) => panic!("{t}"),
+        Outcome::Sync(_) => panic!("unexpected sync outcome"),
     }
 }
 

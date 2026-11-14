@@ -24,6 +24,13 @@ filename or SQLite header alone is not a catalogue identity check.
 
 Engine command writes are grouped in a single deferred transaction (D23), with rollback on error, panic or failed commit. This does not change the schema version. Direct catalogue CRUD callers manage their own transaction boundaries.
 
+Sync recovery uses a separate bounded `<catalogue>.sync-state.sqlite`
+companion journal (D99) for its required-sync latch, conflict drafts and field
+choices, and interrupted-replacement stage/digest/backup details. It is not
+part of the catalogue schema, does not change the schema version, and does not
+travel in catalogue snapshots. Its recovery records are bound to the catalogue
+identity.
+
 Smart rule and Collection name updates write only when values change (D90).
 An identical save therefore does not advance catalogue generation or a
 Collection's sync revision. Null-to-value and value-to-null rule changes still
@@ -275,4 +282,4 @@ Manual Collections (D25) use the existing v1 tables without a migration. Collect
 
 **Decided:** synthetic and round-trip tests for the catalogue; public-domain images only. **Proposed:** import tests built from the `ivc` sample oracles; migration tests from every prior version; hostile-input tests (truncated or mutated bytes into import must return `Err`).
 
-D46 desktop sync uses the same v7 replica baseline and L3 commands without a migration. Remembered desktop server addresses live outside SQLite in optional local `<catalogue>.sync-url` preferences; they are not catalogue data or uploaded state.
+D46 desktop sync uses the same v7 replica baseline and L3 commands without a migration. D99 stores URL and behavior settings outside SQLite in optional local `<catalogue>.sync.toml` preferences; token/CA file paths are stored only by opt-in, and token contents are never stored. These preferences are not catalogue data or uploaded state. Legacy `<catalogue>.sync-url` files migrate to the new settings format. The companion recovery journal is documented above and likewise does not change catalogue schema.

@@ -142,6 +142,8 @@ impl Command for Previews {
             generated += 1;
         }
         ctx.catalog().prune_unreferenced_preview_blobs()?;
-        Ok(Outcome::text(format!("previews: generated {generated}; cached {cached}; unavailable, changed or unsupported {failed} (run update for changed media)")))
+        Ok(Outcome::text(format!(
+            "previews: generated {generated}; cached {cached}; unavailable, changed or unsupported {failed} (run update for changed media)"
+        )))
     }
 }

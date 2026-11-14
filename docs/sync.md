@@ -2,7 +2,7 @@
 
 For setup and everyday use, start with [Using iCatalog sync](sync-user-guide.md). This document describes the protocol and recovery guarantees.
 
-D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. Incremental catalogue downloads, automatic desktop startup sync and a desktop full-size preview viewer remain unbuilt.
+D20 is implemented in HTTP protocol v2, including Collection edits requested in D44. Schema v7 introduced sync state; schema v8 adds Maximum Rating rules (D57). The server owns media-derived catalogue data; replicas upload ratings, labels, keywords and Collections. Catalogues and previews travel server to client. D18/D19 snapshot uploads and fingerprint sidecars are retired. Desktop check-on-open and durable conflict recovery are described below (D99); incremental catalogue downloads and a desktop full-size preview viewer remain unbuilt.
 
 ## Model and identity
 
@@ -39,6 +39,105 @@ Collection changes carry UID, baseline revision, name, optional typed Smart Coll
 The server validates the whole batch, then checks revisions under a SQLite `BEGIN IMMEDIATE` transaction. Matching entities are applied; stale or missing entities and missing Collection members are reported as conflicts. If a storage operation fails, all writes from that batch roll back. A retry whose desired value is already present is accepted as a no-op, including retries after the server committed but its reply was lost. No silent last-writer-wins occurs.
 
 After uploading, the client pulls the current catalogue. Conflicting drafts are preserved in the pre-replacement backup and their stable keys are printed; the active copy shows server values. Other accepted entities remain applied. A failed upload/download leaves the local baseline and pending work intact; retrying cannot duplicate new Collections or reapply an already accepted value. Restoring a backup also restores its baseline and drafts; reconciliation is manual when edits still conflict.
+
+## Desktop check and conflict recovery (D99)
+
+The desktop stores per-catalogue sync preferences in `<catalogue>.sync.toml`:
+the server URL, opt-in `check_on_open` and `remember_security_files` flags,
+optional token/CA file paths, and the catalogue identity. This file is bound to
+the catalogue ID; the durable sync-required marker is stored in the companion
+journal. A user's Browse read-only choice is transient, not a preference.
+Security file paths are remembered only when the user enables that option;
+token contents are never stored. The strict,
+versioned TOML file is written atomically; legacy
+`<catalogue>.sync-url` files migrate to it with check-on-open and security-file
+remembering disabled. The CLI remains explicit and requires its normal `--url`
+argument.
+
+Opening first checks for an interrupted local recovery journal; it does not
+retry or install a staged snapshot automatically. The read-only
+`sync-resolve --action list` result reports `recovery_pending` and
+`recovery_phase`, with saved conflicts and any backup path. If conflicts or a
+staged replacement need recovery, the app opens read-only. For `snapshot_ready`,
+the desktop offers **Resume interrupted sync**; for `retry` or `applied`, use
+**Sync now**; for `applying`, choose **Apply saved choices and sync**. Otherwise, when
+check-on-open is enabled for a tracked replica,
+it checks the server before enabling edits. It uses remembered token/CA paths
+only when security-file remembering is enabled. A clean check leaves the main
+catalogue unchanged. If the check finds server changes or pending edits, the
+user chooses whether to sync or browse read-only. Untracked catalogues skip the
+server check. If the server is unreachable, an existing required-sync marker
+keeps the replica read-only; without a marker, the user may work offline. The
+marker lives in the companion journal and is cleared only by a successful,
+conflict-free sync. Read-only mode gates editing commands and controls while
+preserving browsing and sync/recovery actions. Latch read errors fail closed
+and keep editing disabled; the browsing choice itself is not stored in the
+preferences file.
+
+`sync-check` reports catalogue ID, baseline/local/server generations, tracked
+or untracked state, pending-edit count and whether sync is required. It does
+not replace the main catalogue, though a detected requirement updates the
+journal latch. That latch is persisted before snapshot staging/replacement,
+so an interrupted operation cannot leave the replica apparently editable
+against an uncertain baseline.
+
+`sync-resolve list` returns a durable session ID, total conflict count, page
+number and bounded conflict records. Pages are zero-based, default to 50
+conflicts and allow 1–200 with `--page-size`. Each record includes a bounded,
+human-readable asset filename or Collection name plus the stable key; the key
+disambiguates duplicate names. Fields that differ show the local/server
+values and saved choice. Equal fields appear as read-only shared context. The
+same view is paginated in the desktop, where previous/next controls show the
+current conflict position. Users can select local or server values per field;
+keyword sets and manual Collection membership also support a combined choice.
+Choices and the underlying local/server drafts are kept in a bounded companion
+`<catalogue>.sync-state.sqlite` journal, outside the catalogue schema and
+protocol. Recovery applies all chosen fields transactionally while retaining
+unselected server fields, then retries sync. An interrupted catalogue
+replacement records its staged file, expected digest, generations and backup
+path. Opening the catalogue and listing recovery only report this pending
+state; they never retry the transfer automatically. For a `snapshot_ready`
+phase, run `sync-resolve --action recover` explicitly (or choose **Resume
+interrupted sync** in the desktop). It checks the staged file's digest,
+identity, generation and backup before installing it; if replacement already
+happened, it verifies the installed catalogue instead. It does not upload or
+start another sync. A `retry` phase means replacement did not happen, so run
+ordinary `sync` explicitly. A failed recovery leaves the journal and read-only
+latch available for another attempt.
+Conflicts involving entities deleted on the server are currently preserved but
+cannot be resolved through this workflow; sync returns an error without
+replacing local work. Details of CLI
+action names and desktop controls are in the [development guide](development.md)
+and [sync user guide](sync-user-guide.md). `show`, `choose` and `apply` require
+the current `--session-id`; stale IDs are rejected. `list` accepts the session
+ID when requesting later pages. A CLI recovery sequence is:
+
+```sh
+icatalog sync-resolve local.icatalog --action list --page 0 --page-size 50
+icatalog sync-resolve local.icatalog --action show --session-id SESSION --key 'asset:UID'
+icatalog sync-resolve local.icatalog --action choose --session-id SESSION --key 'asset:UID' --field rating --choice local
+icatalog sync-resolve local.icatalog --action apply --session-id SESSION --url https://nas:8443
+```
+
+Supply the required `--token-file` and optional `--ca-file` to `apply` when
+the server uses authentication or a private CA. Use the session ID printed by
+`list`; `--page` can be incremented to inspect later pages.
+
+For an interrupted staged replacement, inspect status and explicitly resume
+the verified local recovery:
+
+```sh
+icatalog sync-resolve local.icatalog --action list
+icatalog sync-resolve local.icatalog --action recover
+```
+
+This action is valid only for `snapshot_ready`. If recovery reports `retry`,
+run `icatalog sync local.icatalog --url <server>` (and any required security
+file options) to start a new sync. If the phase is `applying`, repeat
+`sync-resolve --action apply --session-id <session> --url <server>` with the
+session from `list`; the prepared choices are durable. For `applied`, use
+ordinary `sync` to finish the explicit retry. Neither catalogue opening nor a
+read-only status check retries the transfer.
 
 ## HTTP endpoints
 
@@ -141,11 +240,11 @@ A replica fetches a referenced preview explicitly with:
 task cli:run -- sync local.sqlite --url http://nas:8080 --preview <sha>
 ```
 
-This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop Connect/Clone and explicit Sync controls exist (D46); automatic startup sync and a full-size preview viewer are not wired yet; the desktop continues to display grid thumbnails.
+This performs GET only, verifies SHA-256 before caching and makes no request when valid bytes are already cached. It uses the catalogue's storage mode and never opens catalogued original-media paths. There is no preview upload endpoint. Desktop Connect/Clone and explicit Sync controls exist (D46); automatic background sync and a full-size preview viewer are not wired yet; the desktop continues to display grid thumbnails.
 
 ## Remaining work
 
-Automatic desktop startup sync; incremental catalogue downloads; per-field conflict merging; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and HTTPS/authentication checks passed at `f59b12b` on 2026-11-13 ([NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)); Docker/Compose lifecycle checks passed with the same build ([container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)). NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
+Automatic background sync; incremental catalogue downloads; Collection deletion/conversion; preview garbage collection and GUI viewing; the wasm transport/storage implementation; container registry publication and service installation. D58 supplies static x86-64/ARM64 Linux musl CLI build/archive tasks and CI jobs; D60 adds a scratch image, Compose setup and disposable runtime checks (see the [NAS Docker guide](nas-docker.md)). Native x86-64/ARM64 hosted archive and HTTPS/authentication checks passed at `f59b12b` on 2026-11-13 ([NAS run 43439617184](https://github.com/atwright147/iCatalog/actions/runs/43439617184)); Docker/Compose lifecycle checks passed with the same build ([container run 43439617255](https://github.com/atwright147/iCatalog/actions/runs/43439617255)). NAS release publication remains unverified. The HTTP service and v2 protocol can be tested locally independently of that packaging.
 
 The CLI `serve` session opens an existing on-disk catalogue without SQLite's create
 flag (D60). Missing paths fail without creating a replacement catalogue, including
@@ -154,7 +253,7 @@ schema migration and protocol behavior are unchanged.
 
 ## Desktop client
 
-D46 exposes the existing `clone` and `sync` commands through native File-menu dialogs. Operations run on a worker; the desktop closes its catalogue reader during sync and reopens/refreshes after completion. Worker and recovery reopening require an existing, initialised catalogue (D75); a missing or empty file remains an error rather than being created or presented as a successful refresh. Full command output, offline deferrals and conflict backup paths remain visible. Untracked first sync requires acknowledging the backup-first policy. The desktop remembers an address locally in `<catalogue>.sync-url`; this optional preference never travels inside catalogue snapshots and does not alter CLI `--url` requirements. Sync remains explicit. See the [user guide](sync-user-guide.md) for the click-by-click workflow.
+D46 exposes the existing `clone` and `sync` commands through native File-menu dialogs. D99 adds opt-in check-on-open and read-only/consent controls; actual sync remains explicit. Operations run on a worker; the desktop closes its catalogue reader during sync and reopens/refreshes after completion. Worker and recovery reopening require an existing, initialised catalogue (D75); a missing or empty file remains an error rather than being created or presented as a successful refresh. Full command output, offline deferrals and conflict backup paths remain visible. Untracked first sync requires acknowledging the backup-first policy. The desktop remembers URL and behavior settings locally in versioned `<catalogue>.sync.toml`; optional remembered token/CA paths contain no credential data. Legacy `.sync-url` preferences migrate with checking and security-path remembering disabled. These settings never travel inside catalogue snapshots and do not alter CLI `--url` requirements. See the [user guide](sync-user-guide.md) for the click-by-click workflow.
 
 After a sync replaces the file, desktop asset selection is restored by stable
 UID among visible results; unavailable assets are deselected (D87). A reused

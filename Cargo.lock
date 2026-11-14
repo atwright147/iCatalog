@@ -1984,6 +1984,7 @@ dependencies = [
  "icatalog-catalog",
  "icatalog-media",
  "image",
+ "rusqlite",
  "winapi-util",
 ]
 
@@ -2003,8 +2004,10 @@ dependencies = [
  "icatalog-catalog",
  "icatalog-engine",
  "rcgen",
+ "rusqlite",
  "rustls",
  "rustls-pemfile",
+ "sha2",
  "subtle",
  "tempfile",
  "tiny_http",
@@ -2030,7 +2033,9 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "rfd",
+ "serde",
  "tempfile",
+ "toml 1.1.8+spec-1.1.0",
  "windows",
 ]
 
@@ -4226,10 +4231,12 @@ version = "1.1.8+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
 dependencies = [
+ "indexmap",
  "serde_core",
  "serde_spanned 1.1.2",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 
@@ -4295,6 +4302,12 @@ checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.4",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tracing"

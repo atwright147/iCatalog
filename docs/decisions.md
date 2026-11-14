@@ -1045,6 +1045,34 @@ from appearing in error output.
 References: [ureq 2 TLS configuration](https://docs.rs/ureq/2.12.1/ureq/struct.AgentBuilder.html#method.tls_config),
 [tiny_http server configuration](https://docs.rs/tiny_http/0.12.0/tiny_http/struct.SslConfig.html).
 
+## D99. Check sync state on open and preserve explicit conflict recovery (2026-11-13)
+
+Add an opt-in desktop check-on-open setting. When the server reports changes or
+the local copy has pending work, ask whether to sync or continue read-only;
+never replace a catalogue without an explicit sync choice. A failed check may
+allow offline editing only when no earlier check has already marked sync as
+required. Persist that latch until a successful conflict-free sync.
+
+Expose read-only `sync-check` and `sync-resolve` actions through the command
+registry and CLI. A check reports generations, pending user edits and unresolved
+conflicts without modifying the catalogue. Preserve local and server drafts in
+a bounded companion `<catalogue>.sync-state.sqlite` journal. Let users choose
+local or server values per field; keyword sets and manual Collection membership
+also support a combined value. Apply all saved choices transactionally while
+preserving unchosen server fields, then retry sync. This recovery journal and
+the versioned, catalogue-ID-bound `.sync.toml` desktop preferences do not
+change the SQLite catalogue schema or protocol v2 records. Persist the URL and
+behavior settings. Offer an explicit `remember_security_files` option for
+token/CA file paths; never persist token contents. Read-only state comes from
+the companion journal, not a preference. Do not add automatic background
+syncing. Server-deleted conflict entities remain preserved locally but are not
+currently resolvable in the field-choice workflow.
+
+Validation must cover offline/check-on-open behavior, read-only command gating,
+durable conflict choices, mixed field decisions, retry and rollback after
+failure. Deployment remains deferred until the local implementation and its
+tests pass.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

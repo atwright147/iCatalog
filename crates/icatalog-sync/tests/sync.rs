@@ -26,6 +26,24 @@ fn make_catalogue(dir: &Path, name: &str, id: &str, generation: i64) -> PathBuf 
     c.catalog().set_generation(generation).unwrap();
     path
 }
+fn encode_recovery_path(path: &Path) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let mut bytes = vec![b'u'];
+        bytes.extend_from_slice(path.as_os_str().as_bytes());
+        bytes
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let mut bytes = vec![b'w'];
+        for word in path.as_os_str().encode_wide() {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        bytes
+    }
+}
 fn command(c: &mut Context, id: &str, args: &[(&str, &str)]) {
     let mut p = Params::new();
     for (k, v) in args {
@@ -69,6 +87,30 @@ fn sync_params(url: &str) -> Params {
     let mut p = Params::new();
     p.set("url", url);
     p
+}
+
+fn sync_command(c: &mut Context, id: &str, args: &[(&str, &str)]) -> icatalog_engine::Outcome {
+    let mut params = Params::new();
+    for (key, value) in args {
+        params.set(*key, *value);
+    }
+    if id == "sync-resolve" && params.get("action") != Some("list") {
+        let mut list = Params::new();
+        list.set("action", "list");
+        if let Ok(icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(result))) =
+            icatalog_sync::dispatch_guarded(c, id, &list)
+        {
+            if let Some(session) = result.session_id {
+                params.set("session-id", session);
+            }
+        }
+    }
+    icatalog_sync::dispatch_guarded(c, id, &params).unwrap_or_else(|error| {
+        panic!(
+            "sync command {id} action {:?} failed: {error}",
+            params.get("action")
+        )
+    })
 }
 
 #[test]
@@ -164,6 +206,20 @@ fn maximum_rating_rules_round_trip_conflict_and_clear_over_real_http() {
     assert!(sync(&mut a, &url).conflicts.is_empty());
     let report = sync(&mut b, &url);
     assert_eq!(report.conflicts.len(), 1);
+    let resolver = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(resolver)) = resolver
+    else {
+        panic!("expected resolver data for Smart Collection conflict")
+    };
+    let smart = resolver.conflicts.first().unwrap();
+    assert_eq!(smart.display_name, "Smart");
+    assert!(smart.fields.iter().any(|field| field.field == "max_rating"));
+    for field in ["captured_from", "captured_to", "camera", "lens", "text"] {
+        assert!(
+            smart.shared.iter().any(|shared| shared.field == field),
+            "expected identical Smart Collection field {field}"
+        );
+    }
     let backup = Context::open(report.backup.unwrap()).unwrap();
     assert_eq!(
         backup.catalog().smart_rules(2).unwrap().unwrap().max_rating,
@@ -457,6 +513,577 @@ fn same_asset_and_collection_conflicts_preserve_local_work_and_apply_independent
     assert_eq!(b.catalog().annotation(1).unwrap().unwrap().rating, 5);
     assert_eq!(b.catalog().annotation(2).unwrap().unwrap().rating, 4);
     assert_eq!(b.catalog().collection(1).unwrap().unwrap().name, "A wins");
+}
+
+#[test]
+fn readonly_check_reports_delta_without_touching_catalogue_and_latches_required_sync() {
+    let dir = temp_dir("sync-check-readonly");
+    let (server, url) = seed(&dir);
+    let mut local = replica(&server, "checked.sqlite", &url);
+    command(&mut local, "edit", &[("id", "1"), ("rating", "3")]);
+    let path = local.path().to_path_buf();
+    drop(local);
+    let before = std::fs::read(&path).unwrap();
+    let mut readonly = Context::open_read_only(&path).unwrap();
+    let outcome = sync_command(&mut readonly, "sync-check", &[("url", &url)]);
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Check(result)) = outcome
+    else {
+        panic!("expected typed check result")
+    };
+    assert_eq!(result.status, icatalog_engine::SyncCheckStatus::Reachable);
+    assert_eq!(result.catalogue_id, "test");
+    assert!(result.baseline_generation.is_some());
+    assert!(result.sync_required);
+    assert_eq!(result.pending.len(), 1);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(readonly.sync_required().unwrap());
+    drop(readonly);
+    let reopened = Context::open_existing(&path).unwrap();
+    assert!(reopened.sync_required().unwrap());
+}
+
+#[test]
+fn sync_check_rejects_backwards_server_generation_without_writing_local_state() {
+    let dir = temp_dir("sync-check-backwards-generation");
+    let (server, url) = seed(&dir);
+    let server_ctx = Context::open(&server).unwrap();
+    server_ctx.catalog().set_generation(20).unwrap();
+    drop(server_ctx);
+
+    let local = replica(&server, "backwards-check.sqlite", &url);
+    let path = local.path().to_path_buf();
+    let companion = local.sync_state_path().unwrap();
+    drop(local);
+
+    let server_ctx = Context::open(&server).unwrap();
+    server_ctx.catalog().set_generation(0).unwrap();
+    drop(server_ctx);
+
+    let main_before = std::fs::read(&path).unwrap();
+    let companion_before = std::fs::read(&companion).unwrap();
+    let mut readonly = Context::open_read_only(&path).unwrap();
+    let mut params = Params::new();
+    params.set("url", &url);
+    let result = icatalog_sync::dispatch_guarded(&mut readonly, "sync-check", &params);
+    assert!(result.is_err(), "backwards generation must be rejected");
+    assert!(!readonly.sync_required().unwrap());
+    drop(readonly);
+    assert_eq!(std::fs::read(&path).unwrap(), main_before);
+    assert_eq!(std::fs::read(&companion).unwrap(), companion_before);
+}
+
+#[test]
+fn zero_conflict_interrupted_snapshot_is_reported_read_only_and_recovered_explicitly() {
+    let dir = temp_dir("zero-conflict-recovery");
+    let path = make_catalogue(&dir, "local.sqlite", "zero-recovery", 0);
+    let stage = dir.join(".download.icatalog-sync-zero-conflict");
+    let local = Context::open_existing(&path).unwrap();
+    let baseline = icatalog_sync::delta::encode(
+        "zero-recovery",
+        &icatalog_sync::delta::current(local.catalog()).unwrap(),
+    )
+    .unwrap();
+    local.catalog().set_replica_base(0, &baseline).unwrap();
+    let companion = local.sync_state_path().unwrap();
+    local.set_sync_required(true).unwrap();
+    drop(local);
+
+    std::fs::copy(&path, &stage).unwrap();
+    let staged = Context::open_existing(&stage).unwrap();
+    staged.catalog().set_generation(1).unwrap();
+    let staged_state = icatalog_sync::delta::encode(
+        "zero-recovery",
+        &icatalog_sync::delta::current(staged.catalog()).unwrap(),
+    )
+    .unwrap();
+    staged.catalog().set_replica_base(1, &staged_state).unwrap();
+    drop(staged);
+    let backup = icatalog_sync::util::backup_local(&path).unwrap().unwrap();
+    let digest = icatalog_sync::util::sha256_file(&stage).unwrap();
+
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    state
+        .execute_batch(
+            "CREATE TABLE sync_conflict(key TEXT PRIMARY KEY, local_record BLOB NOT NULL, server_record BLOB NOT NULL);
+             CREATE TABLE sync_choice(key TEXT NOT NULL, field TEXT NOT NULL, choice TEXT NOT NULL, PRIMARY KEY(key,field));
+             CREATE TABLE sync_resolution(key TEXT PRIMARY KEY, merged_record BLOB NOT NULL);
+             CREATE TABLE sync_recovery(singleton INTEGER PRIMARY KEY, phase TEXT NOT NULL, backup_path BLOB, staged_path TEXT, local_generation INTEGER, server_generation INTEGER, expected_digest TEXT);
+             CREATE TABLE sync_session(singleton INTEGER PRIMARY KEY, session_id TEXT NOT NULL);",
+        )
+        .unwrap();
+    state
+        .execute(
+            "INSERT INTO sync_recovery(singleton,phase,backup_path,staged_path,local_generation,server_generation,expected_digest) VALUES(1,'snapshot_ready',?1,?2,0,1,?3)",
+            rusqlite::params![encode_recovery_path(&backup), stage.file_name().unwrap().to_str().unwrap(), digest],
+        )
+        .unwrap();
+    drop(state);
+
+    let main_before = std::fs::read(&path).unwrap();
+    let mut readonly = Context::open_read_only(&path).unwrap();
+    let mut list = Params::new();
+    list.set("action", "list");
+    let outcome = icatalog_sync::dispatch_guarded(&mut readonly, "sync-resolve", &list).unwrap();
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(result)) = outcome
+    else {
+        panic!("expected resolver recovery status")
+    };
+    assert_eq!(result.recovery_phase.as_deref(), Some("snapshot_ready"));
+    assert!(result.recovery_pending);
+    assert!(!result.recovered);
+    assert!(readonly.sync_required().unwrap());
+    drop(readonly);
+    assert_eq!(std::fs::read(&path).unwrap(), main_before);
+
+    let oversized = "p".repeat(40_000);
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET phase=?1 WHERE singleton=1",
+            [&oversized],
+        )
+        .unwrap();
+    drop(state);
+    let mut readonly = Context::open_read_only(&path).unwrap();
+    let error = icatalog_sync::dispatch_guarded(&mut readonly, "sync-resolve", &list).unwrap_err();
+    assert!(error.to_string().contains("phase exceeds its size limit"));
+    drop(readonly);
+    assert_eq!(std::fs::read(&path).unwrap(), main_before);
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET phase='snapshot_ready' WHERE singleton=1",
+            [],
+        )
+        .unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET backup_path=?1 WHERE singleton=1",
+            [vec![b'x'; 40_000]],
+        )
+        .unwrap();
+    drop(state);
+    let mut readonly = Context::open_read_only(&path).unwrap();
+    let error = icatalog_sync::dispatch_guarded(&mut readonly, "sync-resolve", &list).unwrap_err();
+    assert!(error.to_string().contains("backup path in recovery state"));
+    drop(readonly);
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET backup_path=?1 WHERE singleton=1",
+            [encode_recovery_path(&backup)],
+        )
+        .unwrap();
+    drop(state);
+
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    let oversized_name = "x".repeat(40_000);
+    state
+        .execute(
+            "UPDATE sync_recovery SET staged_path=?1 WHERE singleton=1",
+            [&oversized_name],
+        )
+        .unwrap();
+    drop(state);
+    let mut writable = Context::open_existing(&path).unwrap();
+    let mut recover = Params::new();
+    recover.set("action", "recover");
+    let error =
+        icatalog_sync::dispatch_guarded(&mut writable, "sync-resolve", &recover).unwrap_err();
+    assert!(error.to_string().contains("staged snapshot name"));
+    assert_eq!(std::fs::read(&path).unwrap(), main_before);
+    drop(writable);
+    let state = rusqlite::Connection::open(&companion).unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET staged_path=?1 WHERE singleton=1",
+            [stage.file_name().unwrap().to_str().unwrap()],
+        )
+        .unwrap();
+    drop(state);
+
+    let mut writable = Context::open_existing(&path).unwrap();
+    let outcome = icatalog_sync::dispatch_guarded(&mut writable, "sync-resolve", &recover).unwrap();
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(result)) = outcome
+    else {
+        panic!("expected resolver recovery result")
+    };
+    assert!(result.recovered);
+    assert!(!result.recovery_pending);
+    assert_eq!(result.recovery_phase, None);
+    assert!(!writable.sync_required().unwrap());
+    assert_eq!(writable.catalog().replica_base().unwrap().unwrap().0, 1);
+}
+
+#[test]
+fn untracked_check_preserves_a_latched_marker_and_rejects_corrupt_companion_state() {
+    let dir = temp_dir("untracked-marker");
+    let path = make_catalogue(&dir, "standalone.sqlite", "untracked", 0);
+    let mut ctx = Context::open_existing(&path).unwrap();
+    ctx.set_sync_required(true).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let result = sync_command(&mut ctx, "sync-check", &[("url", "http://127.0.0.1:1")]);
+    assert!(
+        matches!(result,icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Check(ref r)) if r.status==icatalog_engine::SyncCheckStatus::Untracked && r.sync_required)
+    );
+    assert!(ctx.sync_required().unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let companion = ctx.sync_state_path().unwrap();
+    drop(ctx);
+    std::fs::write(&companion, b"not a companion database").unwrap();
+    let mut ctx = Context::open_existing(&path).unwrap();
+    let mut params = Params::new();
+    params.set("url", "http://127.0.0.1:1");
+    assert!(icatalog_sync::dispatch_guarded(&mut ctx, "sync-check", &params).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn conflict_fields_can_be_chosen_independently_and_applied_with_sync() {
+    let dir = temp_dir("field-conflict-resolution");
+    let (server, url) = seed(&dir);
+    let mut a = replica(&server, "field-a.sqlite", &url);
+    let mut b = replica(&server, "field-b.sqlite", &url);
+    command(
+        &mut a,
+        "edit",
+        &[("id", "1"), ("rating", "5"), ("label", "7")],
+    );
+    command(
+        &mut b,
+        "edit",
+        &[("id", "1"), ("rating", "2"), ("label", "3")],
+    );
+    sync(&mut a, &url);
+    let report = sync(&mut b, &url);
+    assert_eq!(report.conflicts, vec!["asset:one"]);
+    let listed = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(result)) = listed
+    else {
+        panic!("expected resolver DTO")
+    };
+    let conflict = result.conflicts.first().unwrap();
+    assert_eq!(conflict.display_name, "One.jpg");
+    assert!(!result.all_choices_made);
+    assert!(!result.all_choices_made);
+    assert!(conflict.fields.iter().any(|f| f.field == "rating"));
+    assert!(conflict.fields.iter().any(|f| f.field == "label"));
+    assert!(conflict.shared.iter().any(|f| f.field == "keywords"));
+    assert!(result.session_id.is_some());
+    sync_command(
+        &mut b,
+        "sync-resolve",
+        &[
+            ("action", "choose"),
+            ("key", "asset:one"),
+            ("field", "rating"),
+            ("choice", "local"),
+        ],
+    );
+    sync_command(
+        &mut b,
+        "sync-resolve",
+        &[
+            ("action", "choose"),
+            ("key", "asset:one"),
+            ("field", "label"),
+            ("choice", "server"),
+        ],
+    );
+    let selected = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    assert!(matches!(
+        selected,
+        icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(ref result))
+            if result.all_choices_made
+    ));
+    let selected = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    assert!(matches!(
+        selected,
+        icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(ref result))
+            if result.all_choices_made
+    ));
+    let outcome = sync_command(
+        &mut b,
+        "sync-resolve",
+        &[("action", "apply"), ("url", &url)],
+    );
+    assert!(matches!(
+        outcome,
+        icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(
+            icatalog_engine::SyncResolveResult { applied: true, .. }
+        ))
+    ));
+    assert_eq!(b.catalog().annotation(1).unwrap().unwrap().rating, 2);
+    assert_eq!(b.catalog().annotation(1).unwrap().unwrap().label, 7);
+    assert!(!b.sync_required().unwrap());
+    assert!(
+        matches!(sync_command(&mut b,"sync-resolve",&[("action","list")]),icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(ref r)) if r.conflicts.is_empty())
+    );
+}
+
+#[test]
+fn resolver_list_is_paginated_and_stale_session_ids_are_rejected() {
+    let dir = temp_dir("resolver-pagination-session");
+    let (server, url) = seed(&dir);
+    let mut a = replica(&server, "page-a.sqlite", &url);
+    let mut b = replica(&server, "page-b.sqlite", &url);
+    command(&mut a, "edit", &[("id", "1"), ("rating", "5")]);
+    command(
+        &mut a,
+        "collection",
+        &[("action", "rename"), ("id", "1"), ("name", "Server name")],
+    );
+    command(&mut b, "edit", &[("id", "1"), ("rating", "2")]);
+    command(
+        &mut b,
+        "collection",
+        &[("action", "rename"), ("id", "1"), ("name", "Local name")],
+    );
+    sync(&mut a, &url);
+    sync(&mut b, &url);
+
+    let first = sync_command(
+        &mut b,
+        "sync-resolve",
+        &[("action", "list"), ("page-size", "1")],
+    );
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(first)) = first else {
+        panic!("expected resolver list page")
+    };
+    assert_eq!(first.total_conflicts, 2);
+    assert_eq!(first.page, 0);
+    assert_eq!(first.page_size, 1);
+    assert_eq!(first.conflicts.len(), 1);
+    let session = first.session_id.unwrap();
+    let backup = first.recovery_backup.unwrap();
+    assert!(backup.is_file());
+
+    let second = sync_command(
+        &mut b,
+        "sync-resolve",
+        &[("action", "list"), ("page", "1"), ("page-size", "1")],
+    );
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(second)) = second
+    else {
+        panic!("expected second resolver list page")
+    };
+    assert_eq!(second.session_id.as_deref(), Some(session.as_str()));
+    assert_eq!(second.conflicts.len(), 1);
+    assert_ne!(first.conflicts[0].key, second.conflicts[0].key);
+
+    let mut invalid = Params::new();
+    invalid.set("action", "list").set("page-size", "201");
+    assert!(icatalog_sync::dispatch_guarded(&mut b, "sync-resolve", &invalid).is_err());
+
+    let connection = rusqlite::Connection::open(b.sync_state_path().unwrap()).unwrap();
+    connection
+        .execute("UPDATE sync_session SET session_id='rotated-session'", [])
+        .unwrap();
+    drop(connection);
+    let mut stale = Params::new();
+    stale
+        .set("action", "show")
+        .set("key", &first.conflicts[0].key)
+        .set("session-id", &session);
+    let error = icatalog_sync::dispatch_guarded(&mut b, "sync-resolve", &stale).unwrap_err();
+    assert!(error.to_string().contains("session changed"));
+
+    let local_bytes = std::fs::read(b.path()).unwrap();
+    std::fs::remove_file(&backup).unwrap();
+    let mut list = Params::new();
+    list.set("action", "list");
+    let error = icatalog_sync::dispatch_guarded(&mut b, "sync-resolve", &list).unwrap_err();
+    assert!(error.to_string().contains("recovery backup is unavailable"));
+    assert_eq!(std::fs::read(b.path()).unwrap(), local_bytes);
+}
+
+#[test]
+fn conflict_apply_refuses_catalogue_edits_made_after_review() {
+    let dir = temp_dir("stale-conflict-review");
+    let (server, url) = seed(&dir);
+    let mut a = replica(&server, "stale-a.sqlite", &url);
+    let mut b = replica(&server, "stale-b.sqlite", &url);
+    command(&mut a, "edit", &[("id", "1"), ("rating", "5")]);
+    command(&mut b, "edit", &[("id", "1"), ("rating", "2")]);
+    sync(&mut a, &url);
+    sync(&mut b, &url);
+    sync_command(
+        &mut b,
+        "sync-resolve",
+        &[
+            ("action", "choose"),
+            ("key", "asset:one"),
+            ("field", "rating"),
+            ("choice", "local"),
+        ],
+    );
+    command(&mut b, "edit", &[("id", "1"), ("rating", "4")]);
+    let listed = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(listed)) = listed
+    else {
+        panic!("expected resolver list")
+    };
+    let session = listed.session_id.unwrap();
+    let error = {
+        let mut params = Params::new();
+        params
+            .set("action", "apply")
+            .set("url", &url)
+            .set("session-id", &session);
+        icatalog_sync::dispatch_guarded(&mut b, "sync-resolve", &params).unwrap_err()
+    };
+    assert!(error
+        .to_string()
+        .contains("changed since the conflict was reviewed"));
+    assert_eq!(b.catalog().annotation(1).unwrap().unwrap().rating, 4);
+    let listed = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    assert!(
+        matches!(listed,icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(ref r)) if r.conflicts.iter().any(|c|c.key=="asset:one"))
+    );
+}
+
+#[test]
+fn prepared_conflict_resolution_rejects_choice_changes_until_retry_finishes() {
+    let dir = temp_dir("pending-resolution-choice");
+    let (server, url) = seed(&dir);
+    let mut a = replica(&server, "pending-a.sqlite", &url);
+    let mut b = replica(&server, "pending-b.sqlite", &url);
+    command(&mut a, "edit", &[("id", "1"), ("rating", "5")]);
+    command(&mut b, "edit", &[("id", "1"), ("rating", "2")]);
+    sync(&mut a, &url);
+    sync(&mut b, &url);
+    sync_command(
+        &mut b,
+        "sync-resolve",
+        &[
+            ("action", "choose"),
+            ("key", "asset:one"),
+            ("field", "rating"),
+            ("choice", "local"),
+        ],
+    );
+    let state = rusqlite::Connection::open(b.sync_state_path().unwrap()).unwrap();
+    state
+        .execute(
+            "UPDATE sync_recovery SET phase='applying' WHERE singleton=1",
+            [],
+        )
+        .unwrap();
+    drop(state);
+    let listed = sync_command(&mut b, "sync-resolve", &[("action", "list")]);
+    let icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(listed)) = listed
+    else {
+        panic!("expected resolver list")
+    };
+    let mut params = Params::new();
+    params
+        .set("action", "choose")
+        .set("key", "asset:one")
+        .set("field", "rating")
+        .set("choice", "server")
+        .set("session-id", listed.session_id.unwrap());
+    let error = icatalog_sync::dispatch_guarded(&mut b, "sync-resolve", &params).unwrap_err();
+    assert!(error.to_string().contains("retry apply before changing"));
+    let listed = sync_command(
+        &mut b,
+        "sync-resolve",
+        &[("action", "show"), ("key", "asset:one")],
+    );
+    assert!(
+        matches!(listed,icatalog_engine::Outcome::Sync(icatalog_engine::SyncOutcome::Resolve(ref r)) if r.conflicts[0].fields[0].choice==Some(icatalog_engine::SyncChoice::Local))
+    );
+}
+
+#[test]
+fn sync_progress_reports_download_chunks_and_completion() {
+    let dir = temp_dir("sync-progress");
+    let (server, url) = seed(&dir);
+    let mut local = replica(&server, "progress.sqlite", &url);
+    let mut server_ctx = Context::open(&server).unwrap();
+    command(&mut server_ctx, "edit", &[("id", "1"), ("rating", "4")]);
+    drop(server_ctx);
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = events.clone();
+    local.set_progress_sink(Some(std::sync::Arc::new(move |event| {
+        sink.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event);
+    })));
+    sync(&mut local, &url);
+    let events = events
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let downloaded = events
+        .iter()
+        .find(|event| {
+            event.phase == icatalog_engine::SyncPhase::Downloading && event.completed.is_some()
+        })
+        .expect("download byte progress");
+    assert!(downloaded.total.is_none_or(|total| {
+        downloaded
+            .completed
+            .is_some_and(|completed| completed <= total)
+    }));
+    assert!(events
+        .iter()
+        .any(|event| event.phase == icatalog_engine::SyncPhase::Complete
+            && event.completed == event.total));
+}
+
+#[test]
+fn transport_reports_content_length_and_rejects_oversized_response() {
+    fn serve_once(body: Vec<u8>) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+        });
+        format!("http://{address}/info")
+    }
+    let url = serve_once(b"hello".to_vec());
+    let mut progress = Vec::new();
+    let response = UreqTransport::new()
+        .get_with_progress(&url, &mut |done, total| progress.push((done, total)))
+        .unwrap();
+    assert_eq!(response.body, b"hello");
+    assert!(progress.contains(&(5, Some(5))));
+
+    let url = serve_once(vec![b'x'; 8193]);
+    assert!(matches!(
+        UreqTransport::new().get_with_progress(&url, &mut |_, _| {}),
+        Err(icatalog_sync::SyncError::Protocol(_))
+    ));
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 1024];
+        let _ = stream.read(&mut request).unwrap();
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: unusable\r\nConnection: close\r\n\r\nhello",
+            )
+            .unwrap();
+    });
+    let mut progress = Vec::new();
+    let response = UreqTransport::new()
+        .get_with_progress(&format!("http://{address}/snapshot"), &mut |done, total| {
+            progress.push((done, total));
+        })
+        .unwrap();
+    assert_eq!(response.body, b"hello");
+    assert_eq!(response.header("Content-Length"), None);
+    assert!(progress.contains(&(5, None)));
 }
 
 struct LostReply {
@@ -907,11 +1534,12 @@ fn clone_downloads_a_ready_replica_and_the_first_edit_is_uploaded() {
             .unwrap()
     );
     assert_eq!(sync(&mut c, &url).action, SyncAction::UpToDate);
-    assert!(!std::fs::read_dir(&dir).unwrap().any(|e| e
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .contains(".rejected-")));
+    assert!(!std::fs::read_dir(&dir).unwrap().any(|e| {
+        e.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".rejected-")
+    }));
     command(&mut c, "edit", &[("id", "1"), ("rating", "5")]);
     let r = sync(&mut c, &url);
     assert_eq!(r.action, SyncAction::Pushed);

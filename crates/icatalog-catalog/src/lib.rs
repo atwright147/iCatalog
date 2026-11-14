@@ -24,6 +24,7 @@ mod query;
 mod replication;
 mod smart;
 mod source;
+pub mod sync_state;
 
 pub use model::{
     device_of, Annotation, AssetMeta, Collection, Folder, Keyword, MetadataRaw, Source, Thumbnail,
@@ -361,6 +362,23 @@ impl Catalog {
             Connection::open_with_flags(sqlite_literal_path(path), flags)?,
             true,
         )
+    }
+
+    /// Open and validate an existing catalogue without migrations or write access.
+    /// This is intended for inspecting recovery backups from the desktop.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        if path == Path::new(":memory:") || !path.is_file() {
+            return Err(rusqlite::Error::InvalidPath(path.to_path_buf()).into());
+        }
+        let conn = Connection::open_with_flags(
+            sqlite_literal_path(path),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        validate_existing(&conn, false)?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        register_text_search(&conn)?;
+        Ok(Catalog { conn })
     }
 
     /// Open a fresh in-memory catalogue.

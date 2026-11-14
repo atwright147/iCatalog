@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 icatalog-catalog = { path = "../icatalog-catalog" }
 icatalog-media = { path = "../icatalog-media" }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1.11"

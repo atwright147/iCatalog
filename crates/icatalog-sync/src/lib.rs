@@ -16,6 +16,7 @@ mod commands;
 pub mod delta;
 mod download;
 mod error;
+mod journal;
 pub mod protocol;
 pub mod security;
 pub mod server;

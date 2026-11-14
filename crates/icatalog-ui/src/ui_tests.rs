@@ -275,7 +275,11 @@ fn settle(h: &mut Harness<'_, App>) {
         std::thread::sleep(Duration::from_millis(2));
         h.step();
     }
-    h.run();
+    if h.state().conflict_dialog.is_some() {
+        h.run_steps(2);
+    } else {
+        h.run();
+    }
 }
 
 #[test]

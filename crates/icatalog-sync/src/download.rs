@@ -28,7 +28,25 @@ pub(crate) fn prepare(
     expect_id: &str,
     minimum_generation: i64,
 ) -> Result<PreparedDownload> {
-    let resp = transport.get(url)?;
+    prepare_with_progress(
+        transport,
+        url,
+        destination,
+        expect_id,
+        minimum_generation,
+        &mut |_, _| {},
+    )
+}
+
+pub(crate) fn prepare_with_progress(
+    transport: &dyn Transport,
+    url: &str,
+    destination: &Path,
+    expect_id: &str,
+    minimum_generation: i64,
+    progress: &mut dyn FnMut(u64, Option<u64>),
+) -> Result<PreparedDownload> {
+    let resp = transport.get_with_progress(url, progress)?;
     if resp.status != 200 {
         return Err(resp.status_error("GET /catalogue"));
     }

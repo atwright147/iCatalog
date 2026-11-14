@@ -5,6 +5,28 @@ use std::thread::JoinHandle;
 
 pub struct Worker {
     handle: Option<JoinHandle<Result<Outcome>>>,
+    progress: std::sync::Arc<std::sync::Mutex<Option<icatalog_engine::SyncProgress>>>,
+}
+
+#[derive(Clone, Default)]
+struct LatestProgress(std::sync::Arc<std::sync::Mutex<Option<icatalog_engine::SyncProgress>>>);
+
+impl LatestProgress {
+    fn store(&self, progress: icatalog_engine::SyncProgress) {
+        let mut latest = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *latest = Some(progress);
+    }
+
+    fn take(&self) -> Option<icatalog_engine::SyncProgress> {
+        let mut latest = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        latest.take()
+    }
 }
 
 pub(crate) fn open_initialized_existing(path: &Path) -> Result<Context> {
@@ -30,18 +52,28 @@ impl Worker {
                 let _ = release.recv();
                 Ok(Outcome::Text("test worker finished".into()))
             })),
+            progress: LatestProgress::default().0,
         }
     }
 
     pub fn start(path: PathBuf, id: String, params: Params) -> std::io::Result<Self> {
+        let progress = LatestProgress::default();
+        let progress_sink = progress.clone();
         let handle = std::thread::Builder::new()
             .name("icatalog-command".into())
             .spawn(move || {
+                let read_only = matches!(id.as_str(), "sync-check")
+                    || (id == "sync-resolve"
+                        && matches!(params.get("action"), Some("list" | "show")));
                 let mut context = match id.as_str() {
                     "clone" => Context::for_destination(path)?,
                     "init" => Context::open(path)?,
+                    _ if read_only => Context::open_read_only(&path)?,
                     _ => open_initialized_existing(&path)?,
                 };
+                context.set_progress_sink(Some(std::sync::Arc::new(move |event| {
+                    progress_sink.store(event);
+                })));
                 if icatalog_engine::find_command(&id).is_some() {
                     dispatch_guarded(&mut context, &id, &params)
                 } else {
@@ -50,7 +82,12 @@ impl Worker {
             })?;
         Ok(Self {
             handle: Some(handle),
+            progress: progress.0,
         })
+    }
+
+    pub fn take_latest_progress(&self) -> Option<icatalog_engine::SyncProgress> {
+        LatestProgress(self.progress.clone()).take()
     }
 
     pub fn poll(&mut self) -> Option<Result<Outcome>> {
@@ -68,6 +105,30 @@ impl Worker {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_storage_keeps_only_the_latest_bounded_event() {
+        let progress = LatestProgress::default();
+        progress.store(icatalog_engine::SyncProgress {
+            phase: icatalog_engine::SyncPhase::Downloading,
+            completed: Some(32),
+            total: None,
+        });
+        progress.store(icatalog_engine::SyncProgress {
+            phase: icatalog_engine::SyncPhase::Validating,
+            completed: Some(1),
+            total: Some(1),
+        });
+        assert_eq!(
+            progress.take(),
+            Some(icatalog_engine::SyncProgress {
+                phase: icatalog_engine::SyncPhase::Validating,
+                completed: Some(1),
+                total: Some(1),
+            })
+        );
+        assert_eq!(progress.take(), None);
+    }
 
     #[test]
     fn background_command_reports_success_and_failure() {

@@ -19,7 +19,11 @@ pub mod previews;
 mod registry;
 mod time;
 
-pub use command::{Command, Outcome, ParamSpec};
+pub use command::{
+    Command, Outcome, ParamSpec, SyncCheckResult, SyncCheckStatus, SyncChoice, SyncConflict,
+    SyncEntity, SyncEntityKind, SyncFieldConflict, SyncOutcome, SyncPhase, SyncProgress,
+    SyncResolveResult, SyncRules, SyncRunResult, SyncSharedField, SyncValue,
+};
 pub use context::Context;
 pub use error::{EngineError, Result};
 pub use params::Params;

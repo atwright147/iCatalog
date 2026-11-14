@@ -21,7 +21,10 @@ impl HttpResponse {
     /// server may send an empty 500, so always include the status and next step.
     pub(crate) fn status_error(&self, request: &str) -> SyncError {
         if matches!(self.status, 401 | 403) {
-            return SyncError::Http(format!("{request} returned HTTP {}; authentication failed. Check the selected token file and server access settings", self.status));
+            return SyncError::Http(format!(
+                "{request} returned HTTP {}; authentication failed. Check the selected token file and server access settings",
+                self.status
+            ));
         }
         let prefix = self
             .body
@@ -55,6 +58,16 @@ impl HttpResponse {
 /// A blocking HTTP transport (GET and POST).
 pub trait Transport {
     fn get(&self, url: &str) -> Result<HttpResponse>;
+    fn get_with_progress(
+        &self,
+        url: &str,
+        progress: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<HttpResponse> {
+        let response = self.get(url)?;
+        let bytes = response.body.len() as u64;
+        progress(bytes, Some(bytes));
+        Ok(response)
+    }
     fn post(&self, url: &str, body: &[u8]) -> Result<HttpResponse>;
 }
 
@@ -139,13 +152,38 @@ impl Transport for UreqTransport {
         } else {
             MAX_SNAPSHOT_BYTES
         };
-        finish(self.request("GET", url)?.call(), cap, self.token.is_some())
+        finish(
+            self.request("GET", url)?.call(),
+            cap,
+            self.token.is_some(),
+            &mut |_, _| {},
+        )
+    }
+    fn get_with_progress(
+        &self,
+        url: &str,
+        progress: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<HttpResponse> {
+        let cap = if url.ends_with("/info") {
+            8192
+        } else if url.contains("/preview/") {
+            icatalog_catalog::MAX_PREVIEW_BYTES as u64
+        } else {
+            MAX_SNAPSHOT_BYTES
+        };
+        finish(
+            self.request("GET", url)?.call(),
+            cap,
+            self.token.is_some(),
+            progress,
+        )
     }
     fn post(&self, url: &str, body: &[u8]) -> Result<HttpResponse> {
         finish(
             self.request("POST", url)?.send_bytes(body),
             icatalog_catalog::MAX_SYNC_BYTES as u64,
             self.token.is_some(),
+            &mut |_, _| {},
         )
     }
 }
@@ -160,11 +198,12 @@ fn finish(
     result: std::result::Result<ureq::Response, ureq::Error>,
     cap: u64,
     authenticated: bool,
+    progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<HttpResponse> {
     match result {
-        Ok(resp) => read_response(resp, cap, authenticated),
+        Ok(resp) => read_response(resp, cap, authenticated, progress),
         // Non-2xx statuses are normal responses here (e.g. 409 on refusal).
-        Err(ureq::Error::Status(_, resp)) => read_response(resp, cap, authenticated),
+        Err(ureq::Error::Status(_, resp)) => read_response(resp, cap, authenticated, progress),
         Err(ureq::Error::Transport(t)) => {
             // TLS validation/handshake failures are actionable errors, never an
             // offline success. Avoid returning URLs or third-party diagnostics.
@@ -182,7 +221,12 @@ fn finish(
     }
 }
 
-fn read_response(resp: ureq::Response, cap: u64, authenticated: bool) -> Result<HttpResponse> {
+fn read_response(
+    resp: ureq::Response,
+    cap: u64,
+    authenticated: bool,
+    progress: &mut dyn FnMut(u64, Option<u64>),
+) -> Result<HttpResponse> {
     let status = resp.status();
     // Only 200 is a successful v2 protocol response. An error page or redirect
     // can echo Authorization, including through a proxy. Do not read or expose
@@ -195,18 +239,50 @@ fn read_response(resp: ureq::Response, cap: u64, authenticated: bool) -> Result<
         });
     }
     let mut headers = BTreeMap::new();
-    for name in [HEADER_ID, HEADER_GENERATION] {
+    for name in [HEADER_ID, HEADER_GENERATION, "Content-Length"] {
         if let Some(value) = resp.header(name) {
             headers.insert(name.to_ascii_lowercase(), value.to_string());
         }
     }
+    let total = resp
+        .header("Content-Length")
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    if total.is_none() {
+        headers.remove("content-length");
+    }
+    if total.is_some_and(|size| size > cap) {
+        return Err(SyncError::Protocol(
+            "response body exceeds the snapshot cap".into(),
+        ));
+    }
     let mut body = Vec::new();
-    resp.into_reader()
-        .take(cap.saturating_add(1))
-        .read_to_end(&mut body)?;
+    let mut reader = resp.into_reader().take(cap.saturating_add(1));
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let count = reader.read(&mut chunk)?;
+        if count == 0 {
+            break;
+        }
+        let part = chunk
+            .get(..count)
+            .ok_or_else(|| SyncError::Protocol("invalid response chunk".into()))?;
+        body.try_reserve(part.len())
+            .map_err(|_| SyncError::Protocol("response is too large to buffer safely".into()))?;
+        body.extend_from_slice(part);
+        let completed = body.len() as u64;
+        progress(completed, total);
+        if completed > cap {
+            break;
+        }
+    }
     if body.len() as u64 > cap {
         return Err(SyncError::Protocol(
             "response body exceeds the snapshot cap".into(),
+        ));
+    }
+    if total.is_some_and(|size| size != body.len() as u64) {
+        return Err(SyncError::Protocol(
+            "response Content-Length does not match body".into(),
         ));
     }
     Ok(HttpResponse {

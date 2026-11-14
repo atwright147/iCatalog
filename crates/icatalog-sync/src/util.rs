@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -54,6 +55,60 @@ pub fn sync_parent(path: &Path) -> Result<()> {
     #[cfg(not(unix))]
     let _ = path;
     Ok(())
+}
+
+/// SHA-256 a regular file in bounded chunks for interrupted-swap identity checks.
+pub fn sha256_file(path: &Path) -> Result<String> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(SyncError::Integrity(
+            "cannot hash a non-regular sync file".into(),
+        ));
+    }
+    if metadata.len() > crate::protocol::MAX_SNAPSHOT_BYTES {
+        return Err(SyncError::Integrity(
+            "sync file exceeds the snapshot limit".into(),
+        ));
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        let count = std::io::Read::read(&mut file, &mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        total = total
+            .checked_add(count as u64)
+            .ok_or_else(|| SyncError::Integrity("sync file length overflow".into()))?;
+        if total > crate::protocol::MAX_SNAPSHOT_BYTES {
+            return Err(SyncError::Integrity(
+                "sync file exceeds the snapshot limit".into(),
+            ));
+        }
+        hasher.update(
+            buffer
+                .get(..count)
+                .ok_or_else(|| SyncError::Integrity("invalid file read length".into()))?,
+        );
+    }
+    let digest = hasher.finalize();
+    let mut text = String::with_capacity(64);
+    for byte in digest {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let high = HEX
+            .get(usize::from(byte >> 4))
+            .copied()
+            .ok_or_else(|| SyncError::Integrity("invalid digest value".into()))?;
+        let low = HEX
+            .get(usize::from(byte & 0x0f))
+            .copied()
+            .ok_or_else(|| SyncError::Integrity("invalid digest value".into()))?;
+        text.push(char::from(high));
+        text.push(char::from(low));
+    }
+    Ok(text)
 }
 
 /// A hidden temp path in `dir`, unique per call (process id + clock).

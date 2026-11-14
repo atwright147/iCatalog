@@ -99,6 +99,10 @@ fn dispatch_cli(cmd: &str, rest: &[OsString]) -> ExitCode {
     let session = match inv.command.as_str() {
         "clone" => icatalog_engine::Context::for_destination(&inv.catalogue),
         "init" => icatalog_engine::Context::open(&inv.catalogue),
+        "sync-check" => icatalog_engine::Context::open_read_only(&inv.catalogue),
+        "sync-resolve" if matches!(inv.params.get("action"), Some("list" | "show")) => {
+            icatalog_engine::Context::open_read_only(&inv.catalogue)
+        }
         _ => icatalog_engine::Context::open_existing(&inv.catalogue),
     };
     let mut ctx = match session {

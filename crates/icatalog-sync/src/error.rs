@@ -56,6 +56,12 @@ impl From<CatalogError> for SyncError {
     }
 }
 
+impl From<rusqlite::Error> for SyncError {
+    fn from(e: rusqlite::Error) -> Self {
+        SyncError::Catalog(CatalogError::from(e))
+    }
+}
+
 impl From<EngineError> for SyncError {
     fn from(e: EngineError) -> Self {
         SyncError::Engine(e)

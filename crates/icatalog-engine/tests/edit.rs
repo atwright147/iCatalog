@@ -59,6 +59,7 @@ fn keep(rows: Outcome) -> String {
     match rows {
         Outcome::Text(t) => t,
         Outcome::Table { .. } => panic!("expected text outcome"),
+        Outcome::Sync(_) => panic!("unexpected sync outcome"),
     }
 }
 

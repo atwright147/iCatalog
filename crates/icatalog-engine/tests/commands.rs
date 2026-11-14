@@ -11,6 +11,7 @@ fn rows(o: Outcome) -> Vec<Vec<String>> {
     match o {
         Outcome::Table { rows, .. } => rows,
         Outcome::Text(t) => panic!("expected table, got {t}"),
+        Outcome::Sync(_) => panic!("unexpected sync outcome"),
     }
 }
 

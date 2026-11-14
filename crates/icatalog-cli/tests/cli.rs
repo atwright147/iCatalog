@@ -73,6 +73,20 @@ fn sync_security_options_reject_bad_files_without_touching_catalogues() {
 }
 
 #[test]
+fn sync_check_on_untracked_catalogue_does_not_write_or_contact_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let local = dir.path().join("local.icatalog");
+    let local_name = local.to_str().unwrap();
+    assert!(icatalog(&["init", local_name]).status.success());
+    let before = std::fs::read(&local).unwrap();
+    let result = icatalog(&["sync-check", local_name, "--url", "http://127.0.0.1:1"]);
+    assert!(result.status.success(), "{}", s(&result.stderr));
+    assert!(s(&result.stdout).contains("first sync"));
+    assert_eq!(std::fs::read(&local).unwrap(), before);
+    assert!(!local.with_extension("icatalog.sync-state.sqlite").exists());
+}
+
+#[test]
 fn init_treats_sqlite_uri_syntax_as_a_literal_filename() {
     let dir = tempfile::tempdir().unwrap();
     let name = "file:requested.sqlite?mode=memory";

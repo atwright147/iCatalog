@@ -6,6 +6,7 @@ fn metric(o: Outcome, k: &str) -> u64 {
     match o {
         Outcome::Table { rows, .. } => rows.iter().find(|r| r[0] == k).unwrap()[1].parse().unwrap(),
         Outcome::Text(t) => panic!("{t}"),
+        Outcome::Sync(_) => panic!("unexpected sync outcome"),
     }
 }
 
