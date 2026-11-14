@@ -1430,31 +1430,65 @@ fn server_batch_failure_rolls_back_earlier_user_edits() {
 
 #[test]
 fn local_writer_cannot_change_state_during_an_upload_or_download() {
-    let dir = temp_dir("local-lock");
+    check_local_writer_reservation(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn old_local_writer_cannot_write_to_the_replaced_file() {
+    check_local_writer_reservation(true);
+}
+
+fn check_local_writer_reservation(retain_old_handle: bool) {
+    let dir = temp_dir(if retain_old_handle {
+        "local-lock-retained"
+    } else {
+        "local-lock"
+    });
     let (server, url) = seed(&dir);
     let mut c = replica(&server, "client.sqlite", &url);
     command(&mut c, "edit", &[("id", "1"), ("rating", "5")]);
-    struct Locked<'a> {
-        writer: &'a Context,
+    struct Locked {
+        writer: RefCell<Option<Context>>,
+        retain_old_handle: bool,
+        checked_upload: Cell<bool>,
+        checked_download: Cell<bool>,
     }
-    impl Transport for Locked<'_> {
-        fn get(&self, url: &str) -> icatalog_sync::Result<HttpResponse> {
+    impl Locked {
+        fn assert_reserved(&self) {
             assert!(self
                 .writer
+                .borrow()
+                .as_ref()
+                .unwrap()
                 .catalog()
                 .connection()
                 .execute("UPDATE annotation SET rating=2 WHERE asset_id=1", [])
                 .is_err());
-            UreqTransport::new().get(url)
+        }
+    }
+    impl Transport for Locked {
+        fn get(&self, url: &str) -> icatalog_sync::Result<HttpResponse> {
+            self.assert_reserved();
+            let response = UreqTransport::new().get(url)?;
+            if url.ends_with("/catalogue") {
+                self.assert_reserved();
+                self.checked_download.set(true);
+                // Windows cannot replace a file with another SQLite handle
+                // open. The cross-platform test closes the competing handle
+                // after proving the reservation covers the entire transfer.
+                if !self.retain_old_handle {
+                    self.writer.borrow_mut().take();
+                }
+            }
+            Ok(response)
         }
         fn post(&self, url: &str, b: &[u8]) -> icatalog_sync::Result<HttpResponse> {
-            assert!(self
-                .writer
-                .catalog()
-                .connection()
-                .execute("UPDATE annotation SET rating=2 WHERE asset_id=1", [])
-                .is_err());
-            UreqTransport::new().post(url, b)
+            self.assert_reserved();
+            let response = UreqTransport::new().post(url, b)?;
+            self.assert_reserved();
+            self.checked_upload.set(true);
+            Ok(response)
         }
     }
     let writer = Context::open(c.path()).unwrap();
@@ -1463,16 +1497,26 @@ fn local_writer_cannot_change_state_during_an_upload_or_download() {
         .connection()
         .busy_timeout(std::time::Duration::ZERO)
         .unwrap();
-    client::sync_once(&mut c, &Locked { writer: &writer }, &url).unwrap();
+    let transport = Locked {
+        writer: RefCell::new(Some(writer)),
+        retain_old_handle,
+        checked_upload: Cell::new(false),
+        checked_download: Cell::new(false),
+    };
+    client::sync_once(&mut c, &transport, &url).unwrap();
+    assert!(transport.checked_upload.get());
+    assert!(transport.checked_download.get());
     assert_eq!(c.catalog().annotation(1).unwrap().unwrap().rating, 5);
-    assert!(
-        writer
-            .catalog()
-            .connection()
-            .execute("UPDATE annotation SET rating=2 WHERE asset_id=1", [])
-            .is_err(),
-        "an old connection must not successfully write to the replaced file"
-    );
+    if let Some(writer) = transport.writer.into_inner() {
+        assert!(
+            writer
+                .catalog()
+                .connection()
+                .execute("UPDATE annotation SET rating=2 WHERE asset_id=1", [])
+                .is_err(),
+            "an old connection must not successfully write to the replaced file"
+        );
+    }
 }
 
 #[test]

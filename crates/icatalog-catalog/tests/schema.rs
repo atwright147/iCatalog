@@ -3,6 +3,104 @@
 use icatalog_catalog::*;
 
 #[test]
+fn adopting_reserved_connection_preserves_lock_and_connection_invariants() {
+    let path = tmp("adopt-reserved");
+    let original = Catalog::open(&path).unwrap();
+    original.insert_catalogue("reserved", "today").unwrap();
+    drop(original);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;")
+        .unwrap();
+    let adopted = Catalog::from_existing_connection(conn).unwrap();
+    assert!(!adopted.connection().is_autocommit());
+    let matches: bool = adopted
+        .connection()
+        .query_row(
+            "SELECT icatalog_contains_ci('Straße', 'STRASSE')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(matches);
+    assert!(adopted
+        .connection()
+        .execute(
+            "INSERT INTO folder(id,parent_id,name) VALUES(1,999,'orphan')",
+            []
+        )
+        .is_err());
+    let competing = rusqlite::Connection::open(&path).unwrap();
+    competing.busy_timeout(std::time::Duration::ZERO).unwrap();
+    assert!(competing.execute_batch("BEGIN IMMEDIATE").is_err());
+    adopted.connection().execute_batch("ROLLBACK").unwrap();
+    competing
+        .execute_batch("BEGIN IMMEDIATE; ROLLBACK")
+        .unwrap();
+    drop(competing);
+    drop(adopted);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn adopting_reserved_connection_rejects_disabled_foreign_keys() {
+    let path = tmp("adopt-no-fk");
+    let original = Catalog::open(&path).unwrap();
+    original.insert_catalogue("reserved", "today").unwrap();
+    drop(original);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE")
+        .unwrap();
+    assert!(matches!(
+        Catalog::from_existing_connection(conn),
+        Err(CatalogError::InvalidQuery(_))
+    ));
+    let reopened = Catalog::open_existing(&path).unwrap();
+    reopened
+        .connection()
+        .execute_batch("BEGIN IMMEDIATE; ROLLBACK")
+        .unwrap();
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn adopting_existing_connection_never_migrates_an_older_catalogue() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_utc TEXT NOT NULL)",
+    )
+    .unwrap();
+    conn.execute_batch(include_str!("../src/v1.sql")).unwrap();
+    conn.execute_batch("INSERT INTO catalogue VALUES('old',0,'today',1); INSERT INTO schema_migrations VALUES(1,'today')").unwrap();
+    let adopted = Catalog::from_existing_connection(conn).unwrap();
+    assert_eq!(count(&adopted, "schema_migrations"), 1);
+    let schema_version: i64 = adopted
+        .connection()
+        .query_row("SELECT schema_version FROM catalogue", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 1);
+    assert!(adopted
+        .connection()
+        .prepare("SELECT * FROM replica_base")
+        .is_err());
+}
+
+#[test]
+fn adopting_unrelated_database_leaves_its_bytes_unchanged() {
+    let path = tmp("adopt-unrelated");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TABLE notes(message TEXT); INSERT INTO notes VALUES('keep')")
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        Catalog::from_existing_connection(conn),
+        Err(CatalogError::NotCatalogue)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn catalogue_id_must_be_safe_for_sync_transport() {
     let c = Catalog::open_in_memory().unwrap();
     for id in ["", " leading", "trailing ", "line\nbreak", "nonascii-é"] {

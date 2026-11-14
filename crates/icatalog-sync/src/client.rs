@@ -120,97 +120,124 @@ pub(crate) fn recover_staged_snapshot(ctx: &mut Context) -> Result<bool> {
     let Some(record) = crate::journal::staged_snapshot(ctx)? else {
         return Ok(false);
     };
-    // Keep a second connection's SQLite writer reservation alive while the
-    // Context connection is closed and the verified stage replaces the file.
-    // `Context::replace_catalogue_file` must close its own handle before rename.
+    let expected_id = ctx
+        .catalog()
+        .catalogue()?
+        .ok_or_else(|| SyncError::Protocol("local catalogue is not initialised".into()))?
+        .id;
     ctx.ensure_replaceable_path()?;
-    let recovery_guard = reserve_recovery_writer(ctx.path())?;
-    let journal_mode: String = recovery_guard
-        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
-        .map_err(CatalogError::from)?;
-    if journal_mode != "delete" {
-        return Err(SyncError::Protocol(
-            "sync recovery requires SQLite DELETE journal mode; catalogue was left untouched"
-                .into(),
-        ));
-    }
-    let name = &record.staged_name;
-    if !name.starts_with(".download.icatalog-sync-") || name.contains('/') || name.contains('\\') {
-        return Err(SyncError::Integrity(
-            "invalid staged snapshot name in sync recovery state".into(),
-        ));
-    }
-    let parent = util::parent_dir(ctx.path());
-    let staged = parent.join(name);
-    let (current_id, current_generation): (String, i64) = recovery_guard
-        .query_row("SELECT id,generation FROM catalogue LIMIT 1", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .map_err(CatalogError::from)?;
-    if staged.exists() {
-        if current_generation != record.local_generation {
-            return Err(SyncError::Integrity("catalogue changed while a sync replacement was interrupted; local work is preserved and the staged snapshot was not installed".into()));
-        }
-        let metadata = std::fs::symlink_metadata(&staged)?;
-        if !metadata.file_type().is_file() {
-            return Err(SyncError::Integrity(
-                "staged snapshot is not a regular file".into(),
+    let result = (|| -> Result<()> {
+        // Reserve the current path, which may differ from an older Context handle
+        // after an interrupted replacement. Keep this reservation through every
+        // validation and transfer it to Context immediately before replacement.
+        let recovery_guard = reserve_recovery_writer(ctx.path())?;
+        let journal_mode: String = recovery_guard
+            .connection()
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .map_err(CatalogError::from)?;
+        if journal_mode != "delete" {
+            return Err(SyncError::Protocol(
+                "sync recovery requires SQLite DELETE journal mode; catalogue was left untouched"
+                    .into(),
             ));
         }
-        #[cfg(unix)]
+        let name = &record.staged_name;
+        if !name.starts_with(".download.icatalog-sync-")
+            || name.contains('/')
+            || name.contains('\\')
         {
-            use std::os::unix::fs::MetadataExt;
-            if metadata.nlink() > 1 {
+            return Err(SyncError::Integrity(
+                "invalid staged snapshot name in sync recovery state".into(),
+            ));
+        }
+        let parent = util::parent_dir(ctx.path());
+        let staged = parent.join(name);
+        let (current_id, current_generation): (String, i64) = recovery_guard
+            .connection()
+            .query_row("SELECT id,generation FROM catalogue LIMIT 1", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(CatalogError::from)?;
+        if current_id != expected_id {
+            return Err(SyncError::Integrity(
+                "catalogue at the recovery path belongs to a different catalogue; no snapshot was installed".into(),
+            ));
+        }
+        if staged.exists() {
+            if current_generation != record.local_generation {
+                return Err(SyncError::Integrity("catalogue changed while a sync replacement was interrupted; local work is preserved and the staged snapshot was not installed".into()));
+            }
+            let metadata = std::fs::symlink_metadata(&staged)?;
+            if !metadata.file_type().is_file() {
                 return Err(SyncError::Integrity(
-                    "staged snapshot has multiple hard links".into(),
+                    "staged snapshot is not a regular file".into(),
                 ));
             }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if metadata.nlink() > 1 {
+                    return Err(SyncError::Integrity(
+                        "staged snapshot has multiple hard links".into(),
+                    ));
+                }
+            }
+            if util::sha256_file(&staged)? != record.expected_digest {
+                return Err(SyncError::Integrity(
+                    "staged snapshot digest does not match the durable recovery record".into(),
+                ));
+            }
+            let backup = record.backup_path.as_ref().ok_or_else(|| {
+                SyncError::Integrity("sync recovery backup path is missing".into())
+            })?;
+            if !std::fs::symlink_metadata(backup)?.file_type().is_file() {
+                return Err(SyncError::Integrity(
+                    "sync recovery backup is not a regular file".into(),
+                ));
+            }
+            util::verify_catalogue(backup, &current_id)?;
+            util::verify_catalogue(&staged, &current_id)?;
+            ctx.ensure_replaceable_path()?;
+            // Drop the old Context handle without releasing the fresh reservation.
+            // The normal replacement path closes this reserved handle immediately
+            // before rename, as it does for sync. Keeping a separate SQLite handle
+            // across rename prevents replacement on Windows.
+            *ctx.catalog_mut() = recovery_guard;
+            ctx.replace_catalogue_file(&staged)?;
+            util::sync_parent(ctx.path())?;
+        } else {
+            // A successful rename consumes the staged path. Distinguish that point
+            // from a cleanup after failed rename by checking the target generation.
+            let installed_generation = recovery_guard
+                .replica_base()?
+                .map(|(generation, _)| generation);
+            if installed_generation != Some(record.server_generation)
+                || util::sha256_file(ctx.path())? != record.expected_digest
+            {
+                crate::journal::set_phase(ctx, "retry")?;
+                return Err(SyncError::Integrity("sync stopped before replacing the catalogue; your local file and backup are intact; run sync again".into()));
+            }
+            let backup = record.backup_path.as_ref().ok_or_else(|| {
+                SyncError::Integrity("sync recovery backup path is missing".into())
+            })?;
+            if !std::fs::symlink_metadata(backup)?.file_type().is_file() {
+                return Err(SyncError::Integrity(
+                    "sync recovery backup is not a regular file".into(),
+                ));
+            }
+            *ctx.catalog_mut() = recovery_guard;
         }
-        if util::sha256_file(&staged)? != record.expected_digest {
-            return Err(SyncError::Integrity(
-                "staged snapshot digest does not match the durable recovery record".into(),
-            ));
-        }
-        let backup = record
-            .backup_path
-            .as_ref()
-            .ok_or_else(|| SyncError::Integrity("sync recovery backup path is missing".into()))?;
-        if !std::fs::symlink_metadata(backup)?.file_type().is_file() {
-            return Err(SyncError::Integrity(
-                "sync recovery backup is not a regular file".into(),
-            ));
-        }
-        util::verify_catalogue(backup, &current_id)?;
-        util::verify_catalogue(&staged, &current_id)?;
-        ctx.ensure_replaceable_path()?;
-        ctx.replace_catalogue_file(&staged)?;
-        util::sync_parent(ctx.path())?;
-    } else {
-        // A successful rename consumes the staged path. Distinguish that point
-        // from a cleanup after failed rename by checking the target generation.
-        let installed_generation = ctx
-            .catalog()
-            .replica_base()?
-            .map(|(generation, _)| generation);
-        if installed_generation != Some(record.server_generation)
-            || util::sha256_file(ctx.path())? != record.expected_digest
-        {
-            crate::journal::set_phase(ctx, "retry")?;
-            return Err(SyncError::Integrity("sync stopped before replacing the catalogue; your local file and backup are intact; run sync again".into()));
-        }
-        let backup = record
-            .backup_path
-            .as_ref()
-            .ok_or_else(|| SyncError::Integrity("sync recovery backup path is missing".into()))?;
-        if !std::fs::symlink_metadata(backup)?.file_type().is_file() {
-            return Err(SyncError::Integrity(
-                "sync recovery backup is not a regular file".into(),
-            ));
-        }
+        Ok(())
+    })();
+    // Replacement can fail before closing the transferred reservation (for
+    // example, its final path check). Always release the actual active handle.
+    if !ctx.catalog().connection().is_autocommit() {
+        ctx.catalog()
+            .connection()
+            .execute_batch("ROLLBACK")
+            .map_err(CatalogError::from)?;
     }
-    recovery_guard
-        .execute_batch("ROLLBACK")
-        .map_err(CatalogError::from)?;
+    result?;
     if crate::journal::has_unresolved(ctx)? {
         crate::journal::set_phase(ctx, "conflicts")?;
         ctx.set_sync_required(true)?;
@@ -221,7 +248,7 @@ pub(crate) fn recover_staged_snapshot(ctx: &mut Context) -> Result<bool> {
     Ok(true)
 }
 
-fn reserve_recovery_writer(path: &std::path::Path) -> Result<rusqlite::Connection> {
+fn reserve_recovery_writer(path: &std::path::Path) -> Result<icatalog_catalog::Catalog> {
     let connection = rusqlite::Connection::open_with_flags(
         path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -230,10 +257,17 @@ fn reserve_recovery_writer(path: &std::path::Path) -> Result<rusqlite::Connectio
     connection
         .busy_timeout(std::time::Duration::from_secs(5))
         .map_err(CatalogError::from)?;
+    // SQLite ignores foreign_keys changes inside a transaction; configure it
+    // before reserving the writer because this connection may become Context's.
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(CatalogError::from)?;
     connection
         .execute_batch("BEGIN IMMEDIATE")
         .map_err(CatalogError::from)?;
-    Ok(connection)
+    Ok(icatalog_catalog::Catalog::from_existing_connection(
+        connection,
+    )?)
 }
 
 fn sync_locked(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncReport> {
@@ -285,10 +319,7 @@ fn sync_locked(ctx: &mut Context, t: &dyn Transport, base: &str) -> Result<SyncR
         let body = delta::encode(&row.id, &changes)?;
         let resp = t.post(&join(base, "/annotations"), &body)?;
         if resp.status != 200 {
-            return Err(SyncError::Http(format!(
-                "POST /annotations returned {}",
-                resp.status
-            )));
+            return Err(resp.status_error("POST /annotations"));
         }
         let (generation, returned) = delta::decode_reply(&resp.body)?;
         if generation < remote.generation {
@@ -467,13 +498,77 @@ mod recovery_reservation_tests {
     use super::reserve_recovery_writer;
     use std::time::Duration;
 
+    #[cfg(unix)]
     #[test]
-    fn recovery_writer_reservation_blocks_a_concurrent_sqlite_writer() {
+    fn recovery_rejects_changed_current_path_despite_an_old_context_handle() {
+        for (replacement_id, generation, message) in [
+            ("original", 2, "catalogue changed"),
+            ("different", 0, "different catalogue"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("local.icatalog");
+            let mut ctx = icatalog_engine::Context::open(&path).unwrap();
+            ctx.catalog()
+                .insert_catalogue("original", "2026-01-01T00:00:00Z")
+                .unwrap();
+            let stage_name = ".download.icatalog-sync-stale-context";
+            let staged = directory.path().join(stage_name);
+            std::fs::copy(&path, &staged).unwrap();
+            let backup = super::util::backup_local(&path).unwrap().unwrap();
+            crate::journal::replace_conflicts(
+                &ctx,
+                crate::journal::SnapshotRecovery {
+                    catalogue_id: "original",
+                    conflicts: &[],
+                    staged_name: Some(stage_name),
+                    backup_path: Some(&backup),
+                    local_generation: 0,
+                    server_generation: 1,
+                    expected_digest: &super::util::sha256_file(&staged).unwrap(),
+                },
+            )
+            .unwrap();
+            let replacement = directory.path().join("replacement.icatalog");
+            let catalog = icatalog_catalog::Catalog::open(&replacement).unwrap();
+            catalog
+                .insert_catalogue(replacement_id, "2026-01-01T00:00:00Z")
+                .unwrap();
+            catalog.set_generation(generation).unwrap();
+            drop(catalog);
+            std::fs::rename(&replacement, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+
+            let error = super::recover_staged_snapshot(&mut ctx).unwrap_err();
+            assert!(error.to_string().contains(message), "{error}");
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert!(staged.exists());
+            assert!(backup.exists());
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.busy_timeout(Duration::ZERO).unwrap();
+            connection
+                .execute_batch("BEGIN IMMEDIATE; ROLLBACK;")
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn recovery_writer_reservation_survives_transfer_and_allows_replacement() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("reservation.sqlite");
-        drop(rusqlite::Connection::open(&path).unwrap());
+        let catalog = icatalog_catalog::Catalog::open(&path).unwrap();
+        catalog
+            .insert_catalogue("reservation", "2026-01-01T00:00:00Z")
+            .unwrap();
+        drop(catalog);
+        let mut ctx = icatalog_engine::Context::open_existing(&path).unwrap();
 
         let reservation = reserve_recovery_writer(&path).unwrap();
+        *ctx.catalog_mut() = reservation;
+        assert!(ctx
+            .catalog()
+            .connection()
+            .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, bool>(0))
+            .unwrap());
         let competing_path = path.clone();
         let competing = std::thread::spawn(move || {
             let connection = rusqlite::Connection::open(competing_path).unwrap();
@@ -484,7 +579,14 @@ mod recovery_reservation_tests {
         assert!(matches!(error, rusqlite::Error::SqliteFailure(ref code, _)
             if code.code == rusqlite::ErrorCode::DatabaseBusy
                 || code.code == rusqlite::ErrorCode::DatabaseLocked));
-        drop(reservation);
+        let staged = directory.path().join("staged.sqlite");
+        let catalog = icatalog_catalog::Catalog::open(&staged).unwrap();
+        catalog
+            .insert_catalogue("reservation", "2026-01-01T00:00:00Z")
+            .unwrap();
+        drop(catalog);
+        ctx.replace_catalogue_file(&staged).unwrap();
+        assert!(!staged.exists());
 
         let connection = rusqlite::Connection::open(path).unwrap();
         connection.execute_batch("BEGIN IMMEDIATE").unwrap();

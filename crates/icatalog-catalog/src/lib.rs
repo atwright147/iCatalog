@@ -298,6 +298,23 @@ fn register_text_search(conn: &Connection) -> Result<()> {
 }
 
 impl Catalog {
+    /// Adopt an existing, initialized catalogue connection without migrations.
+    /// An existing transaction (including its writer reservation) is preserved.
+    /// Callers with an active transaction must enable foreign keys before BEGIN.
+    /// This is used to transfer a verified recovery reservation into its Context.
+    pub fn from_existing_connection(conn: Connection) -> Result<Self> {
+        validate_existing(&conn, false)?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        let foreign_keys: bool = conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        if !foreign_keys {
+            return Err(CatalogError::InvalidQuery(
+                "enable foreign keys before reserving a catalogue connection",
+            ));
+        }
+        register_text_search(&conn)?;
+        Ok(Catalog { conn })
+    }
+
     fn from_conn(mut conn: Connection, existing: bool) -> Result<Self> {
         if existing {
             validate_existing(&conn, false)?;

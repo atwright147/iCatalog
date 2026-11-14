@@ -218,6 +218,8 @@ The client requires DELETE journal mode and holds a local SQLite write reservati
 
 The client establishes the baseline in the verified temporary database and flushes it. Before replacement it creates and flushes a uniquely named `<stem>.rejected-<UTC timestamp>[-n].<original extension>` backup without overwriting an existing file (D89; `.icatalog` is used when the source has no extension). Failure to back up aborts replacement. It releases the staged snapshot reader after validation, closes its old connection, atomically renames the verified file into place and reopens it. Releasing the source reader before rename is required on Windows; the local writer reservation and durable recovery safeguards remain unchanged. Temporary files are removed on failure. No original media or preview file is deleted by sync. A server generation moving backward relative to a replica baseline is refused.
 
+Explicit staged recovery reserves a fresh connection to the current pathname, validates its identity and state without migrating it, then transfers that reserved connection into the command context. Replacement closes that same connection immediately before rename, preserving the reservation through validation without retaining a second Windows handle. A stale context cannot authorize replacement of a changed or foreign catalogue.
+
 ## Preview storage and commands
 
 Grid thumbnails stay embedded. A `preview` row links an asset to a SHA-256 JPEG hash, oriented dimensions and source content hash. Previews use a 1920-pixel maximum long edge, JPEG quality 80, no upscaling and the existing EXIF orientation/media decoder; RAW uses its embedded JPEG preview without demosaicing. Generation is explicit and runs on the machine holding the original media:
