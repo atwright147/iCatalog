@@ -350,13 +350,15 @@ Use `icatalog previews <catalogue> status` on the server to see its storage mode
 
 Double-click an asset in Grid or List, or choose **View preview** in its context menu. **Fit** shows the whole stored preview; **100%** shows one image pixel per display pixel with scrolling. Close it with **Close** or Escape. The viewer works offline with embedded or cached previews, including read-only catalogues, and never reads original media. Stored previews are at most 1920 pixels on the long edge, rather than full-resolution originals.
 
-If no preview was generated, generate it on the server with originals available, then sync the catalogue. If an external preview is not cached, the viewer reports its hash and the fetch command. Fetch it explicitly, then reopen the viewer:
+If no preview was generated, generate it on the server with originals available, then sync the catalogue. If an external preview is not cached, open it in the desktop and choose **Fetch preview**. The viewer offers token and CA file pickers when needed; selections for that preview stay in the dialog. Fetching is available for an editable replica with a configured server address. A catalogue opened read-only, or awaiting a sync check or recovery, can still view cached previews but cannot fetch new bytes. The fetch only downloads that preview; it does not send pending edits or refresh catalogue data.
+
+The CLI remains available when the desktop fetch is unavailable or a script needs the preview:
 
 ```sh
 icatalog sync "$HOME/Pictures/iCatalog/Library.icatalog" --url http://nas:8080 --preview "<64-character SHA-256>"
 ```
 
-Replace the placeholder with the desired preview's hash; in an external server store, it is the filename without `.jpg`. Run ordinary catalogue sync first so the local copy knows that preview. This command fetches that preview only—it does not send pending edits or refresh the catalogue. Valid cached bytes are reused. Generating and converting previews happens on the server, where the originals are available.
+Replace the placeholder with the desired preview's hash; in an external server store, it is the filename without `.jpg`. Run ordinary catalogue sync first so the local copy knows that preview. Valid cached bytes are reused. Generating and converting previews happens on the server, where the originals are available.
 
 ## Troubleshooting
 

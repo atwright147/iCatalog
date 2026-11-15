@@ -1105,6 +1105,20 @@ symlinks before opening so a FIFO cannot indefinitely occupy the viewer worker.
 Test corrupt/missing/oversized previews, no writes, orientation, UI activation,
 dismissal, busy guards and actual rendered layout.
 
+## D102. Fetch external previews explicitly in the desktop viewer (2026-11-15)
+
+When an established replica references an external preview that is not cached,
+offer **Fetch preview** in the native viewer. A click dispatches the existing
+`sync --preview <sha>` command, then reads the verified stored preview through
+the existing `preview --id` command. Opening the viewer never starts a request.
+The preview fetch uses GET only and does not push edits or replace the catalogue.
+Optional token and CA file selections stay in that viewer dialog unless the
+user previously chose to remember their paths. Disable fetching while the
+catalogue is read-only or awaiting a sync check or recovery: the existing cache
+command can write SQLite preview storage. Cached previews remain viewable in
+those states. Block dismissal and app quit during the fetch, and report errors
+in the viewer for retry. No schema, protocol or new command is introduced.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 

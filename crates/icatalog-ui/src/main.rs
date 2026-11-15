@@ -665,7 +665,7 @@ impl App {
     }
 
     fn run_command(&mut self, id: &str, params: &Params) {
-        if self.worker.is_some() {
+        if self.worker.is_some() || self.preview.is_fetching() {
             return;
         }
         if matches!(id, "sync" | "sync-resolve") {
@@ -758,8 +758,54 @@ impl App {
     fn open_preview(&mut self, id: i64) {
         if self.can_open_preview() {
             self.pending_collection_toggle = None;
-            self.preview.start(&self.path, id);
+            let source = self.preview_fetch_source(id);
+            self.preview.start(&self.path, id, source);
         }
+    }
+
+    fn preview_fetch_source(&mut self, id: i64) -> Option<preview::FetchSource> {
+        if !self.replica {
+            return None;
+        }
+        let reference = match (
+            self.ctx.catalog().preview_mode(),
+            self.ctx.catalog().preview(id),
+        ) {
+            (Ok(mode), Ok(Some(reference))) if mode == "external" => reference,
+            (Err(error), _) | (_, Err(error)) => {
+                self.status = format!("Cannot inspect preview storage: {error}");
+                return None;
+            }
+            _ => return None,
+        };
+        let url = self.sync_url.trim().to_owned();
+        let disabled_reason = if !self.can_edit_catalogue() {
+            Some("Preview fetching is unavailable while this catalogue is read-only or awaiting sync recovery. Cached previews remain viewable.".into())
+        } else if url.is_empty() {
+            Some("Set the server address in File → Sync before fetching previews.".into())
+        } else {
+            None
+        };
+        let remembered =
+            self.sync_preferences.remember_security_files && self.sync_preferences.url == url;
+        Some(preview::FetchSource {
+            path: self.path.clone(),
+            asset_id: id,
+            hash: reference.hash,
+            url,
+            token_file: remembered
+                .then(|| {
+                    self.sync_preferences
+                        .token_file
+                        .as_deref()
+                        .map(PathBuf::from)
+                })
+                .flatten(),
+            ca_file: remembered
+                .then(|| self.sync_preferences.ca_file.as_deref().map(PathBuf::from))
+                .flatten(),
+            disabled_reason,
+        })
     }
 
     fn set_check_on_open(&mut self, enabled: bool) {
@@ -955,7 +1001,7 @@ impl App {
     }
 
     fn close_allowed(&mut self) -> bool {
-        if self.worker.is_some() {
+        if self.worker.is_some() || self.preview.is_fetching() {
             self.status = "A command is running; wait for it to finish before closing.".into();
             false
         } else {
@@ -2461,7 +2507,7 @@ impl eframe::App for App {
             self.pending_collection_toggle = None;
         }
         self.visible_thumbnails.clear();
-        if self.worker.is_some() {
+        if self.worker.is_some() || self.preview.is_fetching() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(50));
             if ui.ctx().input(|input| input.viewport().close_requested()) && !self.close_allowed() {

@@ -262,7 +262,12 @@ fn preference_file_path(path: Option<&Path>, remember: bool) -> Result<Option<St
 }
 
 // Native pickers supply paths only; the L3 command reads and validates file contents.
-fn security_file(ui: &mut egui::Ui, choose: &str, clear: &str, path: &mut Option<PathBuf>) -> bool {
+pub(super) fn security_file(
+    ui: &mut egui::Ui,
+    choose: &str,
+    clear: &str,
+    path: &mut Option<PathBuf>,
+) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         if ui.button(choose).clicked() {

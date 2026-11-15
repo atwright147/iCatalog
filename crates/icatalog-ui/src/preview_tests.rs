@@ -191,4 +191,224 @@ pub(super) fn visual_snapshots(results: &mut egui_kittest::SnapshotResults) {
     h.run();
     h.snapshot("catalogue-preview-unavailable");
     results.extend(h.take_snapshot_results());
+
+    let remote = Fixture::new();
+    make_uncached_replica(&remote);
+    let mut h = remote.harness([800.0, 600.0]);
+    h.state_mut().sync_url = "https://nas.example:8443".into();
+    open_from_menu(&mut h);
+    h.get_by_label("Security settings").click();
+    settle(&mut h);
+    h.event(egui::Event::PointerGone);
+    h.run();
+    h.snapshot("catalogue-preview-fetch");
+    results.extend(h.take_snapshot_results());
+}
+
+fn make_uncached_replica(fixture: &Fixture) -> (String, Vec<u8>) {
+    let hash = seed(fixture, true);
+    let cache = fixture
+        .dir
+        .path()
+        .join("previews")
+        .join(format!("{hash}.jpg"));
+    let bytes = std::fs::read(&cache).unwrap();
+    std::fs::remove_file(cache).unwrap();
+    let ctx = open_catalogue(&fixture.path()).unwrap();
+    ctx.catalog()
+        .set_replica_base(0, b"synthetic baseline")
+        .unwrap();
+    (hash, bytes)
+}
+
+/// A bounded synthetic HTTP responder records every request, so an accidental
+/// catalogue sync or upload fails the same tests as a malformed preview fetch.
+fn preview_server(
+    responses: Vec<(u16, Vec<u8>)>,
+) -> (
+    String,
+    std::sync::mpsc::Receiver<String>,
+    std::thread::JoinHandle<()>,
+) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        for (status, body) in responses {
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "preview request timeout");
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("preview accept: {error}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let len = stream.read(&mut buffer).unwrap();
+                assert!(len > 0 && request.len() < 16 * 1024);
+                request.extend_from_slice(&buffer[..len]);
+            }
+            tx.send(String::from_utf8(request).unwrap()).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 {status} Synthetic\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    (url, rx, handle)
+}
+
+#[test]
+fn explicit_preview_fetch_is_get_only_persists_cache_and_reopens_offline() {
+    let fixture = Fixture::new();
+    let (hash, bytes) = make_uncached_replica(&fixture);
+    let before = std::fs::read(fixture.path()).unwrap();
+    let (url, requests, server) = preview_server(vec![(200, bytes.clone())]);
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().sync_url = url;
+    open_from_menu(&mut h);
+    assert!(
+        requests.try_recv().is_err(),
+        "opening must never fetch automatically"
+    );
+    h.get_by_label("Fetch preview").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Stored preview").is_some());
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(request.starts_with(&format!("GET /preview/{hash} HTTP/1.1\r\n")));
+    server.join().unwrap();
+    assert_eq!(
+        std::fs::read(
+            fixture
+                .dir
+                .path()
+                .join("previews")
+                .join(format!("{hash}.jpg"))
+        )
+        .unwrap(),
+        bytes
+    );
+    assert_eq!(std::fs::read(fixture.path()).unwrap(), before);
+    assert!(!fixture.dir.path().join("fixture.sqlite.sync.toml").exists());
+    h.get_by_label("Close").click();
+    settle(&mut h);
+    open_from_menu(&mut h);
+    assert!(h.query_by_label("Stored preview").is_some());
+}
+
+#[test]
+fn preview_fetch_failure_retains_dialog_and_ephemeral_security_for_retry() {
+    let fixture = Fixture::new();
+    let (hash, bytes) = make_uncached_replica(&fixture);
+    let before = std::fs::read(fixture.path()).unwrap();
+    let (url, requests, server) = preview_server(vec![(401, b"denied".to_vec()), (200, bytes)]);
+    let token_path = fixture.dir.path().join("synthetic-token.txt");
+    let token = "synthetic-preview-token-0123456789abcdef0123456789";
+    std::fs::write(&token_path, token).unwrap();
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().sync_url = url;
+    open_from_menu(&mut h);
+    h.state_mut()
+        .preview
+        .set_fetch_files_for_test(Some(token_path), None);
+    h.get_by_label("Fetch preview").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Preview unavailable").is_some());
+    assert!(!fixture
+        .dir
+        .path()
+        .join("previews")
+        .join(format!("{hash}.jpg"))
+        .exists());
+    assert_eq!(std::fs::read(fixture.path()).unwrap(), before);
+    h.get_by_label("Fetch preview").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Stored preview").is_some());
+    for _ in 0..2 {
+        let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(request.starts_with(&format!("GET /preview/{hash} HTTP/1.1\r\n")));
+        assert!(request
+            .to_ascii_lowercase()
+            .contains(&format!("authorization: bearer {token}")));
+    }
+    server.join().unwrap();
+    assert!(!fixture.dir.path().join("fixture.sqlite.sync.toml").exists());
+    assert!(h.state().sync_preferences.token_file.is_none());
+}
+
+#[test]
+fn preview_fetch_is_disabled_in_read_only_and_recovery_states() {
+    let fixture = Fixture::new();
+    make_uncached_replica(&fixture);
+    for state in ["required", "backup", "recovery", "check-error", "no-server"] {
+        let mut h = fixture.harness([800.0, 600.0]);
+        h.state_mut().sync_url = "http://127.0.0.1:1".into();
+        match state {
+            "required" => h.state_mut().sync_read_only = true,
+            "backup" => h.state_mut().backup_return_path = Some(fixture.path()),
+            "recovery" => {
+                h.state_mut().recovery_pending = true;
+                h.state_mut().recovery_phase = Some("snapshot_ready".into());
+            }
+            "check-error" => h.state_mut().sync_check_error = Some("synthetic".into()),
+            _ => h.state_mut().sync_url.clear(),
+        }
+        open_from_menu(&mut h);
+        assert!(
+            h.get_by_label("Fetch preview")
+                .accesskit_node()
+                .is_disabled(),
+            "{state}"
+        );
+        h.get_by_label("Fetch preview").click();
+        h.run_steps(3);
+        assert!(!h.state().preview.is_loading());
+        assert!(h.query_by_label("Stored preview").is_none());
+    }
+}
+
+#[test]
+fn pending_preview_fetch_blocks_dismissal_quit_and_other_commands() {
+    let fixture = Fixture::new();
+    make_uncached_replica(&fixture);
+    let mut h = fixture.harness([800.0, 600.0]);
+    h.state_mut().sync_url = "http://127.0.0.1:1".into();
+    open_from_menu(&mut h);
+    let (release, receiver) = std::sync::mpsc::channel();
+    h.state_mut().preview.block_fetch_for_test(receiver);
+    h.run_steps(3);
+    assert!(h.get_by_label("Close").accesskit_node().is_disabled());
+    assert!(h
+        .get_by_label("Close dialog")
+        .accesskit_node()
+        .is_disabled());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().preview.is_open());
+    assert!(!h.state_mut().close_allowed());
+    h.state_mut()
+        .run_command("edit", &edit_params(1, "rating", "5"));
+    assert!(h.state().worker.is_none());
+    h.state_mut().open_sync_dialog(false);
+    assert!(h.state().sync_dialog.is_none());
+    release.send(()).unwrap();
+    settle(&mut h);
+    assert!(!h.state().preview.is_fetching());
+    h.get_by_label("Close").click();
+    settle(&mut h);
+    assert!(h.state_mut().close_allowed());
 }

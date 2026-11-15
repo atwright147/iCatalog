@@ -1,7 +1,7 @@
 //! Stored-preview presentation. Verification and decoding stay in the engine.
 use eframe::egui;
 use icatalog_engine::{Outcome, Params, PreviewImage};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Default)]
 pub(super) struct Viewer {
@@ -10,6 +10,18 @@ pub(super) struct Viewer {
     image: Option<Loaded>,
     error: Option<String>,
     actual_size: bool,
+    fetch: Option<FetchSource>,
+    fetching: bool,
+}
+
+pub(super) struct FetchSource {
+    pub path: PathBuf,
+    pub asset_id: i64,
+    pub hash: String,
+    pub url: String,
+    pub token_file: Option<PathBuf>,
+    pub ca_file: Option<PathBuf>,
+    pub disabled_reason: Option<String>,
 }
 
 struct Loaded {
@@ -28,6 +40,21 @@ impl Viewer {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn set_fetch_files_for_test(&mut self, token: Option<PathBuf>, ca: Option<PathBuf>) {
+        if let Some(source) = &mut self.fetch {
+            source.token_file = token;
+            source.ca_file = ca;
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn block_fetch_for_test(&mut self, release: std::sync::mpsc::Receiver<()>) {
+        self.worker = Some(super::worker::Worker::blocked_for_test(release));
+        self.fetching = true;
+        self.error = None;
+    }
+
     pub(super) fn is_open(&self) -> bool {
         self.open
     }
@@ -36,7 +63,11 @@ impl Viewer {
         self.worker.is_some()
     }
 
-    pub(super) fn start(&mut self, path: &Path, asset_id: i64) {
+    pub(super) fn is_fetching(&self) -> bool {
+        self.fetching && self.worker.is_some()
+    }
+
+    pub(super) fn start(&mut self, path: &Path, asset_id: i64, fetch: Option<FetchSource>) {
         // Retain a dismissed worker until it finishes: rapid open/close gestures
         // must never accumulate decode threads or let a stale result appear.
         if self.worker.is_some() || self.open {
@@ -46,6 +77,8 @@ impl Viewer {
         self.image = None;
         self.error = None;
         self.actual_size = false;
+        self.fetch = fetch;
+        self.fetching = false;
         let mut params = Params::new();
         params.set("id", asset_id.to_string());
         match super::worker::Worker::start(path.to_owned(), "preview".into(), params) {
@@ -57,7 +90,25 @@ impl Viewer {
     pub(super) fn poll(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.worker.as_mut().and_then(super::worker::Worker::poll) {
             self.worker = None;
-            if self.open {
+            if self.fetching {
+                self.fetching = false;
+                if let Err(error) = result {
+                    self.error = Some(format!("Cannot fetch preview: {error}"));
+                } else if let Some(source) = &self.fetch {
+                    let mut params = Params::new();
+                    params.set("id", source.asset_id.to_string());
+                    match super::worker::Worker::start(
+                        source.path.clone(),
+                        "preview".into(),
+                        params,
+                    ) {
+                        Ok(worker) => self.worker = Some(worker),
+                        Err(error) => {
+                            self.error = Some(format!("Cannot load fetched preview: {error}"))
+                        }
+                    }
+                }
+            } else if self.open {
                 let image = result
                     .map_err(|error| error.to_string())
                     .and_then(|outcome| match outcome {
@@ -83,12 +134,14 @@ impl Viewer {
         let width = (screen.x - 64.0).clamp(160.0, 1000.0);
         let height = (screen.y - 190.0).clamp(80.0, 700.0);
         let mut close = false;
+        let mut fetch = false;
+        let fetching = self.is_fetching();
         let response = egui::Modal::new(egui::Id::new("asset_preview"))
             .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(12))
             .show(ctx, |ui| {
                 super::spacing::dialog(ui);
                 ui.set_width(width);
-                close = super::dialog::header(ui, "Preview", true);
+                close = super::dialog::header(ui, "Preview", !fetching);
                 if let Some(image) = &self.image {
                     ui.add(egui::Label::new(&image.filename).truncate())
                         .on_hover_text(&image.filename);
@@ -124,27 +177,109 @@ impl Viewer {
                 } else if let Some(error) = &self.error {
                     ui.strong("Preview unavailable");
                     egui::ScrollArea::vertical()
-                        .max_height(height)
+                        .max_height(if self.fetch.is_some() {
+                            (height - 180.0).max(60.0)
+                        } else {
+                            height
+                        })
                         .show(ui, |ui| {
                             ui.add(egui::Label::new(error).wrap().selectable(true));
                         });
+                    if let Some(source) = &mut self.fetch {
+                        ui.separator();
+                        ui.add(egui::Label::new(format!("Server: {}", source.url)).truncate());
+                        ui.add_enabled_ui(source.disabled_reason.is_none(), |ui| {
+                            egui::CollapsingHeader::new("Security settings").show(ui, |ui| {
+                                super::sync_ui::security_file(
+                                    ui,
+                                    "Choose token file…",
+                                    "Clear token file",
+                                    &mut source.token_file,
+                                );
+                                super::sync_ui::security_file(
+                                    ui,
+                                    "Choose CA file…",
+                                    "Clear CA file",
+                                    &mut source.ca_file,
+                                );
+                                ui.small("These selections apply only to this preview dialog.");
+                            });
+                            fetch = ui.button("Fetch preview").clicked();
+                        });
+                        if let Some(reason) = &source.disabled_reason {
+                            ui.add(egui::Label::new(reason).wrap());
+                        }
+                    }
                 } else {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Loading stored preview…");
+                        ui.label(if fetching {
+                            "Fetching preview from server…"
+                        } else {
+                            "Loading stored preview…"
+                        });
                     });
                 }
                 ui.separator();
-                close |= ui.button("Close").clicked();
+                close |= ui
+                    .add_enabled(!fetching, egui::Button::new("Close"))
+                    .clicked();
             });
-        if close || response.should_close() {
+        if !fetching && (close || response.should_close()) {
             self.dismiss();
+        } else if fetch {
+            self.start_fetch();
         }
     }
+    fn start_fetch(&mut self) {
+        let Some(source) = &self.fetch else {
+            return;
+        };
+        if self.worker.is_some() || source.disabled_reason.is_some() {
+            return;
+        }
+        let prepared = (|| -> Result<Params, String> {
+            if source.url.len() > 8192 {
+                return Err("server address exceeds 8 KiB".into());
+            }
+            icatalog_sync::validate_server_url(&source.url).map_err(|error| error.to_string())?;
+            let mut params = Params::new();
+            params.set("url", &source.url);
+            params.set("preview", &source.hash);
+            for (key, path) in [
+                ("token-file", source.token_file.as_deref()),
+                ("ca-file", source.ca_file.as_deref()),
+            ] {
+                if let Some(path) = path {
+                    let value = path
+                        .to_str()
+                        .ok_or_else(|| "Security file path must be valid UTF-8".to_owned())?;
+                    if value.len() > 8192 {
+                        return Err("Security file path exceeds 8 KiB".into());
+                    }
+                    params.set(key, value);
+                }
+            }
+            Ok(params)
+        })();
+        match prepared.and_then(|params| {
+            super::worker::Worker::start(source.path.clone(), "sync".into(), params)
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                self.fetching = true;
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("Cannot fetch preview: {error}")),
+        }
+    }
+
     fn dismiss(&mut self) {
         self.open = false;
         self.image = None;
         self.error = None;
+        self.fetch = None;
     }
 }
 
@@ -207,7 +342,7 @@ mod tests {
             ..Default::default()
         };
         viewer.dismiss();
-        viewer.start(Path::new("must-not-open.sqlite"), 2);
+        viewer.start(Path::new("must-not-open.sqlite"), 2, None);
         assert!(!viewer.is_open());
         assert!(viewer.is_loading());
         release.send(()).unwrap();
