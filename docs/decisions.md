@@ -1119,6 +1119,29 @@ command can write SQLite preview storage. Cached previews remain viewable in
 those states. Block dismissal and app quit during the fetch, and report errors
 in the viewer for retry. No schema, protocol or new command is introduced.
 
+## D103. Plan creative-document thumbnail support (2026-11-16)
+
+Owner-requested scope: ArtRage, Rebelle, Clip Studio Paint, Adobe Photoshop,
+Illustrator, InDesign, Affinity Photo/Designer/Publisher and the new Affinity,
+Krita, Procreate and PDF. Photoshop thumbnail support is still unbuilt; include PSD
+and PSB in the research scope. All of this work remains **PLANNED**.
+
+The proposed breakdown is research and a versioned sample matrix, followed by
+bounded saved-thumbnail/composite extraction in `icatalog-media`, integration
+through existing Import/Update and preview generation, and per-format regression
+coverage. Rendering fallbacks need a separate feasibility decision; full document
+rendering is not promised. Existing Rust-only, clean-room, dependency licensing,
+NAS and wasm constraints apply. Verify the new Affinity's format independently
+before assuming compatibility with earlier Affinity documents.
+
+PDF is included at the owner's request. Research embedded thumbnails and a
+bounded Rust page-rendering fallback, with the first page as the proposed default.
+Include multi-page, font, rotation/crop, transparency and encrypted-file cases;
+renderer feasibility and dependency selection remain open.
+
+Status: scope accepted; implementation order, exact format/version coverage and
+reader choices remain open. See `docs/roadmap.md` for the proposed breakdown.
+
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
 
