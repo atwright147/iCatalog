@@ -32,6 +32,7 @@ log/
 *.icatalog
 *.sync-state
 *.sync-url
+*.sync.toml
 
 # UI screenshot comparison artefacts (reviewed .png baselines are committed)
 **/tests/snapshots/**/*.diff.png

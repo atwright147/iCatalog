@@ -50,7 +50,10 @@ jobs:
         env:
           ICATALOG_CATALOGUE_DIR: /tmp/icatalog-compose-catalogue
           ICATALOG_MEDIA_DIR: /tmp/icatalog-compose-media
-        run: docker compose -f packaging/docker/compose.yml config --quiet
+        run: |
+          docker compose -f packaging/docker/compose.yml config --quiet
+          ICATALOG_USERNS_MODE=keep-id ICATALOG_CATALOGUE_FILE=Library.icatalog \
+            docker compose -f packaging/docker/compose.yml config --quiet
       - run: task docker:test -- icatalog:test
         env:
           ICATALOG_TEST_COMPOSE: '1'

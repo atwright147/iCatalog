@@ -1,11 +1,16 @@
 # Set absolute paths and an account able to write the catalogue directory.
 # No host directories are created and no catalogue is initialized automatically.
+# Podman rootless: set ICATALOG_USERNS_MODE=keep-id and run as the mount owner.
+x-podman:
+  in_pod: false
+
 services:
   icatalog:
     image: ${ICATALOG_IMAGE:-icatalog:local}
     init: true
     user: "${ICATALOG_UID:-1000}:${ICATALOG_GID:-1000}"
-    command: [serve, /catalogue/catalogue.sqlite, --bind, "0.0.0.0", --port, "8080"]
+    userns_mode: "${ICATALOG_USERNS_MODE:-}"
+    command: [serve, "/catalogue/${ICATALOG_CATALOGUE_FILE:-catalogue.sqlite}", --bind, "0.0.0.0", --port, "8080"]
     ports:
       - "${ICATALOG_BIND:-127.0.0.1}:${ICATALOG_PORT:-8080}:8080"
     volumes:

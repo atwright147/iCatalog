@@ -1,4 +1,4 @@
-# Run iCatalog on a NAS with Docker
+# Run iCatalog in a NAS container
 
 The container runs the existing `icatalog` CLI and HTTP sync service. Each desktop
 keeps its own local catalogue and connects through **File → Connect to Server…**
@@ -14,7 +14,7 @@ access.
 ## Build the image
 
 On native Linux of the NAS's architecture, install the [NAS build prerequisites](development.md#8a-static-nas-cli-builds-d58)
-and Docker Engine with the Compose plugin. From the repository root, for ARM64:
+and a container engine with Compose support. From the repository root, for ARM64:
 
 ```sh
 task nas:build -- aarch64-unknown-linux-musl
@@ -29,7 +29,8 @@ or desktop libraries. Its build context contains only those files; catalogues,
 media and the repository are not sent to the image builder.
 
 `ICATALOG_CONTAINER_ENGINE=podman` selects Podman for the build and container tests.
-The Compose instructions below use Docker Compose. `CARGO_TARGET_DIR` is honored;
+The standard Compose example below uses Docker Engine; the rootless variant uses
+Podman Compose. `CARGO_TARGET_DIR` is honored;
 `ICATALOG_DOCKER_BINARY=/absolute/path/to/icatalog` can select an extracted, trusted
 NAS archive binary instead of a local build. The ELF checker requires `readelf`
 on the machine invoking `docker:build`. Neither task builds through CPU emulation.
@@ -41,6 +42,93 @@ docker save --output icatalog-image.tar icatalog:local
 # Copy icatalog-image.tar to the NAS, then run there:
 docker load --input icatalog-image.tar
 ```
+
+## Container Compose on an x86-64 VM
+
+The supplied [`compose.yml`](../packaging/docker/compose.yml) serves both Docker
+and Podman deployments. For rootless Podman, set `ICATALOG_USERNS_MODE=keep-id`
+so the service account can write its own catalogue directory. Run all commands
+as that account, without `sudo`.
+`podman compose` needs an installed Compose provider (`podman-compose` or Docker
+Compose). To use the familiar `docker compose` spelling in the commands below,
+make a shell alias:
+
+```sh
+alias docker=podman
+docker compose version
+```
+
+Repeat the alias in each new interactive shell or add it to that account's shell
+configuration. For scripts, use `podman compose` directly. See
+[Podman's Compose instructions](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
+for provider setup.
+
+Use the published x86-64 NAS archive, or build the static CLI as above. After
+extracting the archive's `icatalog` executable, build the image from the repo root:
+
+```sh
+ICATALOG_CONTAINER_ENGINE=podman ICATALOG_DOCKER_BINARY=/absolute/path/to/icatalog \
+  bash packaging/docker/build.sh x86_64-unknown-linux-musl icatalog:local
+```
+
+Create the catalogue directory on storage local to the VM. The photos must be
+visible inside the VM at the path supplied below. Replace the example media
+path and LAN address, then copy the supplied Compose and environment examples
+to a service directory. Compose finds `compose.yml` and `.env` automatically:
+
+```sh
+mkdir -p "$HOME/icatalog-data"
+mkdir -p "$HOME/icatalog-service"
+cp packaging/docker/compose.yml "$HOME/icatalog-service/compose.yml"
+cp packaging/docker/.env.example "$HOME/icatalog-service/.env"
+```
+
+Edit `.env` in the service directory: set the catalogue and media paths, the
+VM's LAN IP address, and the account's numeric UID/GID (`id -u` and `id -g`).
+Keep `ICATALOG_USERNS_MODE=keep-id` for rootless Podman. The example uses
+`Library.icatalog`; keep the filename consistent in every command below.
+
+Run these from the service directory. `config` checks the resolved paths and
+port; `init` is required only for a new catalogue. Import reads the media bind
+mount.
+
+```sh
+cd "$HOME/icatalog-service"
+docker compose config
+docker compose run --rm icatalog init /catalogue/Library.icatalog
+docker compose run --rm icatalog import /catalogue/Library.icatalog --path /media
+docker compose up -d
+docker compose logs --tail 100 icatalog
+```
+
+After adding photos to the mounted host directory, rescan the existing source
+while the service is stopped:
+
+```sh
+cd "$HOME/icatalog-service"
+docker compose stop icatalog
+docker compose run --rm icatalog update /catalogue/Library.icatalog --path /media
+docker compose start icatalog
+```
+
+The explicit `--path /media` matters when the catalogue was created before
+photos were added: without any assets yet, a plain `update` has no existing
+asset folders to scan.
+
+For larger previews, run `previews ... external` followed by `previews ... generate`
+with the same Compose `run --rm icatalog` prefix while the service is stopped,
+then use `start`. These previews persist under the catalogue directory.
+`podman-compose` 1.0.6 tries to create a second container when `up -d` follows
+`stop`; `start` resumes the existing container.
+
+Allow port 8080 through the VM and Proxmox firewalls for trusted clients, then
+use `http://192.168.1.20:8080` in **File → Connect to Server…** with a new local
+`.icatalog` file. Use **File → Sync…** after edits. This example has no HTTPS or
+authentication: do not expose its port to the public internet. Configure TLS
+and a token as described below before protected remote access. On SELinux hosts,
+assign suitable bind-mount labels for the catalogue and media directories.
+Rootless Podman restart behavior after a VM reboot depends on its systemd setup;
+verify that separately when moving beyond an initial test.
 
 ## Set paths and ownership
 
@@ -126,7 +214,7 @@ For a rescan, stop the service, run the maintenance commands, then restart:
 
 ```sh
 docker compose -f packaging/docker/compose.yml stop icatalog
-docker compose -f packaging/docker/compose.yml run --rm --no-deps icatalog update /catalogue/catalogue.sqlite
+docker compose -f packaging/docker/compose.yml run --rm --no-deps icatalog update /catalogue/catalogue.sqlite --path /media
 docker compose -f packaging/docker/compose.yml run --rm --no-deps icatalog previews /catalogue/catalogue.sqlite generate
 docker compose -f packaging/docker/compose.yml up -d
 ```
