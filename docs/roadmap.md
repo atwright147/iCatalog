@@ -20,7 +20,7 @@ App-side crates that exist today: `icatalog-catalog`, `icatalog-media`, `icatalo
 - **M4 egui (desktop)** — *landed:* `icatalog-ui`, a thin native egui shell (D15) that browses assets, shows a stored thumbnail + metadata, edits rating/label/keywords, and dispatches `init`/`import`/`update`/`edit`/`collection` as engine commands. The left panel has a source-rooted folder tree grouped under collapsible device headers (D21; selecting a device shows all its sources' assets), the centre a grid/list view with search, and the right a details panel. Selecting a folder includes all descendants, including collapsed branches, and search narrows the subtree (D43). Manual Collections can be created through the sidebar's New Collection modal (D26), show catalogue-wide asset counts (D30), and are selected in the sidebar, with grid/list drag-and-drop (D27), multiple asset selection and tri-state collection membership checkboxes in the context submenu (D29). Shift-click ranges and Ctrl/⌘-click toggles combine selected collections without duplicate assets (D28). *Open:* the wasm build (trunk + wasm-bindgen; the target is not installed and no wasm status is claimed).
 - **M3 sync** — *landed (D20/D44):* protocol v2 server-authoritative catalogue sync, direct `clone` setup without a manual copy (D45), desktop Connect/Clone and explicit Sync dialogs with remembered local addresses (D46), revision-checked rating/label/keyword and Collection uploads, an embedded replica baseline, idle no-ops, reported per-entity conflicts with draft backups and idempotent lost-response retry. Snapshot POSTs are retired. Server data writes advance generation transactionally; consistent downloads are checked for integrity, foreign keys and header/database agreement before backup and replacement. Collection UIDs distinguish concurrent creations. Explicit `previews status|generate|external|embed` manages oriented 1920-pixel JPEGs with embedded/external storage; referenced previews are fetched using GET only and verified/cached by SHA-256. Replica media writes are blocked; annotation/Collection editing stays available. NAS packaging includes static archives (D58) and Docker/Compose (D60). Both NAS archives shipped in v0.2.0. *Open:* incremental catalogue pulls, automatic background sync, preview garbage collection and container publication. D100 supplies systemd service setup; D101 supplies stored-preview viewing.
 - **D99 sync safety workflow** — *landed:* catalogue-ID-bound `.sync.toml` preferences with opt-in check-on-open and optional token/CA path remembering; local recovery inspection before server checks; explicit Sync now/Browse read-only choice; durable required-sync latch; byte-counted progress; typed `sync-check`/`sync-resolve`; and field-level conflict choices with transactional Apply and immediate retry. Companion SQLite journal records conflict drafts/choices and staged replacement identity/digest so interrupted recovery can verify before install. Resolver sessions return bounded pages (maximum 200), readable names, changed local/server fields and shared fields; `show`/`choose`/`apply` require the current session ID. `list` reports interrupted recovery phase; `recover` explicitly resumes a verified `snapshot_ready` stage without retrying the network transfer. Desktop routes phases to Resume interrupted sync, Sync now, or Apply saved choices and sync. Token contents are never persisted; no schema/protocol change or deployment. `task ci`, `task ui:visual`, native macOS `task ui:smoke` and independent recovery review passed. Server-deleted conflict entities remain preserved but unresolved. Details: `docs/sync.md`.
-- **Media breadth (D8/D17)** — *landed:* EXIF-oriented thumbnails with display fallback for older catalogues (D31), RAW embedded-preview thumbnails, RAW container format + true dimensions, and XMP packet storage with seed-on-first-ingest of rating/label/keywords — with no new dependencies (D17, D31). *Open:* sidecar `.xmp`; creative-document thumbnails (D103, including Photoshop, not yet implemented); HEIC/AVIF (metadata only); video metadata + frame (FilmCraft); automatic GUI preview fetching (explicit viewer fetching exists, D102). No demosaic, by design.
+- **Media breadth (D8/D17/D104)** — *landed:* EXIF-oriented thumbnails with display fallback for older catalogues (D31), RAW embedded-preview thumbnails, RAW container format + true dimensions, and XMP packet storage with seed-on-first-ingest of rating/label/keywords — with no new dependencies (D17, D31). *Open:* sidecar `.xmp`; creative-document thumbnails (D103, including Photoshop, not yet implemented); craft-libs extraction-first previews with basic rendering when extraction fails (D104); HEIC/AVIF (metadata only); video metadata + frame (FilmCraft); automatic GUI preview fetching (explicit viewer fetching exists, D102). RAW demosaicing is unbuilt; D104 permits it solely for the planned preview fallback, not interactive RAW editing.
 
 Smart Collections (D35) are implemented in the catalogue, engine/CLI and desktop: typed AND rules for format, capture dates, camera/lens, rating/label, keyword and filename/path text; live membership/counts; mixed collection unions/search; create and replace-rule commands; modal creation and right-click rule editing. Schema v6 preserves existing manual collections. OR groups, nested rules and manual-to-smart conversion are not included.
 
@@ -104,14 +104,14 @@ D100 adds a non-root systemd unit with token-protected loopback HTTP, an optiona
 
 ## 5. Open backlog
 
-- Creative-document thumbnail extraction/generation (D103): scope and proposed breakdown below; implementation order remains open.
+- Creative-document thumbnail extraction/generation (D103/D104) and craft-libs media/GUI adoption: scope and proposed breakdown below; implementation order remains open.
 - Sync: automatic background sync; incremental pulls; Collection deletion/conversion; recovery for conflict entities deleted on the server; automatic GUI preview fetching/garbage collection; share-file mode vs a mandatory service.
 - cargo-deny. `ATTRIBUTION.md` now records the patched HTTP dependency (D98); no third-party artwork is shipped.
 - Per-crate `clippy.toml`.
 - `xtask` (`layers`, `ci`).
 - Install `wasm32-unknown-unknown` and run the first wasm check.
 
-### Creative-document thumbnails (D103 — PLANNED)
+### Creative-document thumbnails (D103/D104 — PLANNED)
 
 **Decided scope:** add thumbnail extraction/generation for all families below. None is implemented yet; Photoshop was already a backlog item. This adds scope without changing the existing priority rule or promising full document rendering.
 
@@ -131,13 +131,56 @@ D100 adds a non-root systemd unit with token-protected loopback HTTP, an optiona
 **Proposed breakdown:**
 
 1. Establish a versioned support matrix from public documentation and clean-room inspection of synthetic/public-domain samples. Record signatures, preview locations, dimensions, compression, save options and missing-preview cases. Research the new Affinity separately rather than assuming compatibility with earlier files.
-2. Prefer extracting a saved thumbnail or flattened composite, then resize through `icatalog-media`. Assess Rust-only generation/rendering fallbacks separately where extraction cannot supply pixels; full layer, vector or page rendering is not committed. Define representative page/artboard selection, transparency, orientation and colour handling from evidence before implementation.
+2. Prefer extracting a saved thumbnail or flattened composite, then resize through `icatalog-media`. D104 accepts basic rendering/conversion as the fallback when no usable saved image can be extracted; qualify a Rust-only renderer per format before promising support. Full layer, vector or page fidelity is not committed. Define representative page/artboard selection, transparency, orientation and colour handling from evidence before implementation.
 3. Integrate supported readers through existing Import/Update commands and the shared media seam. Generate stored previews where source resolution permits, without upscaling small embedded thumbnails. Preserve document identity and distinguish source dimensions from preview dimensions. Report missing previews and unsupported variants explicitly.
 4. Gate each format on extraction/thumbnail fixtures, malformed/truncated/oversized input and decompression bounds, Import/Update round trips, unchanged user annotations and offline thumbnail display. Keep parsing bounded and dependencies permissively licensed, Rust-only and compatible with the NAS/wasm architecture. Record supported versions and limitations as each reader lands.
 
 **Open:** per-format feasibility, fixtures, decoder/dependency choices, fallback behaviour and implementation order. No application automation or installed authoring application is assumed.
 
 PDF research should include synthetic single- and multi-page documents, text/vector and scanned content, embedded fonts, rotated/cropped pages, transparency and encrypted files. Compare thumbnails with reference page images. Rendering remains subject to the Rust-only, licensing and resource-limit requirements; do not assume that every PDF contains a usable embedded thumbnail.
+
+### craft-libs adoption and basic preview fallback (D104 — PLANNED)
+
+**Decided scope:** reuse shared GUI components and media libraries. Media follows
+`extract saved preview/composite -> basic render if unavailable -> orient/resize -> stored image`.
+For RAW, basic rendering may include demosaicing, as-shot white balance and colour
+conversion. There is no interactive RAW editor, user development recipe or
+original-media transfer in this work. Existing JPEG-preview storage remains the
+initial output contract; another encoding needs separate compatibility review.
+
+**Proposed delivery steps (order remains open):**
+
+1. Qualify a verified craft-libs commit and minimal feature set: licences/notices,
+   transitive dependencies, required root patches, memory/work limits, desktop,
+   native x86-64/ARM64 musl and wasm compatibility. D104 records the dated upstream
+   assessment; it is not a tested dependency pin. Add attribution when code lands.
+2. Introduce adapters inside `icatalog-media`, keeping upstream types internal,
+   and share the extraction/render path between Import, Update and Generate
+   Previews. Preserve annotations, true source dimensions, orientation and pixel
+   provenance. Define regeneration/cache invalidation for improved generators even
+   when source bytes have not changed.
+3. Evaluate `craft-raw`/`craft-metadata` for existing RAW preview/metadata paths,
+   and `craft-psd`, `craft-kra` and `craft-affinity` for D103 saved images. These are
+   candidate first formats, not a committed priority or a claim of coverage.
+   Qualify PDF rendering and other formats separately with versioned fixtures.
+4. Add basic rendering only where a complete, bounded renderer is available.
+   At the inspected upstream revision, `craft-raw` decodes sensor samples but
+   `craft-develop` lacks the sensor/render stages. Track upstream completion or
+   review another implementation; report unavailable conversion explicitly.
+5. Independently pilot `craft-ui` components in the thin desktop shell. Qualify
+   egui/eframe and matching test tools together, along with any required upstream
+   patches. Theme/assets, exact widgets and docking scope remain open; commands
+   continue through the engine/sync registries.
+6. Gate each adopted slice on hostile-input/decompression bounds, orientation and
+   colour fixtures, extraction success and missing-preview fallback cases,
+   annotation-preserving Import/Update, regeneration, offline preview viewing and
+   native NAS builds. Add UI interaction/visual/native checks for GUI changes and
+   actual wasm checks before claiming browser compatibility.
+
+Conversion runs on the standalone/server machine that can read originals;
+replicas receive existing stored thumbnails/previews. No schema or sync-protocol
+change is intended. All craft-libs integrations and new render fallbacks remain
+**PLANNED**; existing embedded-RAW-preview support remains as documented in D17.
 
 ## 6. How priority is decided
 

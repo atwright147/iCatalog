@@ -185,11 +185,32 @@ EXIF orientation transforms stay in `icatalog-media` (D31): `thumbnail_jpeg_with
 - Only `icatalog-media` (L1) may hold media/metadata dependencies. Bytes or a seekable reader in, plain data out; never a file path.
 - Flow: `ivc -> icatalog-media -> icatalog-catalog`, wired by the engine (L2). `icatalog-media` and `icatalog-catalog` do not depend on each other.
 - Legacy-format knowledge (PICT pixel decode, `ex??` tail blocks, Mac Roman, IPTC-IIM) is hand-rolled in `ivc`, which returns plain pixels/bytes and takes no encoder dependency.
-- `image` (default features off, explicit codecs, `Limits`) is the single pixel stack; never two decoders in the wasm bundle. EXIF via `kamadak-exif`.
-- ArtCraft siblings are sources only (study, vendor or git-dep; commit-pinned; feature-flagged): FilmCraft for video metadata + frames; never their pixel stacks. D17 **superseded** the planned LightCraft route for photo XMP and RAW: `icatalog-media` reads embedded RAW previews and XMP packets by hand, with no new dependency (see section 7 and D17).
+- Current pixel decoding uses `image` (default features off, explicit codecs, `Limits`), with EXIF via `kamadak-exif`. D104 permits reviewed additional format/rendering adapters; avoid redundant codecs and qualify wasm size/compatibility before adoption.
+- ArtCraft siblings are sources (study, vendor or git-dep; commit-pinned; feature-flagged). D17 replaced the original planned LightCraft route with the existing hand-written RAW-preview and XMP readers. D104 now records planned craft-libs adoption; no dependency has changed yet.
 - wasm: `icatalog-media` default features must build for `wasm32-unknown-unknown`; the ffmpeg escape hatch is native-only, user-installed, deferred.
 
 Source colour metadata (D32) uses `icatalog-media::read_color_info`: bounded header/ICC description reads through the existing image stack, including v2 `desc` and v4 `mluc` names. The engine stores small UTF-8 display values in the existing `metadata_raw` table, under `image_info`. Import and changed-file Update refresh those values, clearing lost profiles; Update also backfills absent values for older entries without regenerating thumbnails when content is unchanged. Changed-file Update also replaces the `xmp_packet` scheme, clearing it when the new bytes have no XMP (D80), while preserving user annotations. RAW preview colour is not attributed to the original RAW. No dependency or schema migration is added.
+
+**PLANNED (D104): extraction first, basic rendering as fallback.** A shared media
+adapter should supply Import/Update and Generate Previews with source identity,
+true dimensions, metadata, orientation, pixel provenance and bounded preview
+pixels. Extract usable embedded previews/saved composites first; if unavailable,
+use a qualified format renderer. RAW fallback may demosaic and apply as-shot white
+balance/colour conversion to make a basic image. No interactive editor or user
+development recipes are involved. Keep craft-libs types inside `icatalog-media`.
+
+Reuse existing thumbnail and JPEG-preview encoding/storage on the standalone or
+server machine; replicas consume those stored results through existing sync and
+never need original media for viewing. Schema/protocol changes are not intended.
+Define explicit regeneration and generator-version cache invalidation, including
+unchanged-file fast paths. Unsupported variants and missing renderers remain
+visible per-file outcomes. Source files and annotations stay untouched. The
+inspected upstream RAW development pipeline is incomplete; D104 records its
+pinned research baseline, not a supported iCatalog conversion path.
+
+Shared craft GUI components are separately planned for `icatalog-ui` only, with
+existing command dispatch retained. Review the egui/eframe/test-tool versions and
+consumer-side patches together; this adds no GUI dependency to lower layers.
 
 ## 8. wasm constraints
 

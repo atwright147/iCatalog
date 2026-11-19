@@ -36,6 +36,9 @@ Decision: own catalogue format = **SQLite**; legacy `.ivc` import-only. Rust onl
 Status: Accepted.
 
 ## D8. Media decoding and metadata extraction: hybrid, isolated in one crate
+
+Later scope update: D104 permits reviewed craft-libs adapters and basic RAW rendering solely as a missing-preview fallback. The implementation described by D17 remains current until that work lands.
+
 Context: iCatalog must extract thumbnails and EXIF/metadata from imported media (legacy `.ivc`, modern photos, RAW, video). Options weighed: hand-roll everything, reuse the ArtCraft sibling projects, or use published crates. Constraints: Rust only, no C/C++ in product code, wasm is a goal, clean-room, permissive licences only (`ATTRIBUTION.md`), never crash, layering.
 Decision (owner approved the direction; nothing is built, library choices are planned):
 1. **Isolation.** New crate **`icatalog-media`** at **L1** (beside `icatalog-catalog`, no dependency between them) is the **only** crate allowed media/metadata dependencies (`image`, `exif`, `filmcraft-*`, `lightcraft-*`, the optional ffmpeg escape hatch). Bytes or a seekable reader in, plain data out; never a file path (the browser File API yields bytes). Default features must build for `wasm32-unknown-unknown`.
@@ -132,6 +135,8 @@ Decision:
 Status: Accepted.
 
 ## D17. RAW preview + XMP read with zero new dependencies (2026-10-12)
+
+Later scope update: D104 supersedes the no-demosaic/no-new-dependency direction for planned preview generation only. This entry records the existing implementation; interactive RAW editing is not planned.
 
 Context: media breadth (D8) promised RAW preview + metadata and XMP, planned via the LightCraft sibling crates (`storytold/lightcraft`). Those are not on crates.io and are not present in this workspace, and the only mature pure-Rust RAW decoders (`rawler`/`rawloader`) are LGPL-2.1, which D8 bans. D8 already anticipated a hand-rolled fallback ("preview locators for DNG/CR2/NEF/ARW/PEF/RAF/CR3"). The schema already reserves the slots this needs: `thumbnail.source = 'raw_preview'` and `metadata_raw.scheme = 'xmp_packet'`. The owner chose to add **no new dependency** rather than a crate or a git dependency, and to cover CR3/RAF in the first slice.
 
@@ -1141,6 +1146,66 @@ renderer feasibility and dependency selection remain open.
 
 Status: scope accepted; implementation order, exact format/version coverage and
 reader choices remain open. See `docs/roadmap.md` for the proposed breakdown.
+
+## D104. Adopt craft-libs for extraction-first previews and shared GUI components (2026-11-19)
+
+The owner wants to reuse ArtCraft's [craft-libs](https://github.com/storytold/craft-libs)
+GUI and file libraries. The media goal is catalogue thumbnails and previews:
+extract a usable embedded preview or saved composite first; when none is usable,
+perform a basic conversion/render to an ordinary image. This is not an interactive
+RAW editor. No editing controls, user development recipes, recipe synchronization
+or original-media transfer are part of this scope.
+
+Decision (direction accepted; integration **PLANNED**):
+
+- Keep format/metadata/RAW adapters in `icatalog-media`, with bytes or seekable
+  readers in and iCatalog-owned plain metadata/pixels out. Keep upstream types
+  internal. Import, Update and Generate Previews should share this path.
+- Prefer saved pixels. A basic RAW fallback may demosaic, use as-shot white
+  balance and convert colour with sensible defaults; creative documents need
+  format-specific rendering support. Apply orientation once, resize without
+  upscaling and encode using existing thumbnail/JPEG-preview storage. Alternative
+  output formats require a separate storage/viewer compatibility decision.
+- This narrowly supersedes D8/D17's no-demosaic restriction and D17's zero-new-
+  dependency choice, and extends D103's fallback direction. Review any extra
+  decoder/colour stack explicitly; avoid redundant codecs. Rust-only, permissive
+  licensing, clean-room, bounded-input, NAS and wasm requirements still apply.
+- Generate on the standalone/server machine with access to originals. Replicas
+  continue receiving stored thumbnails/previews through existing sync. No schema
+  or protocol change is intended for this integration; qualify that assumption
+  during implementation. Original files and user annotations remain untouched.
+- Unsupported variants, unusable previews and unavailable/failed renderers must
+  produce actionable per-file results. A parser's existence does not establish
+  faithful rendering. Bound decoded pixels, decompression, recursion, memory and
+  work; preserve true source dimensions separately from preview dimensions.
+- Define regeneration and generator-version invalidation for unchanged source
+  files when decoder/render behaviour improves. A version bump alone must not be
+  bypassed by Import/Update or preview-cache fast paths.
+- Adopt shared GUI components only in `icatalog-ui`; actions still dispatch
+  engine/sync commands. Theme/assets, precise components and docking scope remain
+  open. GUI migration is independent of the media fallback work.
+
+Research baseline: upstream commit
+[`d7c9632bfb3040cf45db394e7500cc93c81c49e0`](https://github.com/storytold/craft-libs/tree/d7c9632bfb3040cf45db394e7500cc93c81c49e0),
+inspected on 2026-11-19, not an adopted dependency. `craft-raw` provides embedded
+previews and sensor decoding; the inspected
+[`craft-develop`](https://github.com/storytold/craft-libs/blob/d7c9632bfb3040cf45db394e7500cc93c81c49e0/crates/develop/README.md)
+contains curves, LUTs and inpainting but lacks the sensor/render stages. Basic
+RAW-to-image fallback therefore still needs upstream completion or a separately
+reviewed implementation. The settings model alone is not a renderer.
+
+Use verified commit pins and minimal features, review transitive licences and
+required root patches, and add attribution when dependencies land. At the inspected
+revision, current GUI code uses egui 0.37 and patched egui/winit, versus iCatalog's
+0.36; PDF rendering also requires consumer-side backend patches. Rust 1.95 is the
+declared minimum. The README advertised v0.1.0, but direct GitHub checks returned
+no tags and no latest release on the assessment date; verify availability rather
+than assuming the documented tag resolves.
+
+Status: **PLANNED**. No craft-libs dependency, new format reader or rendering
+fallback has landed in iCatalog. Exact pins/features, format/version coverage,
+fallback renderers, GUI migration scope and implementation order remain open.
+See `docs/roadmap.md` for qualification and delivery steps.
 
 ## Open questions
 Share-file mode: see the guides. (Samples licensing/commit strategy is resolved: D9.)
